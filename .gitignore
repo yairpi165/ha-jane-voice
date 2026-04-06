@@ -1,0 +1,11 @@
+.env
+memory/
+__pycache__/
+*.pyc
+venv/
+src/config.py
+addon/brain.py
+addon/ha_client.py
+addon/memory.py
+addon/web_api.py
+addon/config.py
