@@ -93,9 +93,28 @@ Simple commands get short answers. Conversations get full responses.
 
 ---
 
-## Infrastructure
+## Data & Infrastructure
 
-### 7. Command History Log
+### 7. Firebase Memory Backup
+Cloud backup for memory files — write-through pattern.
+
+**Why:** If the Pi dies, SD card corrupts, or addon rebuilds — Jane's memory survives. She wakes up on new hardware and remembers everything.
+
+**Scope:**
+- Firestore document per memory file (users/*, family, habits, corrections, routines)
+- Write-through: every local save also writes to Firebase in background
+- On startup: if local files missing → restore from Firebase → continue normally
+- `actions.md` and `home.md` NOT backed up (ephemeral/regenerable)
+- `firebase-admin` in requirements.txt
+- Service account key in addon options
+- Free tier: 1GB storage, 50K reads/day — more than enough
+
+See [MEMORY_ARCHITECTURE.md](MEMORY_ARCHITECTURE.md) for full design.
+
+---
+
+### 8. Command History Log
+
 Full log of all voice commands and Jane's responses.
 
 **Why:** Debugging, auditing, and understanding usage patterns.
@@ -108,7 +127,7 @@ Full log of all voice commands and Jane's responses.
 
 ---
 
-### 8. Health Check Endpoint
+### 9. Health Check Endpoint
 Simple HTTP endpoint to verify Jane is alive.
 
 **Why:** HA can monitor addon health. Watchdog can ping it.
@@ -120,7 +139,7 @@ Simple HTTP endpoint to verify Jane is alive.
 
 ---
 
-### 9. Watchdog
+### 10. Watchdog
 Auto-restart on failure.
 
 **Status:** Already enabled in addon config (`watchdog: true`).
