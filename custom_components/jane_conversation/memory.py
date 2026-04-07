@@ -1,36 +1,34 @@
-"""
-Jane Memory System — LLM-managed markdown memory.
-Memory content is stored in English. Conversations remain in Hebrew.
-"""
+"""Jane Memory System — LLM-managed markdown memory."""
 
-import os
 import json
+import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 
 from openai import OpenAI
-from config import OPENAI_API_KEY, MEMORY_DIR
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+_LOGGER = logging.getLogger(__name__)
+
+# Memory stored in HA config directory
+_memory_dir: Path | None = None
 
 
-# ---------------------------------------------------------------------------
-# Directory setup
-# ---------------------------------------------------------------------------
+def init_memory(config_dir: str):
+    """Initialize memory directory under HA config."""
+    global _memory_dir
+    _memory_dir = Path(config_dir) / "jane_memory"
+    (_memory_dir / "users").mkdir(parents=True, exist_ok=True)
+
 
 def get_memory_dir() -> Path:
-    """Returns the memory directory path, creating it if needed."""
-    p = Path(MEMORY_DIR)
-    (p / "users").mkdir(parents=True, exist_ok=True)
-    return p
+    return _memory_dir
 
 
 # ---------------------------------------------------------------------------
-# Load functions
+# Load
 # ---------------------------------------------------------------------------
 
 def _read(path: Path) -> str:
-    """Read a file, return empty string if missing."""
     try:
         return path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
@@ -40,33 +38,26 @@ def _read(path: Path) -> str:
 def load_user_memory(user_name: str) -> str:
     return _read(get_memory_dir() / "users" / f"{user_name.lower().strip()}.md")
 
-
 def load_family_memory() -> str:
     return _read(get_memory_dir() / "family.md")
-
 
 def load_habits_memory() -> str:
     return _read(get_memory_dir() / "habits.md")
 
-
 def load_actions() -> str:
     return _read(get_memory_dir() / "actions.md")
-
 
 def load_home() -> str:
     return _read(get_memory_dir() / "home.md")
 
-
 def load_corrections() -> str:
     return _read(get_memory_dir() / "corrections.md")
-
 
 def load_routines() -> str:
     return _read(get_memory_dir() / "routines.md")
 
 
 def load_all_memory(user_name: str) -> str:
-    """Combine all memory files into a single context block for GPT."""
     sections = {
         "Personal Memory": load_user_memory(user_name),
         "Family Memory": load_family_memory(),
@@ -76,22 +67,19 @@ def load_all_memory(user_name: str) -> str:
         "Corrections & Learnings": load_corrections(),
         "Routines": load_routines(),
     }
-
     parts = []
     for title, content in sections.items():
         parts.append(f"## {title}")
         parts.append(content if content else "No data yet.")
         parts.append("")
-
     return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
-# Save functions
+# Save
 # ---------------------------------------------------------------------------
 
 def _write(path: Path, content: str):
-    """Atomic write — write to tmp then rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(content, encoding="utf-8")
@@ -101,34 +89,28 @@ def _write(path: Path, content: str):
 def save_user_memory(user_name: str, content: str):
     _write(get_memory_dir() / "users" / f"{user_name.lower().strip()}.md", content)
 
-
 def save_family_memory(content: str):
     _write(get_memory_dir() / "family.md", content)
-
 
 def save_habits_memory(content: str):
     _write(get_memory_dir() / "habits.md", content)
 
-
 def save_corrections(content: str):
     _write(get_memory_dir() / "corrections.md", content)
-
 
 def save_routines(content: str):
     _write(get_memory_dir() / "routines.md", content)
 
 
 # ---------------------------------------------------------------------------
-# Action log (code-managed, not GPT)
+# Action log
 # ---------------------------------------------------------------------------
 
 def append_action(user_name: str, description: str):
-    """Append a timestamped action and prune entries older than 24h."""
     path = get_memory_dir() / "actions.md"
     now = datetime.now()
     new_line = f"- {now.strftime('%Y-%m-%d %H:%M')} — {description} ({user_name})"
 
-    # Read existing lines
     lines = []
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -141,7 +123,7 @@ def append_action(user_name: str, description: str):
                 except (ValueError, IndexError):
                     lines.append(line)
             elif line.startswith("#"):
-                continue  # skip header, we'll re-add it
+                continue
 
     lines.append(new_line)
     content = "# Recent Actions (rolling 24h)\n\n" + "\n".join(lines) + "\n"
@@ -149,7 +131,7 @@ def append_action(user_name: str, description: str):
 
 
 # ---------------------------------------------------------------------------
-# Home map (GPT-managed, built from HA entities on first run)
+# Home map (GPT-generated on first run)
 # ---------------------------------------------------------------------------
 
 HOME_SETUP_PROMPT = """You are setting up the memory for Jane, a smart home assistant.
@@ -160,37 +142,29 @@ Devices:
 
 Write a concise home layout document in English, organized by ROOM (not by device type).
 - Group devices by their likely room based on their name
-- Include the entity_id in parentheses for each device — Jane needs this to control them
+- Include the entity_id in parentheses for each device
 - Skip internal/config entities (timers, notifications, camera settings, robot vacuum sub-settings, child locks, dishwasher settings)
 - Only include devices a user would actually ask to control: lights, AC, heater, fan, shutters, TV, water heater, robot vacuum (main entity only)
-- Keep it concise — one line per device, max 50 lines total
-- Use this format:
-
-## Living Room
-- Ceiling light (light.example_id)
-- AC (climate.example_id) — heating and cooling
-"""
+- Keep it concise — one line per device, max 50 lines total"""
 
 
-def rebuild_home_map():
+def rebuild_home_map(client: OpenAI, hass):
     """Generate home.md by asking GPT to organize HA entities by room."""
-    from ha_client import get_exposed_entities
-
-    # Skip if home.md already exists (only build on first run)
     home_path = get_memory_dir() / "home.md"
     if home_path.exists() and _read(home_path):
         return
 
-    entities = get_exposed_entities()
+    relevant_domains = {"light", "switch", "climate", "cover", "media_player", "fan"}
+    entities = []
+    for state in hass.states.async_all():
+        if state.domain in relevant_domains:
+            name = state.attributes.get("friendly_name", state.entity_id)
+            entities.append(f"- {name} ({state.entity_id}) [domain: {state.domain}, state: {state.state}]")
+
     if not entities:
         return
 
-    entity_list = "\n".join(
-        f"- {e['name']} ({e['entity_id']}) [domain: {e['domain']}, state: {e['state']}]"
-        for e in entities
-    )
-
-    prompt = HOME_SETUP_PROMPT.replace("{entity_list}", entity_list)
+    prompt = HOME_SETUP_PROMPT.replace("{entity_list}", "\n".join(entities))
 
     try:
         response = client.chat.completions.create(
@@ -200,17 +174,16 @@ def rebuild_home_map():
             temperature=0.3,
         )
         content = response.choices[0].message.content.strip()
-        # Ensure it starts with a header
         if not content.startswith("#"):
             content = "# Home Layout\n\n" + content
         _write(home_path, content)
-        print("🏠 Home map created by GPT")
+        _LOGGER.info("Home map created by GPT")
     except Exception as e:
-        print(f"⚠️ Home map generation failed: {e}")
+        _LOGGER.error("Home map generation failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
-# Memory extraction (GPT-managed)
+# Memory extraction (GPT-managed, runs in background)
 # ---------------------------------------------------------------------------
 
 MEMORY_EXTRACTION_PROMPT = """You are the memory manager for Jane, a Hebrew smart home assistant.
@@ -247,22 +220,20 @@ Respond in JSON only:
 }
 
 What IS worth remembering:
-- Personal preferences: "I don't like bright lights" → user preference
-- Household rules: "Kids go to bed at 21:00" → family
-- Recurring patterns: "Every morning I ask for heating" → habit
-- Corrections: "No, I meant the living room, not kitchen" → correction
-- Routine definitions: "Goodnight means: turn off lights, lock door, close shutters" → routine
-- Personal facts: "I work from home" → user fact
+- Personal preferences: "I don't like bright lights" -> user preference
+- Household rules: "Kids go to bed at 21:00" -> family
+- Recurring patterns: "Every morning I ask for heating" -> habit
+- Corrections: "No, I meant the living room, not kitchen" -> correction
+- Routine definitions: "Goodnight means: turn off lights, lock door, close shutters" -> routine
 
 What is NOT worth remembering:
-- One-time device commands: "Turn on the light" → skip
-- General questions: "What time is it?" → skip
-- Pleasantries: "Thank you" → skip"""
+- One-time device commands: "Turn on the light" -> skip
+- General questions: "What time is it?" -> skip
+- Pleasantries: "Thank you" -> skip"""
 
 
-def process_memory(user_name: str, user_text: str, jane_response: str, action: str):
-    """Background: analyze conversation and update memory if needed."""
-    # Skip simple device commands (unless it might contain a correction)
+def process_memory(client: OpenAI, user_name: str, user_text: str, jane_response: str, action: str):
+    """Analyze conversation and update memory if needed."""
     if action == "ha_service" and len(jane_response) < 30:
         return
 
@@ -285,8 +256,6 @@ def process_memory(user_name: str, user_text: str, jane_response: str, action: s
         )
 
         raw = response.choices[0].message.content.strip()
-
-        # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -307,7 +276,7 @@ def process_memory(user_name: str, user_text: str, jane_response: str, action: s
         if result.get("routines"):
             save_routines(result["routines"])
 
-        print(f"🧠 Memory updated for {user_name}")
+        _LOGGER.info("Memory updated for %s", user_name)
 
     except Exception as e:
-        print(f"⚠️ Memory extraction failed: {e}")
+        _LOGGER.warning("Memory extraction failed: %s", e)

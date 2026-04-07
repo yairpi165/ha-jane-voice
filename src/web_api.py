@@ -33,6 +33,22 @@ def startup():
     rebuild_home_map()
 
 
+@app.get("/api/memory/{user_name}")
+async def get_memory(user_name: str):
+    from memory import load_all_memory
+    return JSONResponse({"user": user_name, "memory": load_all_memory(user_name)})
+
+
+@app.post("/api/memory/rebuild-home")
+async def rebuild_home():
+    from memory import get_memory_dir, rebuild_home_map
+    home_path = get_memory_dir() / "home.md"
+    if home_path.exists():
+        home_path.unlink()
+    rebuild_home_map()
+    return JSONResponse({"status": "ok"})
+
+
 @app.post("/api/voice")
 async def voice(
     background_tasks: BackgroundTasks,

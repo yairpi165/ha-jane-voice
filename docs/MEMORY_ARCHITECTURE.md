@@ -39,8 +39,8 @@ memory/
 ## Storage
 
 ### Local (Primary)
-- **Dev:** `./memory/` (relative to project root)
-- **Addon:** `/data/memory/` (HAOS persistent volume)
+- **HA (production):** `config/jane_memory/` (inside HA config directory, persists across restarts)
+- **Dev (CLI):** `./memory/` (relative to project root)
 
 ### Firebase (Backup) — Phase 2
 ```
@@ -265,7 +265,7 @@ After each conversation, a background GPT call decides what to remember.
 | `corrections.md` | GPT — rewrites when Jane is corrected |
 | `routines.md` | GPT — rewrites when routines are defined/changed |
 | `actions.md` | **Code** — appends after each action, prunes entries >24h |
-| `home.md` | **Code** — regenerated from HA entity list on startup |
+| `home.md` | **GPT** — generated from HA entities on first run, organized by room |
 
 ### Extraction prompt behavior
 - Merge new information with existing memory
@@ -278,85 +278,54 @@ After each conversation, a background GPT call decides what to remember.
 
 ---
 
-## Modules
+## Implementation
 
-### memory.py
+Jane runs as a **custom_component** (`jane_conversation`) inside Home Assistant.
+Memory files are stored in `config/jane_memory/` on the Pi.
+
+### Modules (in `custom_components/jane_conversation/`)
+
+**conversation.py** — Conversation entity + session history
 ```
-get_memory_dir() → Path
-    Returns configured memory directory, creates subdirs if missing.
+JaneConversationEntity
+    - Registers as HA conversation agent
+    - Maintains per-session history (last 10 turns in RAM)
+    - Resolves user name from HA auth
+    - Calls brain.think() → brain.execute()
+    - Triggers memory extraction in background
+    - Returns response for TTS
+```
 
-# --- Load functions ---
-load_user_memory(user_name) → str
-load_family_memory() → str
-load_habits_memory() → str
-load_actions() → str
-load_home() → str
-load_corrections() → str
-load_routines() → str
-    Each reads its MD file. Returns "" if not found.
-    User memory falls back to Firebase if local missing (Phase 2).
+**brain.py** — LLM integration
+```
+think(client, user_text, user_name, hass, history)
+    - Loads memory context + device states + conversation history
+    - Sends to GPT-4o Mini
+    - Returns structured JSON (action + response)
 
+execute(hass, result)
+    - Calls hass.services.async_call() for device control
+    - Returns response text
+```
+
+**memory.py** — Memory management
+```
 load_all_memory(user_name) → str
-    Combines all 7 files into a single formatted context block for GPT.
+    Combines all 7 files into context block for GPT.
 
-# --- Save functions ---
-save_user_memory(user_name, content)
-save_family_memory(content)
-save_habits_memory(content)
-save_corrections(content)
-save_routines(content)
-    Write locally + Firebase backup (Phase 2).
+process_memory(client, user_name, user_text, jane_response, action)
+    Background GPT call to analyze conversation and update memory files.
 
-# --- Code-managed files ---
-append_action(user_name, action_description)
-    Appends a timestamped line to actions.md.
-    Prunes entries older than 24 hours.
+append_action(user_name, description)
+    Appends timestamped line to actions.md, prunes >24h entries.
 
-rebuild_home_map()
-    Fetches all entities from HA via ha_client.
-    Groups by area/domain.
-    Writes home.md.
-    Called on startup and optionally on-demand.
-
-# --- Extraction ---
-process_memory(user_name, user_text, jane_response, action)
-    Background function. Calls GPT to analyze conversation.
-    Parses response. Saves updated files if needed.
-    Skips on simple commands (action="ha_service" + short response)
-    unless user_text contains a correction pattern.
+rebuild_home_map(client, hass)
+    GPT-organized home layout from HA entities (first run only).
 ```
 
-### brain.py changes
-```
-think(user_text, user_name="default")
-    - Loads memory via load_all_memory(user_name)
-    - Injects as system message between personality prompt and device states
-    - For device states: still fetches CURRENT states from HA
-      (home.md has the map, but live states are real-time)
-    - Rest unchanged
-```
-
-### web_api.py changes
-```
-POST /api/voice
-    - Accepts "user" form field (default: "default")
-    - Passes user_name to think()
-    - After execute(): appends to actions.md
-    - Schedules process_memory() as BackgroundTask
-    - Detects silent mode ("אל תזכרי") → skips memory
-
-Startup:
-    - Calls rebuild_home_map() once
-```
-
-### jane-voice-card.js changes
-```
-Card config:
-    user: "yair"
-
-_send() method:
-    Appends user to FormData
-```
+### User identification
+Automatic from HA's logged-in user via `hass.auth.async_get_user()`.
+No hardcoded user names. Each HA user gets their own memory file.
 
 ---
 

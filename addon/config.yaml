@@ -8,6 +8,8 @@ arch:
   - amd64
 init: false
 homeassistant_api: true
+ingress: true
+ingress_port: 5050
 map:
   - data:rw
 ports:

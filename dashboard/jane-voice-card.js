@@ -10,10 +10,8 @@ class JaneVoiceCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.api_url) {
-      throw new Error('api_url is required');
-    }
     this._config = config;
+    this._ingressUrl = null;
     this._render();
   }
 
@@ -208,14 +206,41 @@ class JaneVoiceCard extends HTMLElement {
     this._setStatus('מעבדת...');
   }
 
+  async _getApiUrl() {
+    if (this._resolvedUrl) return this._resolvedUrl;
+    // 1. Use ingress_url from config if provided
+    if (this._config.ingress_url) {
+      this._resolvedUrl = this._config.ingress_url.replace(/\/$/, '');
+      return this._resolvedUrl;
+    }
+    // 2. Try to discover ingress dynamically
+    try {
+      const slug = this._config.addon_slug || 'local_jane';
+      const info = await this._hass.callApi('GET', 'hassio/addons/' + slug + '/info');
+      const url = (info.data && info.data.ingress_url) || info.ingress_url;
+      if (url) {
+        this._resolvedUrl = url.replace(/\/$/, '');
+        return this._resolvedUrl;
+      }
+    } catch {}
+    // 3. Fallback to direct IP
+    if (this._config.api_url) {
+      this._resolvedUrl = this._config.api_url;
+      return this._resolvedUrl;
+    }
+    return '';
+  }
+
   async _send(blob, ext) {
     const btn = this.shadowRoot.getElementById('mic-btn');
     const form = new FormData();
     form.append('audio', blob, 'recording' + ext);
-    form.append('user', this._config.user || 'default');
+    const user = (this._hass && this._hass.user && this._hass.user.name) || this._config.user || 'default';
+    form.append('user', user);
 
+    const apiUrl = await this._getApiUrl();
     try {
-      const res = await fetch(this._config.api_url + '/api/voice', {
+      const res = await fetch(apiUrl + '/api/voice', {
         method: 'POST',
         body: form,
       });
