@@ -136,16 +136,57 @@ Full log of all voice commands and Jane's responses.
 
 ---
 
+## User Recognition
+
+### 11. Voice Recognition (Speaker ID)
+Identify who is speaking without asking — from voice alone.
+
+**Why:** When using a satellite (Atom) or shared tablet, there's no HA login. Jane needs to know who's talking to load the right memory and permissions.
+
+**Scope:**
+- Phase 1: Azure Speaker Recognition API ($0.01/call, most accurate)
+  - One-time enrollment: each family member records 30 seconds of speech
+  - On each voice command: extract voice embedding → match to enrolled speakers
+  - Returns user identity before GPT processes the request
+- Phase 2 (optional): Local model (Resemblyzer/PyAnnote) running on Pi
+  - No cloud dependency, but less accurate
+  - May struggle with children's voices
+
+**Flow:**
+```
+Audio in → Speaker ID (who?) → Load personal memory → GPT processes → Response
+```
+
+---
+
+### 12. Face Recognition
+Identify who is in the room via camera — for proactive context.
+
+**Why:** Jane can adapt behavior based on who's home, not just who's speaking. "Yair entered the living room" → turn on preferred lighting.
+
+**Scope:**
+- Use Frigate integration (already supports face recognition)
+- Register family faces via Frigate UI
+- Jane receives presence events: who entered/left which room
+- Combine with voice ID for high-confidence identification
+- Privacy: all processing local (Frigate runs on Pi or Coral)
+
+**Examples:**
+- Yair enters living room → Jane knows to dim lights to 40%
+- Child enters kids room after 21:00 → Jane reminds about bedtime
+- Unknown face at door → Jane alerts family
+
+---
+
 ## Future (Post-V2)
 
 These require hardware (Atom EchoS3R) or major new integrations:
 
 - **Wyoming Protocol + Atom EchoS3R** — satellite audio, same Assist pipeline
-- **Wake word** — "Hey Jane" via Porcupine on ESP32
+- **Wake word** — "Hey Jane" custom microWakeWord model (training in progress)
 - **Multi-room satellites** — independent audio per room
 - **MCP Server** — give GPT direct HA tool access via function calling
 - **ElevenLabs TTS** — more natural Hebrew voice
 - **Google Calendar** — "מה יש לנו השבוע?"
 - **Proactive alerts** — open window + rain, gas left on
-- **Voice-based user ID** — automatic speaker recognition
 - **Permission matrix** — admin vs child access levels

@@ -10,19 +10,20 @@ A private, Hebrew-speaking voice assistant for smart home control. Built on GPT-
 - **Corrections learning** — make a mistake once, never again
 - **Custom routines** — "goodnight" triggers a full sequence
 - **Multi-turn conversations** — understands context ("turn it off" after "turn on the light")
+- **Works everywhere** — Companion App, Safari, Chrome, tablets, future satellites
 
 ## Architecture
 
 Jane is a **custom HA conversation agent** that integrates natively with the Assist pipeline:
 
 ```
-Assist button / Satellite mic
+Assist button / Voice Satellite Card / Atom satellite
         │
         ▼
 HA Voice Pipeline
         │
   ┌─────┴─────┐
-  │  Whisper   │  ← STT (cloud)
+  │  Whisper   │  ← STT (OpenAI cloud)
   │   STT      │
   └─────┬──────┘
         │ text
@@ -35,15 +36,12 @@ HA Voice Pipeline
         │ response text
         ▼
   ┌─────┴─────┐
-  │  OpenAI   │  ← TTS
-  │   TTS     │
+  │   TTS     │  ← OpenAI TTS / HA Cloud
   └─────┬─────┘
         │ audio
         ▼
   Speaker / Phone
 ```
-
-Works everywhere: **Companion App (iPhone/Android), Safari, Chrome, and future Atom EchoS3R satellites.**
 
 ## Project Structure
 
@@ -60,18 +58,14 @@ jane/
 │       ├── const.py            # Constants + system prompt
 │       └── strings.json        # UI translations
 │
-├── src/                        # Legacy CLI mode (local dev)
-│   ├── brain.py
-│   ├── voice.py
-│   ├── jane.py
-│   └── ...
-│
 ├── docs/
-│   ├── JANE_PRD.md
-│   ├── MEMORY_ARCHITECTURE.md
-│   └── ROADMAP.md
+│   ├── JANE_PRD.md             # Product requirements document
+│   ├── MEMORY_ARCHITECTURE.md  # Memory system design
+│   └── ROADMAP.md              # Prioritized feature list
 │
-└── README.md
+├── README.md
+├── .env.example
+└── .gitignore
 ```
 
 ## Setup
@@ -82,27 +76,28 @@ jane/
 - Samba share add-on on HA
 
 ### Installation
-1. **Copy** `custom_components/jane_conversation/` → Pi via Samba: `config/custom_components/jane_conversation/`
-2. **Install STT** via HACS: "OpenAI Whisper STT API"
-3. **Install TTS** via HACS: "OpenAI TTS"
-4. **Restart HA**
-5. **Add integrations** (Settings → Integrations → Add):
-   - OpenAI Whisper STT → enter API key
+1. **Copy** `custom_components/jane_conversation/` to Pi via Samba: `config/custom_components/jane_conversation/`
+2. **Install via HACS:**
+   - "OpenAI Whisper STT API" (Speech-to-Text)
+   - "OpenAI TTS" (Text-to-Speech)
+   - "Voice Satellite Card" (optional — browser-based voice satellite with wake word)
+3. **Restart HA**
+4. **Add integrations** (Settings → Integrations → Add):
+   - OpenAI Whisper STT → enter API key, select whisper-1
    - OpenAI TTS → enter API key
    - Jane Voice Assistant → enter API key
-6. **Create Voice Assistant** (Settings → Voice Assistants → Add):
+5. **Create Voice Assistant** (Settings → Voice Assistants → Add):
    - Conversation Agent: **Jane**
    - STT: **OpenAI Whisper**
    - TTS: **OpenAI TTS** (or Home Assistant Cloud)
    - Language: **Hebrew**
-7. Press **Assist** button → talk to Jane
+6. Press **Assist** button → talk to Jane
 
-### Local Development (CLI)
-```bash
-cp .env.example .env
-pip install -r requirements.txt
-cd src && python jane.py
-```
+### Optional: Voice Satellite Card
+For hands-free wake word support on tablets/browsers, install [Voice Satellite Card](https://github.com/jxlarrea/voice-satellite-card-integration) via HACS. It turns any browser into an always-listening satellite that uses Jane's pipeline.
+
+### Optional: Custom Wake Word
+Train a custom "Hey Jane" wake word using [microWakeWord Trainer for Apple Silicon](https://github.com/TaterTotterson/microWakeWord-Trainer-AppleSilicon), then drop the `.tflite` model into Voice Satellite Card's models directory.
 
 ## Memory System
 
@@ -119,6 +114,7 @@ Jane uses LLM-managed markdown files. GPT reads, consolidates, and rewrites them
 | `home.md` | Device map (GPT-organized by room) | GPT (on first run) |
 
 Memory stored in English for LLM precision. Conversations remain in Hebrew.
+Memory files are stored in `config/jane_memory/` on the Pi.
 
 See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for full details.
 
@@ -135,24 +131,29 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for full details.
 | Layer | Technology |
 |-------|-----------|
 | LLM | OpenAI GPT-4o Mini |
-| STT | OpenAI Whisper (via HACS integration) |
-| TTS | OpenAI TTS / HA Cloud (via HACS integration) |
+| STT | OpenAI Whisper (via HACS) |
+| TTS | OpenAI TTS / HA Cloud (via HACS) |
 | Smart Home | Home Assistant (native `hass.services`) |
 | Integration | Custom conversation agent (`custom_component`) |
+| Voice Input | HA Assist button / Voice Satellite Card / Wyoming satellites |
 | Server | Raspberry Pi 5 (HAOS) |
 | Language | Python 3 |
 
 ## Roadmap
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized list. Current status:
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized list.
 
-- [x] V1 — Voice pipeline + HA control
-- [x] HA Integration — Custom conversation agent (Assist pipeline)
+- [x] Voice pipeline + HA control
+- [x] Custom conversation agent (Assist pipeline)
 - [x] Memory system — 7 LLM-managed markdown files
 - [x] Multi-turn conversations — session history
 - [x] Auto user identification — from HA logged-in user
+- [x] Voice Satellite Card integration — browser-based satellite
+- [x] Custom wake word training — "Hey Jane" microWakeWord
 - [ ] Tavily web search — real-time info (weather, news, traffic)
 - [ ] Concise responses — "done" for simple commands
 - [ ] Night mode — quiet hours behavior
 - [ ] Firebase backup — cloud memory persistence
-- [ ] Atom EchoS3R satellite — wake word + Wyoming Protocol
+- [ ] Voice recognition — speaker ID without asking
+- [ ] Face recognition — presence-based context via Frigate
+- [ ] Atom EchoS3R satellite — Wyoming Protocol
