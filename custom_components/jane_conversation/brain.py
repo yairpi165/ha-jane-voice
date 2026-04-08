@@ -1,4 +1,4 @@
-"""Jane brain — LLM integration, intent parsing, action execution."""
+"""Jane brain — LLM integration with autonomous tool calling."""
 
 import json
 import logging
@@ -8,93 +8,101 @@ from homeassistant.core import HomeAssistant
 
 from .const import SYSTEM_PROMPT
 from .memory import load_all_memory
+from .tools import get_tools, execute_tool
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def get_exposed_entities(hass: HomeAssistant) -> str:
-    """Get relevant entity states from HA for GPT context."""
-    relevant_domains = {"light", "switch", "climate", "cover", "media_player", "fan", "weather", "sensor"}
-    skip_patterns = ["battery", "signal", "update", "firmware", "ip_address", "uptime"]
-    lines = []
-    for state in hass.states.async_all():
-        domain = state.domain
-        if domain not in relevant_domains:
-            continue
-        eid = state.entity_id.lower()
-        if any(p in eid for p in skip_patterns):
-            continue
-        name = state.attributes.get("friendly_name", state.entity_id)
-        if domain == "weather":
-            attrs = state.attributes
-            temp = attrs.get("temperature", "?")
-            humidity = attrs.get("humidity", "?")
-            wind = attrs.get("wind_speed", "?")
-            cloud = attrs.get("cloud_coverage", "?")
-            lines.append(f"- {name} ({state.entity_id}) — {state.state}, {temp}°C, humidity {humidity}%, wind {wind} km/h, clouds {cloud}%")
-        else:
-            lines.append(f"- {name} ({state.entity_id}) — {state.state}")
-    return "\n".join(lines) if lines else "No devices found"
+MAX_TOOL_ITERATIONS = 5
 
 
-def think(client: OpenAI, user_text: str, user_name: str, hass: HomeAssistant, history: list[dict] | None = None) -> dict:
-    """Send text to GPT with smart home context, memory, and conversation history."""
-    entities_context = get_exposed_entities(hass)
-    memory_context = load_all_memory(user_name)
+async def think(
+    client: OpenAI,
+    user_text: str,
+    user_name: str,
+    hass: HomeAssistant,
+    history: list[dict] | None = None,
+    tavily_api_key: str | None = None,
+) -> str:
+    """Send text to GPT with tools. GPT decides what to call. Returns final response."""
 
+    # Load context
+    memory_context = await hass.async_add_executor_job(load_all_memory, user_name)
+
+    # Build messages
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": f"Memory:\n{memory_context}"},
-        {"role": "system", "content": f"Devices:\n{entities_context}"},
     ]
 
-    # Add conversation history for multi-turn context
+    # Add conversation history
     if history:
         messages.extend(history)
 
     messages.append({"role": "user", "content": user_text})
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        max_tokens=300,
-        temperature=0.7,
+    # Get available tools
+    tools = get_tools(tavily_api_key)
+
+    # Tool calling loop
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        response = await hass.async_add_executor_job(
+            _call_gpt, client, messages, tools
+        )
+
+        message = response.choices[0].message
+
+        # No tool calls — GPT is done, return the text response
+        if not message.tool_calls:
+            return message.content or ""
+
+        # GPT wants to call tools — execute them
+        _LOGGER.info(
+            "Jane tool call #%d: %s",
+            iteration + 1,
+            ", ".join(tc.function.name for tc in message.tool_calls),
+        )
+
+        # Append assistant message with tool calls
+        messages.append(message)
+
+        # Execute each tool and append results
+        for tool_call in message.tool_calls:
+            try:
+                arguments = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError:
+                arguments = {}
+
+            result = await execute_tool(
+                hass, tool_call.function.name, arguments, tavily_api_key
+            )
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result,
+            })
+
+    # Max iterations reached — get final response without tools
+    _LOGGER.warning("Max tool iterations reached, forcing final response")
+    response = await hass.async_add_executor_job(
+        _call_gpt, client, messages, None
     )
-
-    raw = response.choices[0].message.content.strip()
-
-    # Strip markdown code fences
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
-
-    try:
-        return json.loads(raw.strip())
-    except Exception:
-        return {"action": "speak", "response": raw}
+    return response.choices[0].message.content or ""
 
 
-async def execute(hass: HomeAssistant, result: dict) -> str:
-    """Execute the action GPT returned."""
-    action = result.get("action")
-    response_text = result.get("response", "")
+def _call_gpt(
+    client: OpenAI,
+    messages: list[dict],
+    tools: list[dict] | None,
+) -> object:
+    """Synchronous GPT call (runs in executor)."""
+    kwargs = {
+        "model": "gpt-4o-mini",
+        "messages": messages,
+        "max_tokens": 500,
+        "temperature": 0.7,
+    }
+    if tools:
+        kwargs["tools"] = tools
 
-    if action == "ha_service":
-        domain = result.get("domain")
-        service = result.get("service")
-        entity_id = result.get("entity_id")
-        data = result.get("data", {})
-
-        try:
-            service_data = {"entity_id": entity_id}
-            if data:
-                service_data.update(data)
-            await hass.services.async_call(domain, service, service_data, blocking=True)
-        except Exception as e:
-            _LOGGER.error("Failed to call HA service: %s", e)
-            response_text = "סליחה, לא הצלחתי לבצע את הפקודה"
-
-    return response_text
+    return client.chat.completions.create(**kwargs)

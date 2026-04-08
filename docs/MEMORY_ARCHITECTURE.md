@@ -294,21 +294,28 @@ JaneConversationEntity
     - Registers as HA conversation agent
     - Maintains per-session history (last 10 turns in RAM)
     - Resolves user name from HA auth
-    - Calls brain.think() → brain.execute()
+    - Calls brain.think() with tool calling
     - Triggers memory extraction in background
     - Returns response for TTS
 ```
 
-**brain.py** — LLM integration
+**brain.py** — LLM integration with autonomous tool calling
 ```
-think(client, user_text, user_name, hass, history)
-    - Loads memory context + device states + conversation history
-    - Sends to GPT-4o Mini
-    - Returns structured JSON (action + response)
+think(client, user_text, user_name, hass, history, tavily_api_key)
+    - Loads memory context + conversation history
+    - Sends to GPT-4o Mini with tools (get_entity_state, call_ha_service, search_web)
+    - GPT decides what tools to call autonomously
+    - Executes tools, feeds results back to GPT
+    - Returns final response text (no more JSON parsing)
+```
 
-execute(hass, result)
-    - Calls hass.services.async_call() for device control
-    - Returns response text
+**tools.py** — Tool definitions + execution handlers
+```
+get_tools(tavily_api_key) → list
+    Returns available tools based on config.
+
+execute_tool(hass, tool_name, arguments, tavily_key) → str
+    Routes to handler: HA states, HA services, or Tavily web search.
 ```
 
 **memory.py** — Memory management

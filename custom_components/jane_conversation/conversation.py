@@ -11,14 +11,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY
-from .brain import think, execute
+from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY
+from .brain import think
 from .memory import append_action, process_memory
 
 _LOGGER = logging.getLogger(__name__)
-
-# Session timeout: clear history after 5 minutes of inactivity
-SESSION_TIMEOUT = 300
 
 
 async def async_setup_entry(
@@ -45,6 +42,11 @@ class JaneConversationEntity(ConversationEntity):
         self._sessions: dict[str, list[dict]] = {}
 
     @property
+    def tavily_api_key(self) -> str | None:
+        """Get Tavily key from config (supports options flow updates)."""
+        return self._config_entry.data.get(CONF_TAVILY_API_KEY)
+
+    @property
     def supported_languages(self) -> list[str]:
         return ["he", "en"]
 
@@ -69,20 +71,22 @@ class JaneConversationEntity(ConversationEntity):
             if user:
                 user_name = user.name or user_name
 
-        # Get conversation history for multi-turn context
+        # Get conversation history
         conversation_id, history = self._get_history(user_input.conversation_id)
 
-        _LOGGER.info("Jane received: %s (user: %s, session: %s)", user_text, user_name, conversation_id[:8])
+        _LOGGER.info("Jane received: %s (user: %s)", user_text, user_name)
 
-        # Think with conversation history
-        result = await self.hass.async_add_executor_job(
-            think, self._client, user_text, user_name, self.hass, history
+        # Think with tool calling
+        response_text = await think(
+            self._client,
+            user_text,
+            user_name,
+            self.hass,
+            history,
+            self.tavily_api_key,
         )
 
-        # Execute HA actions
-        response_text = await execute(self.hass, result)
-
-        # Update conversation history
+        # Update conversation history (only user text + final response, not tool calls)
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": response_text})
 
@@ -92,7 +96,7 @@ class JaneConversationEntity(ConversationEntity):
 
         _LOGGER.info("Jane responds: %s", response_text)
 
-        # Log action
+        # Log action in background
         await self.hass.async_add_executor_job(
             append_action, user_name, response_text
         )
@@ -100,9 +104,8 @@ class JaneConversationEntity(ConversationEntity):
         # Memory extraction in background
         silent = any(p in user_text for p in ["אל תזכרי", "אל תזכור", "מצב שקט"])
         if not silent:
-            action = result.get("action", "speak")
             self.hass.async_add_executor_job(
-                process_memory, self._client, user_name, user_text, response_text, action
+                process_memory, self._client, user_name, user_text, response_text, "tool"
             )
 
         # Return response for TTS

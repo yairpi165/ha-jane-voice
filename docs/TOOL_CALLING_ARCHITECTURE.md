@@ -186,9 +186,27 @@ GPT uses `home.md` to know WHAT exists, and the tools to interact with them.
 
 ### What stays the same
 - Memory system (load context before GPT call, extract after)
-- Session history (multi-turn)
+- Session history (multi-turn conversations)
 - User identification (from HA auth)
 - Action logging (append_action after each interaction)
+- Memory extraction (background GPT call after response)
+- `memory.py` — unchanged
+- `config_flow.py` — extended with optional Tavily key
+- `manifest.json` — unchanged
+
+### Memory integration with tool calling
+```
+1. Load memory (before GPT call)        ← unchanged
+2. GPT call with tools                  ← NEW (was: GPT call with JSON format)
+3. Tool execution loop                  ← NEW
+4. Final response to user               ← unchanged
+5. append_action() in background         ← unchanged
+6. process_memory() in background        ← unchanged
+```
+
+Memory extraction receives the final response text, not the tool calls.
+Tool call details are NOT stored in memory (too noisy).
+Only the user's question and Jane's final answer go to memory extraction.
 
 ---
 
@@ -208,6 +226,70 @@ The system prompt simplifies dramatically. No more JSON format instructions — 
 אל תנחשי מצב מכשירים — תמיד בדקי קודם.
 
 חפשי באינטרנט רק כשהמידע לא זמין מהבית החכם (חדשות, שערי מטבע, שעות פעילות וכו').
+```
+
+---
+
+## Tavily Web Search
+
+### Why Tavily
+- Returns **clean text** optimized for LLMs (no HTML, no ads, no SEO noise)
+- Includes pre-summarized answer + source snippets
+- Free tier: 1,000 searches/month (no credit card required)
+- Pay as you go beyond: $0.008/search (~1 cent)
+
+### API Call
+```
+POST https://api.tavily.com/search
+{
+  "api_key": "tvly-...",
+  "query": "USD ILS exchange rate today",
+  "max_results": 3,
+  "include_answer": true,
+  "search_depth": "basic"
+}
+```
+
+### Cost Estimate
+- ~20 voice interactions/day, ~30% trigger web search = ~6 searches/day
+- ~180 searches/month — well within free 1,000 tier
+
+### Without Tavily Key
+If no Tavily API key is configured:
+- `search_web` tool is NOT offered to GPT
+- GPT answers from training data or says it doesn't have current info
+- Everything else works normally (device control, forecasts from HA, memory)
+
+---
+
+## call_ha_service: return_response
+
+Some HA services return data (e.g. `weather.get_forecasts`). The tool handler must:
+1. Call `hass.services.async_call()` with `return_response=True`
+2. If service returns data → format and return to GPT
+3. If service is fire-and-forget (e.g. `light.turn_on`) → return "Success"
+
+This is critical for GPT to answer questions like "what's the weather tomorrow" using HA data instead of web search.
+
+---
+
+## Configuration
+
+### Config Flow (Settings → Integrations → Add → Jane)
+```
+Step 1: OpenAI API Key (required)
+Step 2: Tavily API Key (optional — enables web search)
+```
+
+### Options Flow (Settings → Integrations → Jane → Configure)
+Add or change Tavily API key after initial setup without removing the integration.
+
+### How the Key Flows
+```
+config_flow → config_entry.data["tavily_api_key"]
+  → conversation.py reads it
+  → passes to brain.think()
+  → brain.py includes/excludes search_web tool based on key presence
 ```
 
 ---
@@ -239,17 +321,51 @@ execute_tool(hass, tool_name, arguments, tavily_key) → str
 
 ### brain.py (new flow)
 ```
-think(client, user_text, user_name, hass, history, tavily_key)
-    1. Build messages: system prompt + memory + home.md + history + user text
-    2. Call GPT with tools=[TOOLS] (or without search_web if no tavily key)
-    3. Loop:
-       a. If GPT returns tool_calls → execute each tool → append results → call GPT again
-       b. If GPT returns text response → done
-    4. Max 3 iterations (prevent infinite loops)
+think(client, user_text, user_name, hass, history, tavily_key) → str
+    1. Build messages:
+       - system: SYSTEM_PROMPT
+       - system: memory context (load_all_memory)
+       - system: home layout (home.md)
+       - [conversation history]
+       - user: user_text
+
+    2. Build tools list:
+       - Always: get_entity_state, call_ha_service
+       - If tavily_key: + search_web
+
+    3. Call GPT with tools=tools_list
+
+    4. Loop (max 5 iterations):
+       a. response = GPT response
+       b. If response has tool_calls:
+          - For each tool_call:
+            - Execute via execute_tool()
+            - Append assistant message (with tool_call) to messages
+            - Append tool result message to messages
+          - Call GPT again with updated messages
+       c. If response has no tool_calls (text content):
+          - Extract response text → done
+
     5. Return final response text
 ```
 
 No more `execute()` function — tool execution happens inside the loop.
+
+### Key implementation detail: the message chain
+
+OpenAI function calling requires a specific message sequence:
+```
+messages = [
+  {role: "system", content: "..."},          # prompt
+  {role: "user", content: "תדליקי אור"},      # user request
+  {role: "assistant", tool_calls: [...]},      # GPT decides to call tool
+  {role: "tool", tool_call_id: "...",          # tool result
+   content: "Success"},
+  {role: "assistant", content: "בוצע"}         # final response
+]
+```
+
+Each iteration appends the assistant's tool_call message AND the tool result. GPT sees the full chain and decides what to do next.
 
 ### Token Budget
 - Before: ~1,500 tokens input (prompt + ALL entities + memory)

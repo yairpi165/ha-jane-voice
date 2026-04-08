@@ -6,12 +6,22 @@
         "description": "Configure Jane — your Hebrew smart home voice assistant.",
         "data": {
           "openai_api_key": "OpenAI API Key",
-          "tts_voice": "TTS Voice (e.g. nova, alloy, shimmer)"
+          "tavily_api_key": "Tavily API Key (optional — enables web search)"
         }
       }
     },
     "error": {
       "invalid_api_key": "Invalid OpenAI API key. Please check and try again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Jane Settings",
+        "data": {
+          "tavily_api_key": "Tavily API Key (optional — enables web search)"
+        }
+      }
     }
   }
 }
