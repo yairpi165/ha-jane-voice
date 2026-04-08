@@ -10,7 +10,7 @@ A private, Hebrew-speaking voice assistant for smart home control. Built on GPT-
 - **Corrections learning** — make a mistake once, never again
 - **Custom routines** — "goodnight" triggers a full sequence
 - **Multi-turn conversations** — understands context ("turn it off" after "turn on the light")
-- **Works everywhere** — Companion App, Safari, Chrome, tablets, future satellites
+- **Auto user identification** — knows who's speaking from HA login
 
 ## Architecture
 
@@ -43,6 +43,8 @@ HA Voice Pipeline
   Speaker / Phone
 ```
 
+Works everywhere: **Companion App (iPhone/Android), Safari, Chrome, and future Atom EchoS3R satellites.**
+
 ## Project Structure
 
 ```
@@ -59,8 +61,8 @@ jane/
 │       └── strings.json        # UI translations
 │
 ├── docs/
-│   ├── JANE_PRD.md             # Product requirements document
 │   ├── MEMORY_ARCHITECTURE.md  # Memory system design
+│   ├── TOOL_CALLING_ARCHITECTURE.md  # Tool calling design (next phase)
 │   └── ROADMAP.md              # Prioritized feature list
 │
 ├── README.md
@@ -80,7 +82,6 @@ jane/
 2. **Install via HACS:**
    - "OpenAI Whisper STT API" (Speech-to-Text)
    - "OpenAI TTS" (Text-to-Speech)
-   - "Voice Satellite Card" (optional — browser-based voice satellite with wake word)
 3. **Restart HA**
 4. **Add integrations** (Settings → Integrations → Add):
    - OpenAI Whisper STT → enter API key, select whisper-1
@@ -94,10 +95,7 @@ jane/
 6. Press **Assist** button → talk to Jane
 
 ### Optional: Voice Satellite Card
-For hands-free wake word support on tablets/browsers, install [Voice Satellite Card](https://github.com/jxlarrea/voice-satellite-card-integration) via HACS. It turns any browser into an always-listening satellite that uses Jane's pipeline.
-
-### Optional: Custom Wake Word
-Train a custom "Hey Jane" wake word using [microWakeWord Trainer for Apple Silicon](https://github.com/TaterTotterson/microWakeWord-Trainer-AppleSilicon), then drop the `.tflite` model into Voice Satellite Card's models directory.
+For hands-free wake word on tablets/browsers, install [Voice Satellite Card](https://github.com/jxlarrea/voice-satellite-card-integration) via HACS.
 
 ## Memory System
 
@@ -112,9 +110,6 @@ Jane uses LLM-managed markdown files. GPT reads, consolidates, and rewrites them
 | `routines.md` | Command sequences | GPT |
 | `actions.md` | Rolling 24h action log | Code |
 | `home.md` | Device map (GPT-organized by room) | GPT (on first run) |
-
-Memory stored in English for LLM precision. Conversations remain in Hebrew.
-Memory files are stored in `config/jane_memory/` on the Pi.
 
 See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for full details.
 
@@ -135,25 +130,21 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for full details.
 | TTS | OpenAI TTS / HA Cloud (via HACS) |
 | Smart Home | Home Assistant (native `hass.services`) |
 | Integration | Custom conversation agent (`custom_component`) |
-| Voice Input | HA Assist button / Voice Satellite Card / Wyoming satellites |
 | Server | Raspberry Pi 5 (HAOS) |
 | Language | Python 3 |
 
-## Roadmap
+## Vision
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized list.
+Jane evolves from a voice remote control to an intelligent home manager:
 
-- [x] Voice pipeline + HA control
-- [x] Custom conversation agent (Assist pipeline)
-- [x] Memory system — 7 LLM-managed markdown files
-- [x] Multi-turn conversations — session history
-- [x] Auto user identification — from HA logged-in user
-- [x] Voice Satellite Card integration — browser-based satellite
-- [x] Custom wake word training — "Hey Jane" microWakeWord
-- [ ] Tavily web search — real-time info (weather, news, traffic)
-- [ ] Concise responses — "done" for simple commands
-- [ ] Night mode — quiet hours behavior
-- [ ] Firebase backup — cloud memory persistence
-- [ ] Voice recognition — speaker ID without asking
-- [ ] Face recognition — presence-based context via Frigate
-- [ ] Atom EchoS3R satellite — Wyoming Protocol
+```
+Today:     "turn on the light"           → executes command
+Next:      "what's the weather tomorrow?" → fetches data autonomously (tool calling)
+Then:      "create an automation for..."  → creates HA automations
+Future:    "I noticed you dim lights      → suggests automations proactively
+            every evening — want me
+            to create an automation?"
+```
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full prioritized roadmap.
+See [docs/TOOL_CALLING_ARCHITECTURE.md](docs/TOOL_CALLING_ARCHITECTURE.md) for the tool calling design.

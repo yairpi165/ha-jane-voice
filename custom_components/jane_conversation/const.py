@@ -1,9 +1,6 @@
 DOMAIN = "jane_conversation"
 
 CONF_OPENAI_API_KEY = "openai_api_key"
-CONF_TTS_VOICE = "tts_voice"
-
-DEFAULT_TTS_VOICE = "nova"
 
 SYSTEM_PROMPT = """את ג'יין - עוזרת בית חכמה ומסייעת אישית.
 את מדברת עברית בצורה טבעית וידידותית.

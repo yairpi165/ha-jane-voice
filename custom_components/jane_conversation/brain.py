@@ -26,8 +26,12 @@ def get_exposed_entities(hass: HomeAssistant) -> str:
             continue
         name = state.attributes.get("friendly_name", state.entity_id)
         if domain == "weather":
-            temp = state.attributes.get("temperature", "?")
-            lines.append(f"- {name} ({state.entity_id}) — {state.state}, {temp}°C")
+            attrs = state.attributes
+            temp = attrs.get("temperature", "?")
+            humidity = attrs.get("humidity", "?")
+            wind = attrs.get("wind_speed", "?")
+            cloud = attrs.get("cloud_coverage", "?")
+            lines.append(f"- {name} ({state.entity_id}) — {state.state}, {temp}°C, humidity {humidity}%, wind {wind} km/h, clouds {cloud}%")
         else:
             lines.append(f"- {name} ({state.entity_id}) — {state.state}")
     return "\n".join(lines) if lines else "No devices found"
