@@ -63,7 +63,14 @@ TOOL_CALL_HA_SERVICE = {
                 },
                 "data": {
                     "type": "object",
-                    "description": "Additional service data (e.g. {\"brightness_pct\": 50}, {\"temperature\": 23}, {\"type\": \"daily\"})",
+                    "description": (
+                        "Additional service data. Examples:\n"
+                        "- Brightness: {\"brightness_pct\": 50}\n"
+                        "- AC temperature: {\"temperature\": 23}\n"
+                        "- Volume: {\"volume_level\": 0.5} (0.0=mute, 1.0=max)\n"
+                        "- Cover position: {\"position\": 40} (0=closed, 100=open)\n"
+                        "- Weather forecast: {\"type\": \"daily\"}"
+                    ),
                 },
             },
             "required": ["domain", "service", "entity_id"],

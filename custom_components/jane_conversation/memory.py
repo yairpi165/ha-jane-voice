@@ -224,49 +224,46 @@ def rebuild_home_map(client: OpenAI, hass):
 # ---------------------------------------------------------------------------
 
 MEMORY_EXTRACTION_PROMPT = """You are the memory manager for Jane, a Hebrew smart home assistant.
-Analyze the conversation below and decide what should be remembered or updated.
+Analyze the conversation and decide what to remember.
 
-Current memory state:
-
+Current memory:
 {memory_context}
 
 ---
 
-Latest conversation:
+Latest exchange:
 User ({user_name}): {user_text}
 Jane: {jane_response}
 
 ---
 
-Instructions:
-1. Decide if any memory files need updating with new information.
-2. If yes — rewrite the ENTIRE content of each file that needs updating, merging new info with existing.
-3. Resolve contradictions: new information wins over old.
-4. Remove stale or irrelevant information.
-5. Keep each file concise (max ~50 lines).
-6. Write all memory content in English, even though conversations are in Hebrew.
-7. If nothing worth remembering — return null for that file.
+Rules:
+1. If a memory file needs updating — rewrite its ENTIRE content, merging new info with existing.
+2. New information wins over old when they conflict.
+3. Keep each file concise (max ~50 lines).
+4. Write ALL memory in English, even though conversations are in Hebrew.
+5. If nothing worth remembering — return null.
+
+BE AGGRESSIVE about saving these:
+- Family members: names, ages, relationships, preferences, hobbies — ALWAYS save
+- Personal details: what they like/dislike, their routine, their job, their personality
+- Corrections: if the user corrected Jane about anything, save the learning
+- Patterns: recurring requests, time-based habits
+- Routines: multi-step sequences ("goodnight" means lights off + shutters down + AC 24)
+
+DO NOT save:
+- One-time commands: "turn on the light" → skip
+- General questions: "what time is it?" → skip
+- Pleasantries with no new info: "thank you" → skip
 
 Respond in JSON only:
 {
-  "user": "Full updated content of the user's personal memory file, or null if no update needed",
-  "family": "Full updated content of the family memory file, or null",
-  "habits": "Full updated content of the habits file, or null",
-  "corrections": "Full updated content of the corrections file, or null",
-  "routines": "Full updated content of the routines file, or null"
-}
-
-What IS worth remembering:
-- Personal preferences: "I don't like bright lights" -> user preference
-- Household rules: "Kids go to bed at 21:00" -> family
-- Recurring patterns: "Every morning I ask for heating" -> habit
-- Corrections: "No, I meant the living room, not kitchen" -> correction
-- Routine definitions: "Goodnight means: turn off lights, lock door, close shutters" -> routine
-
-What is NOT worth remembering:
-- One-time device commands: "Turn on the light" -> skip
-- General questions: "What time is it?" -> skip
-- Pleasantries: "Thank you" -> skip"""
+  "user": "Full updated user memory, or null",
+  "family": "Full updated family memory, or null",
+  "habits": "Full updated habits, or null",
+  "corrections": "Full updated corrections, or null",
+  "routines": "Full updated routines, or null"
+}"""
 
 
 def process_memory(client: OpenAI, user_name: str, user_text: str, jane_response: str, action: str):
