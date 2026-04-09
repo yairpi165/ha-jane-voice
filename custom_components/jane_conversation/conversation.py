@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .brain import think
-from .memory import append_action, process_memory
+from .memory import append_action, append_history, process_memory
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,6 +109,11 @@ class JaneConversationEntity(ConversationEntity):
         # Log action in background
         await self.hass.async_add_executor_job(
             append_action, user_name, response_text
+        )
+
+        # Permanent history log
+        await self.hass.async_add_executor_job(
+            append_history, user_name, user_text, response_text
         )
 
         # Memory extraction in background

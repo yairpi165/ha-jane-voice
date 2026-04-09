@@ -89,8 +89,8 @@ On startup, missing files restored from cloud. Optional — works without Fireba
 
 ---
 
-### 13. Command History Log
-Permanent audit trail of all voice commands and responses.
+### 13. Command History Log ✅
+Permanent `history.log` — every command + response with timestamp. Never pruned.
 
 ---
 

@@ -149,6 +149,15 @@ def append_action(user_name: str, description: str):
     _write(path, content)
 
 
+def append_history(user_name: str, user_text: str, response_text: str):
+    """Append to permanent command history log (never pruned)."""
+    path = get_memory_dir() / "history.log"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    entry = f"[{now}] {user_name}: {user_text}\n[{now}] Jane: {response_text}\n\n"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(entry)
+
+
 # ---------------------------------------------------------------------------
 # Home map (GPT-generated on first run)
 # ---------------------------------------------------------------------------
