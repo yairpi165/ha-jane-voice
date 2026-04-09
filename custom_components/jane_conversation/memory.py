@@ -90,9 +90,11 @@ def _write(path: Path, content: str, firebase_doc: str | None = None):
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
-    # Background Firebase backup
+    # Background Firebase backup (thread-safe)
     if firebase_doc and _hass:
-        _hass.async_create_task(_firebase_backup(firebase_doc, content))
+        _hass.loop.call_soon_threadsafe(
+            _hass.async_create_task, _firebase_backup(firebase_doc, content)
+        )
 
 
 async def _firebase_backup(doc_name: str, content: str):
