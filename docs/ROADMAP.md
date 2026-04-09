@@ -55,17 +55,15 @@ Replaced HA Cloud TTS with OpenAI TTS (voice: nova) for more natural Hebrew spee
 
 ---
 
-## Next Up
-
-### 8. Concise Responses
+### 8. Concise Responses ✅
 Simple commands get short answers ("done"). Conversations get full responses.
-Already in the new system prompt — needs real-world testing.
+In the system prompt. Tested and working.
 
 ---
 
-### 9. Night Mode
-23:00–07:00: shorter responses, no non-urgent alerts.
-Inject current time into GPT context.
+### 9. Night Mode ✅
+23:00–07:00: shorter responses, whisper-friendly.
+Current time injected into GPT context. Night mode instructions in system prompt.
 
 ---
 

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime
 from openai import OpenAI
 
 from homeassistant.core import HomeAssistant
@@ -29,8 +30,10 @@ async def think(
     memory_context = await hass.async_add_executor_job(load_all_memory, user_name)
 
     # Build messages
+    now = datetime.now().strftime("%H:%M")
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": f"Current time: {now}"},
         {"role": "system", "content": f"Memory:\n{memory_context}"},
     ]
 
