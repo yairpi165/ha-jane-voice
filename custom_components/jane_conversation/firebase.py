@@ -1,5 +1,6 @@
 """Firebase Firestore backup for Jane's memory files."""
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -50,10 +51,8 @@ def _get_base_url() -> str:
     )
 
 
-async def _get_token() -> str | None:
-    """Get a valid access token, refreshing if needed."""
-    if _credentials is None:
-        return None
+def _refresh_token() -> str | None:
+    """Refresh credentials and return token. Blocking — run in executor."""
     try:
         if not _credentials.valid:
             import google.auth.transport.requests
@@ -63,6 +62,13 @@ async def _get_token() -> str | None:
     except Exception as e:
         _LOGGER.error("Firebase token refresh failed: %s", e)
         return None
+
+
+async def _get_token() -> str | None:
+    """Get a valid access token, refreshing in executor if needed."""
+    if _credentials is None:
+        return None
+    return await asyncio.get_event_loop().run_in_executor(None, _refresh_token)
 
 
 async def backup_memory(doc_name: str, content: str) -> bool:
