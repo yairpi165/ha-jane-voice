@@ -3,7 +3,8 @@ DOMAIN = "jane_conversation"
 CONF_OPENAI_API_KEY = "openai_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"
 
-# Common Whisper hallucinations — phantom phrases generated from silence/noise
+# Common Whisper hallucinations — phantom phrases generated from silence/noise.
+# These are phrases Whisper invents when it gets silence or background noise.
 WHISPER_HALLUCINATIONS = {
     "תודה רבה",
     "תודה לצפייה",
@@ -15,6 +16,8 @@ WHISPER_HALLUCINATIONS = {
     "you",
     "the end",
     "...",
+    ".",
+    "",
 }
 
 SYSTEM_PROMPT = """You are Jane — a smart home assistant and personal helper.
