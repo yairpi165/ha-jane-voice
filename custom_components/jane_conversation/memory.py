@@ -198,7 +198,7 @@ def rebuild_home_map(client: OpenAI, hass):
         response = client.chat.completions.create(
             model="gpt-5.4-mini",
             messages=[{"role": "system", "content": prompt}],
-            max_tokens=1500,
+            max_completion_tokens=1500,
             temperature=0.3,
         )
         content = response.choices[0].message.content.strip()
@@ -279,7 +279,7 @@ def process_memory(client: OpenAI, user_name: str, user_text: str, jane_response
         response = client.chat.completions.create(
             model="gpt-5.4-mini",
             messages=[{"role": "system", "content": prompt}],
-            max_tokens=2000,
+            max_completion_tokens=2000,
             temperature=0.3,
         )
 

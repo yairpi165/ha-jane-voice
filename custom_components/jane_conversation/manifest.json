@@ -1,7 +1,7 @@
 {
   "domain": "jane_conversation",
   "name": "Jane Voice Assistant",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "documentation": "https://github.com/yairpi165/ha-jane-voice",
   "dependencies": ["conversation"],
   "after_dependencies": ["assist_pipeline", "intent"],

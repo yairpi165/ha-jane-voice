@@ -102,7 +102,7 @@ def _call_gpt(
     kwargs = {
         "model": "gpt-5.4-mini",
         "messages": messages,
-        "max_tokens": 1000,
+        "max_completion_tokens": 1000,
         "temperature": 0.7,
     }
     if tools:
