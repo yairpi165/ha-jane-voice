@@ -115,4 +115,5 @@ class JaneConversationEntity(ConversationEntity):
         return ConversationResult(
             conversation_id=conversation_id,
             response=response,
+            continue_conversation=True,
         )

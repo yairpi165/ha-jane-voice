@@ -67,9 +67,9 @@ Current time injected into GPT context. Night mode instructions in system prompt
 
 ---
 
-### 10. Continue Conversation
-After Jane responds, keep listening for a few seconds without requiring wake word.
-Set `continue_conversation=True` in ConversationResult.
+### 10. Continue Conversation ✅
+After Jane responds, keep listening without requiring wake word.
+Always-on `continue_conversation=True` — natural for family conversations.
 
 ---
 
