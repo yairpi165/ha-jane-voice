@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, CONF_TTS_MEDIA_PLAYER, CONF_TTS_ENTITY, WHISPER_HALLUCINATIONS
+from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .brain import think
 from .memory import append_action, append_history, process_memory
 
@@ -130,22 +130,6 @@ class JaneConversationEntity(ConversationEntity):
         if not silent:
             self.hass.async_add_executor_job(
                 process_memory, client, user_name, user_text, response_text, "tool"
-            )
-
-        # Send TTS to external media player if configured
-        tts_player = self._config_entry.data.get(CONF_TTS_MEDIA_PLAYER)
-        tts_entity = self._config_entry.data.get(CONF_TTS_ENTITY)
-        if tts_player and tts_entity and response_text.strip():
-            self.hass.async_create_task(
-                self.hass.services.async_call(
-                    "tts", "speak",
-                    {
-                        "entity_id": tts_entity,
-                        "media_player_entity_id": tts_player,
-                        "message": response_text,
-                    },
-                    blocking=False,
-                )
             )
 
         # Return response for TTS

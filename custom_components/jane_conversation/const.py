@@ -3,8 +3,6 @@ DOMAIN = "jane_conversation"
 CONF_OPENAI_API_KEY = "openai_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"
 CONF_FIREBASE_KEY_PATH = "firebase_key_path"
-CONF_TTS_MEDIA_PLAYER = "tts_media_player"
-CONF_TTS_ENTITY = "tts_entity"
 
 # Common Whisper hallucinations — phantom phrases generated from silence/noise.
 # These are phrases Whisper invents when it gets silence or background noise.

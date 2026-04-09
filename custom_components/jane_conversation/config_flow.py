@@ -1,7 +1,7 @@
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH, CONF_TTS_MEDIA_PLAYER, CONF_TTS_ENTITY
+from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -60,15 +60,11 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
 
         current_tavily = self._config_entry.data.get(CONF_TAVILY_API_KEY, "")
         current_firebase = self._config_entry.data.get(CONF_FIREBASE_KEY_PATH, "")
-        current_tts_player = self._config_entry.data.get(CONF_TTS_MEDIA_PLAYER, "")
-        current_tts_entity = self._config_entry.data.get(CONF_TTS_ENTITY, "")
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Optional(CONF_TAVILY_API_KEY, default=current_tavily): str,
                 vol.Optional(CONF_FIREBASE_KEY_PATH, default=current_firebase): str,
-                vol.Optional(CONF_TTS_MEDIA_PLAYER, default=current_tts_player): str,
-                vol.Optional(CONF_TTS_ENTITY, default=current_tts_entity): str,
             }),
         )
