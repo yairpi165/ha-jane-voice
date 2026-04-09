@@ -100,7 +100,7 @@ def _call_gpt(
 ) -> object:
     """Synchronous GPT call (runs in executor)."""
     kwargs = {
-        "model": "gpt-4o-mini",
+        "model": "gpt-5.4-mini",
         "messages": messages,
         "max_tokens": 1000,
         "temperature": 0.7,
