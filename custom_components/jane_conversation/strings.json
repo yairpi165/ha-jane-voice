@@ -20,7 +20,9 @@
         "title": "Jane Settings",
         "data": {
           "tavily_api_key": "Tavily API Key (optional — enables web search)",
-          "firebase_key_path": "Firebase Key Path (optional — e.g. /config/jane_firebase_key.json)"
+          "firebase_key_path": "Firebase Key Path (optional — e.g. /config/jane_firebase_key.json)",
+          "tts_media_player": "TTS Media Player (optional — e.g. media_player.slvn_2)",
+          "tts_entity": "TTS Entity (optional — e.g. tts.openai_tts_jane)"
         }
       }
     }
