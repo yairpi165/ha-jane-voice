@@ -37,9 +37,17 @@ class JaneConversationEntity(ConversationEntity):
     def __init__(self, config_entry):
         """Initialize."""
         self._config_entry = config_entry
-        self._client = OpenAI(api_key=config_entry.data[CONF_OPENAI_API_KEY])
+        self._client = None  # Created lazily in executor to avoid blocking
         self._attr_unique_id = config_entry.entry_id
         self._sessions: dict[str, list[dict]] = {}
+
+    async def _get_client(self):
+        """Get or create OpenAI client (thread-safe)."""
+        if self._client is None:
+            self._client = await self.hass.async_add_executor_job(
+                lambda: OpenAI(api_key=self._config_entry.data[CONF_OPENAI_API_KEY])
+            )
+        return self._client
 
     @property
     def tavily_api_key(self) -> str | None:
@@ -87,8 +95,9 @@ class JaneConversationEntity(ConversationEntity):
             )
 
         # Think with tool calling
+        client = await self._get_client()
         response_text = await think(
-            self._client,
+            client,
             user_text,
             user_name,
             self.hass,
@@ -120,7 +129,7 @@ class JaneConversationEntity(ConversationEntity):
         silent = any(p in user_text for p in ["אל תזכרי", "אל תזכור", "מצב שקט"])
         if not silent:
             self.hass.async_add_executor_job(
-                process_memory, self._client, user_name, user_text, response_text, "tool"
+                process_memory, client, user_name, user_text, response_text, "tool"
             )
 
         # Return response for TTS

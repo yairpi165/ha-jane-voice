@@ -92,8 +92,8 @@ def _write(path: Path, content: str, firebase_doc: str | None = None):
 
     # Background Firebase backup (thread-safe)
     if firebase_doc and _hass:
-        _hass.loop.call_soon_threadsafe(
-            _hass.async_create_task, _firebase_backup(firebase_doc, content)
+        asyncio.run_coroutine_threadsafe(
+            _firebase_backup(firebase_doc, content), _hass.loop
         )
 
 
