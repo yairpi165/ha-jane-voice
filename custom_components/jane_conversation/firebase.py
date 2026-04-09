@@ -180,3 +180,32 @@ async def restore_all_memory(memory_dir: Path) -> None:
 
     # We can't enumerate Firestore docs easily via REST,
     # so user files are restored on first access if missing.
+
+
+async def sync_existing_memory(memory_dir: Path) -> None:
+    """Push all existing local memory files to Firestore (initial sync)."""
+    if _credentials is None:
+        return
+
+    files = {
+        "family.md": "family",
+        "habits.md": "habits",
+        "corrections.md": "corrections",
+        "routines.md": "routines",
+    }
+
+    for filename, doc_name in files.items():
+        filepath = memory_dir / filename
+        if filepath.exists() and filepath.stat().st_size > 0:
+            content = filepath.read_text(encoding="utf-8").strip()
+            if content:
+                await backup_memory(doc_name, content)
+
+    # Sync user files
+    users_dir = memory_dir / "users"
+    if users_dir.exists():
+        for user_file in users_dir.glob("*.md"):
+            content = user_file.read_text(encoding="utf-8").strip()
+            if content:
+                doc_name = f"users_{user_file.stem}"
+                await backup_memory(doc_name, content)
