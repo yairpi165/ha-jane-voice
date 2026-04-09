@@ -4,9 +4,11 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.util.yaml import load_yaml, save_yaml
 
 _LOGGER = logging.getLogger(__name__)
@@ -163,6 +165,77 @@ TOOL_HA_CONFIG_API = {
     },
 }
 
+TOOL_SEARCH_ENTITIES = {
+    "type": "function",
+    "function": {
+        "name": "search_entities",
+        "description": (
+            "Search for Home Assistant entities by name, room, or type. "
+            "Use when you don't know the exact entity_id. "
+            "Returns matching entities with their current state. "
+            "Examples: search for 'bedroom' to find bedroom devices, "
+            "'tami' to find the water bar, 'temperature' to find temp sensors."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term — device name, room, or type",
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Optional domain filter (light, sensor, switch, climate, cover, media_player, fan, vacuum, button, etc.)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+TOOL_GET_HISTORY = {
+    "type": "function",
+    "function": {
+        "name": "get_history",
+        "description": (
+            "Get state change history for an entity over the last hours. "
+            "Use to answer: 'when did X last turn on?', 'how long was the AC running?', "
+            "'what was the temperature this morning?', 'did someone open the door today?'"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "The entity to get history for",
+                },
+                "hours": {
+                    "type": "integer",
+                    "description": "Hours of history to look back (default 24, max 72)",
+                },
+            },
+            "required": ["entity_id"],
+        },
+    },
+}
+
+TOOL_LIST_AREAS = {
+    "type": "function",
+    "function": {
+        "name": "list_areas",
+        "description": (
+            "List all rooms/areas in the home and the devices in each area. "
+            "Use to discover what's available, find which room a device is in, "
+            "or get an overview of the smart home."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Config API constants
 # ---------------------------------------------------------------------------
@@ -185,7 +258,14 @@ def _get_lock(resource: str) -> asyncio.Lock:
 
 def get_tools(tavily_api_key: str | None = None) -> list[dict]:
     """Return available tools based on configuration."""
-    tools = [TOOL_GET_ENTITY_STATE, TOOL_CALL_HA_SERVICE, TOOL_HA_CONFIG_API]
+    tools = [
+        TOOL_GET_ENTITY_STATE,
+        TOOL_CALL_HA_SERVICE,
+        TOOL_SEARCH_ENTITIES,
+        TOOL_GET_HISTORY,
+        TOOL_LIST_AREAS,
+        TOOL_HA_CONFIG_API,
+    ]
     if tavily_api_key:
         tools.append(TOOL_SEARCH_WEB)
     return tools
@@ -207,6 +287,12 @@ async def execute_tool(
             return await _handle_get_entity_state(hass, arguments)
         elif tool_name == "call_ha_service":
             return await _handle_call_ha_service(hass, arguments)
+        elif tool_name == "search_entities":
+            return await _handle_search_entities(hass, arguments)
+        elif tool_name == "get_history":
+            return await _handle_get_history(hass, arguments)
+        elif tool_name == "list_areas":
+            return await _handle_list_areas(hass, arguments)
         elif tool_name == "search_web":
             return await _handle_search_web(hass, arguments, tavily_api_key)
         elif tool_name == "ha_config_api":
@@ -285,6 +371,152 @@ async def _handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: st
 
     from .web_search import search_web
     return await hass.async_add_executor_job(search_web, tavily_api_key, query)
+
+
+# ---------------------------------------------------------------------------
+# Search Entities Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_search_entities(hass: HomeAssistant, args: dict) -> str:
+    """Search for entities by name or domain."""
+    query = args.get("query", "").lower()
+    domain_filter = args.get("domain")
+    results = []
+
+    for state in hass.states.async_all():
+        if domain_filter and state.domain != domain_filter:
+            continue
+        name = (state.attributes.get("friendly_name") or "").lower()
+        eid = state.entity_id.lower()
+        if query in name or query in eid:
+            results.append({
+                "entity_id": state.entity_id,
+                "name": state.attributes.get("friendly_name", state.entity_id),
+                "state": state.state,
+                "domain": state.domain,
+            })
+
+    if not results:
+        return f"No entities found matching '{query}'."
+    # Limit to 15 results to keep GPT context manageable
+    results = results[:15]
+    return json.dumps(results, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# History Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_history(hass: HomeAssistant, args: dict) -> str:
+    """Get state change history for an entity."""
+    entity_id = args.get("entity_id", "")
+    hours = min(args.get("hours", 24), 72)
+
+    try:
+        from homeassistant.components.recorder.history import get_significant_states
+        from homeassistant.components.recorder import get_instance
+    except ImportError:
+        return "History not available (recorder component not loaded)."
+
+    start = dt_util.utcnow() - timedelta(hours=hours)
+
+    try:
+        states = await get_instance(hass).async_add_executor_job(
+            get_significant_states, hass, start, None, [entity_id],
+        )
+    except Exception as e:
+        return f"Could not retrieve history: {e}"
+
+    if not states or entity_id not in states:
+        return f"No history found for {entity_id} in the last {hours} hours."
+
+    entity_states = states[entity_id]
+    lines = [f"History for {entity_id} (last {hours}h):"]
+    for state in entity_states[-25:]:
+        ts = state.last_changed.astimezone(dt_util.DEFAULT_TIME_ZONE).strftime("%H:%M %d/%m")
+        attrs = ""
+        if "temperature" in state.attributes:
+            attrs = f" ({state.attributes['temperature']}°C)"
+        elif "brightness" in state.attributes:
+            attrs = f" (brightness: {state.attributes['brightness']})"
+        lines.append(f"  {ts} — {state.state}{attrs}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# List Areas Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_list_areas(hass: HomeAssistant, args: dict) -> str:
+    """List all areas and their entities."""
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import entity_registry as er
+
+    area_reg = ar.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    # Build area → entities map
+    areas: dict[str, dict] = {}
+    for area in area_reg.async_list_areas():
+        areas[area.id] = {"name": area.name, "entities": []}
+
+    # Assign entities to areas (via entity or device)
+    for entity in entity_reg.entities.values():
+        area_id = entity.area_id
+        if not area_id:
+            # Check device area
+            if entity.device_id:
+                from homeassistant.helpers import device_registry as dr
+                dev_reg = dr.async_get(hass)
+                device = dev_reg.async_get(entity.device_id)
+                if device:
+                    area_id = device.area_id
+
+        if area_id and area_id in areas:
+            state = hass.states.get(entity.entity_id)
+            if state and not entity.disabled:
+                areas[area_id]["entities"].append({
+                    "entity_id": entity.entity_id,
+                    "name": state.attributes.get("friendly_name", entity.entity_id),
+                    "domain": entity.domain,
+                    "state": state.state,
+                })
+
+    # Format output
+    lines = []
+    for area_data in sorted(areas.values(), key=lambda a: a["name"]):
+        if area_data["entities"]:
+            lines.append(f"\n### {area_data['name']}")
+            for e in sorted(area_data["entities"], key=lambda x: x["domain"]):
+                lines.append(f"- {e['name']} ({e['entity_id']}) — {e['state']}")
+
+    unassigned = []
+    for state in hass.states.async_all():
+        entity_entry = entity_reg.async_get(state.entity_id)
+        has_area = False
+        if entity_entry:
+            if entity_entry.area_id:
+                has_area = True
+            elif entity_entry.device_id:
+                from homeassistant.helpers import device_registry as dr
+                dev_reg = dr.async_get(hass)
+                device = dev_reg.async_get(entity_entry.device_id)
+                if device and device.area_id:
+                    has_area = True
+        if not has_area and state.domain in (
+            "light", "climate", "cover", "media_player", "fan", "vacuum",
+            "switch", "water_heater", "button",
+        ):
+            unassigned.append(f"- {state.attributes.get('friendly_name', state.entity_id)} ({state.entity_id})")
+
+    if unassigned:
+        lines.append("\n### Unassigned Devices")
+        lines.extend(unassigned[:20])
+
+    if not lines:
+        return "No areas configured in Home Assistant."
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
