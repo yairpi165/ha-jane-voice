@@ -4,12 +4,13 @@ import asyncio
 import json
 import logging
 import uuid
+import yaml
 from datetime import timedelta
 from pathlib import Path
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from homeassistant.util.yaml import load_yaml, save_yaml
+from homeassistant.util.yaml import load_yaml
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1056,17 +1057,33 @@ async def _handle_tts_announce(hass: HomeAssistant, args: dict) -> str:
 # Config API Handler
 # ---------------------------------------------------------------------------
 
-def _read_yaml(path: Path, is_list: bool) -> list | dict:
+def _read_yaml_file(path: Path, is_list: bool) -> list | dict:
     """Read a YAML config file. Returns [] or {} if missing/empty."""
     if not path.exists():
+        _LOGGER.info("Config file %s does not exist, returning empty", path)
         return [] if is_list else {}
     try:
         data = load_yaml(str(path))
-    except Exception:
+    except Exception as e:
+        _LOGGER.error("Failed to read YAML %s: %s", path, e)
         return [] if is_list else {}
     if data is None:
         return [] if is_list else {}
+    # Normalize: convert OrderedDict to regular types
+    if is_list and isinstance(data, list):
+        return [dict(item) if hasattr(item, "items") else item for item in data]
+    if not is_list and hasattr(data, "items"):
+        return dict(data)
     return data
+
+
+def _write_yaml_file(path: Path, data) -> None:
+    """Write YAML config file reliably using PyYAML directly."""
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    tmp.replace(path)
+    _LOGGER.info("Wrote config file: %s (%d bytes)", path, path.stat().st_size)
 
 
 async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
@@ -1076,6 +1093,9 @@ async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
     item_id = args.get("item_id")
     config = args.get("config", {}) or {}
 
+    _LOGGER.info("ha_config_api called: resource=%s, operation=%s, config_keys=%s",
+                 resource, operation, list(config.keys()) if config else "none")
+
     if resource not in _CONFIG_FILES:
         return f"Unknown resource: {resource}. Use: automation, scene, script"
 
@@ -1084,88 +1104,93 @@ async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
     is_list = resource in ("automation", "scene")
 
     async with _get_lock(resource):
-        if operation == "list":
-            data = await hass.async_add_executor_job(_read_yaml, filepath, is_list)
-            if is_list:
-                items = [
-                    {"id": item.get("id"), "alias": item.get("alias") or item.get("name", "?")}
-                    for item in data
-                ]
+        try:
+            if operation == "list":
+                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+                if is_list:
+                    items = [
+                        {"id": item.get("id"), "alias": item.get("alias") or item.get("name", "?")}
+                        for item in data
+                    ]
+                else:
+                    items = [
+                        {"id": key, "alias": val.get("alias", key) if isinstance(val, dict) else key}
+                        for key, val in data.items()
+                    ]
+                if not items:
+                    return f"No {resource}s found."
+                return json.dumps(items, ensure_ascii=False)
+
+            elif operation == "create":
+                if not config:
+                    return "Error: config is required for create."
+                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+
+                if is_list:
+                    new_id = uuid.uuid4().hex[:12]
+                    config["id"] = new_id
+                    data.append(config)
+                else:
+                    alias = config.get("alias", "")
+                    key = item_id or alias.lower().replace(" ", "_").replace("-", "_")[:40]
+                    if not key:
+                        key = uuid.uuid4().hex[:12]
+                    data[key] = config
+                    new_id = key
+
+                await hass.async_add_executor_job(_write_yaml_file, filepath, data)
+                _LOGGER.info("Created %s, reloading domain...", resource)
+                await hass.services.async_call(resource, "reload", blocking=True)
+                return f"Created {resource} with id '{new_id}'."
+
+            elif operation == "update":
+                if not item_id:
+                    return "Error: item_id is required for update."
+                if not config:
+                    return "Error: config is required for update."
+                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+
+                if is_list:
+                    found = False
+                    for i, item in enumerate(data):
+                        if item.get("id") == item_id:
+                            config["id"] = item_id
+                            data[i] = config
+                            found = True
+                            break
+                    if not found:
+                        return f"Error: {resource} with id '{item_id}' not found."
+                else:
+                    if item_id not in data:
+                        return f"Error: {resource} with id '{item_id}' not found."
+                    data[item_id] = config
+
+                await hass.async_add_executor_job(_write_yaml_file, filepath, data)
+                await hass.services.async_call(resource, "reload", blocking=True)
+                return f"Updated {resource} '{item_id}'."
+
+            elif operation == "delete":
+                if not item_id:
+                    return "Error: item_id is required for delete."
+                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+
+                if is_list:
+                    original_len = len(data)
+                    data = [item for item in data if item.get("id") != item_id]
+                    if len(data) == original_len:
+                        return f"Error: {resource} with id '{item_id}' not found."
+                else:
+                    if item_id not in data:
+                        return f"Error: {resource} with id '{item_id}' not found."
+                    del data[item_id]
+
+                await hass.async_add_executor_job(_write_yaml_file, filepath, data)
+                await hass.services.async_call(resource, "reload", blocking=True)
+                return f"Deleted {resource} '{item_id}'."
+
             else:
-                items = [
-                    {"id": key, "alias": val.get("alias", key) if isinstance(val, dict) else key}
-                    for key, val in data.items()
-                ]
-            if not items:
-                return f"No {resource}s found."
-            return json.dumps(items, ensure_ascii=False)
+                return f"Unknown operation: {operation}. Use: list, create, update, delete"
 
-        elif operation == "create":
-            if not config:
-                return "Error: config is required for create."
-            data = await hass.async_add_executor_job(_read_yaml, filepath, is_list)
-
-            if is_list:
-                new_id = uuid.uuid4().hex[:12]
-                config["id"] = new_id
-                data.append(config)
-            else:
-                # Scripts: key-based
-                alias = config.get("alias", "")
-                key = item_id or alias.lower().replace(" ", "_").replace("-", "_")[:40]
-                if not key:
-                    key = uuid.uuid4().hex[:12]
-                data[key] = config
-                new_id = key
-
-            await hass.async_add_executor_job(save_yaml, str(filepath), data)
-            await hass.services.async_call(resource, "reload", blocking=True)
-            return f"Created {resource} with id '{new_id}'."
-
-        elif operation == "update":
-            if not item_id:
-                return "Error: item_id is required for update."
-            if not config:
-                return "Error: config is required for update."
-            data = await hass.async_add_executor_job(_read_yaml, filepath, is_list)
-
-            if is_list:
-                found = False
-                for i, item in enumerate(data):
-                    if item.get("id") == item_id:
-                        config["id"] = item_id
-                        data[i] = config
-                        found = True
-                        break
-                if not found:
-                    return f"Error: {resource} with id '{item_id}' not found."
-            else:
-                if item_id not in data:
-                    return f"Error: {resource} with id '{item_id}' not found."
-                data[item_id] = config
-
-            await hass.async_add_executor_job(save_yaml, str(filepath), data)
-            await hass.services.async_call(resource, "reload", blocking=True)
-            return f"Updated {resource} '{item_id}'."
-
-        elif operation == "delete":
-            if not item_id:
-                return "Error: item_id is required for delete."
-            data = await hass.async_add_executor_job(_read_yaml, filepath, is_list)
-
-            if is_list:
-                original_len = len(data)
-                data = [item for item in data if item.get("id") != item_id]
-                if len(data) == original_len:
-                    return f"Error: {resource} with id '{item_id}' not found."
-            else:
-                if item_id not in data:
-                    return f"Error: {resource} with id '{item_id}' not found."
-                del data[item_id]
-
-            await hass.async_add_executor_job(save_yaml, str(filepath), data)
-            await hass.services.async_call(resource, "reload", blocking=True)
-            return f"Deleted {resource} '{item_id}'."
-
-        else:
-            return f"Unknown operation: {operation}. Use: list, create, update, delete"
+        except Exception as e:
+            _LOGGER.error("ha_config_api failed: %s (resource=%s, operation=%s)", e, resource, operation)
+            return f"Error creating {resource}: {e}"
