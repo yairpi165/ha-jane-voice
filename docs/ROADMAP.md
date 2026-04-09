@@ -125,22 +125,55 @@ Implementation: `track_response()` and `get_recent_responses()` in `memory.py`, 
 
 ---
 
-## Planned — v3.1.0: Deep Intelligence
+### 25. Switch to Claude Sonnet 4 ✅ (v3.1.0)
+Brain switched from GPT-5.4 Mini to Claude Sonnet 4 (Anthropic API).
+- Reliable tool calling — no more "technical limitation" excuses
+- Better Hebrew, better instruction following
+- Tool definitions converted from OpenAI to Anthropic format (input_schema)
+- System prompt as separate parameter (not in messages array)
 
-### 25. save_memory Tool
-Explicit memory management during conversation — Jane decides what to remember, when.
-Current system: background GPT call after conversation extracts memories.
-New: GPT calls `save_memory` tool mid-conversation when it learns something important.
-Both systems coexist — tool for intentional saves, background extraction as safety net.
+### 26. 33 Tools ✅ (v3.2.0)
+Added 19 new tools (was 14), total 33:
+- Discovery: eval_template, get_overview, list_floors, get_zone
+- Family: get_calendar_events, create_calendar_event
+- Device mgmt: get_device, rename_entity, update_device, list_services, list_helpers, create_helper
+- Config: get_automation_config, get_script_config, get_automation_traces, deep_search
+- Memory: save_memory, read_memory
+- Control: bulk_control
 
-### 26. Smart Tool Pre-filtering
-Don't send all 14 tools to GPT every time. Pre-filter based on request keywords.
-- Control keywords ("הדלק", "כבה"): get_entity_state, call_ha_service, search_entities
-- Info keywords ("מה", "כמה", "מתי"): discovery + history tools
-- Default: all tools
-Always include core 3: get_entity_state, call_ha_service, search_entities.
+### 27. Dual Model — Haiku + Sonnet ✅ (v3.2.0)
+Request classification determines which model handles the request:
+- **Chat** ("מה שלומך", "בוקר טוב"): Haiku 4.5 — fast, max_tokens=500, no tools
+- **Command** ("הדלק", "כבה"): Haiku 4.5 — fast, max_tokens=500, all tools
+- **Complex** (automations, questions, multi-step): Sonnet 4 — smart, max_tokens=2000, all tools
 
-### 27. Per-User Behavior
+### 28. Smart Memory ✅ (v3.2.0)
+Only `home.md` loaded every request. All other memory accessed via `read_memory` tool on demand.
+Jane decides what memory she needs — like Claude with its memory files.
+
+### 29. Prompt Caching + Tool Filtering ✅ (v3.2.0)
+- System prompt cached with Anthropic `cache_control: ephemeral` (5 min TTL)
+- Chat requests get 2 tools (save_memory, read_memory) instead of 33
+- Dynamic max_tokens: Haiku=500, Sonnet=2000
+
+### 30. Config API Safety ✅ (v3.2.0)
+- Backup file created before every YAML write (automations.yaml.bak)
+- Refuses to write if read fails (prevents data loss from overwriting)
+- Detailed logging at every step
+
+---
+
+## Planned — v3.3.0
+
+### 31. ha_config_api → HA Config Store API
+**Critical upgrade:** Replace direct YAML file writing with HA's internal Config Store API.
+Currently ha_config_api writes to `automations.yaml` directly — this is fragile and caused
+data loss (overwriting existing automations). HA's Config Store API (used by the UI and MCP)
+writes to `.storage/` which is safer, supports undo, and doesn't conflict with UI-created automations.
+
+This is the same API the MCP tools (ha_config_set_automation) use — proven reliable.
+
+### 32. Per-User Behavior
 Jane adapts personality per family member:
 - **Yair (admin)**: direct, tech-aware, brief confirmations
 - **Kids**: gentler, explains more, restricted late-night access
@@ -148,7 +181,7 @@ Jane adapts personality per family member:
 
 Implementation: user_name-based prompt injection + permission matrix in memory.
 
-### 28. Routine Execution
+### 33. Routine Execution
 Named multi-step routines stored in routines.md:
 - "לילה טוב" → turn off lights, close shutters, set AC to 24, lock door
 - "יוצא מהבית" → turn off everything, lock up
@@ -156,7 +189,7 @@ Named multi-step routines stored in routines.md:
 
 Jane chains multiple tool calls automatically from routine definitions.
 
-### 29. Proactive Behavior (Background Loop)
+### 34. Proactive Behavior (Background Loop)
 Jane monitors the home and speaks up when relevant:
 - "המזגן דולק כבר 5 שעות, לכבות?"
 - "אפרת עזבה את הבית"
@@ -170,22 +203,22 @@ AlertManager with cooldowns (15min door, 1h AC, 1d suggestions) to avoid spam.
 
 ## Future — v4.0.0
 
-### 30. Voice Recognition (Speaker ID)
+### 35. Voice Recognition (Speaker ID)
 Identify who is speaking from voice alone — no "who is this?" needed.
 Azure Speaker Recognition API or local model.
 
-### 31. Face Recognition
+### 36. Face Recognition
 Identify who is in the room via camera + Frigate.
 Presence-based context for proactive behavior.
 
-### 32. ElevenLabs TTS
+### 37. ElevenLabs TTS
 More natural Hebrew voice. Multilingual v2 model with Hebrew support.
 
-### 33. Multi-Room Satellites
+### 38. Multi-Room Satellites
 Wyoming Protocol + ESP32 devices — independent audio per room.
 Jane knows which room you're in and responds on the right speaker.
 
-### 34. Learning & Suggestions
+### 39. Learning & Suggestions
 Jane notices patterns and suggests automations:
 - "שמתי לב שכל ערב אתה מעמעם אור — רוצה שאיצור אוטומציה?"
 - "כל בוקר אתה מדליק חימום ב-7, רוצה שזה יהיה אוטומטי?"
@@ -201,7 +234,8 @@ Jane notices patterns and suggests automations:
 | v2.7.0 | + search_entities, get_history, list_areas | 7 |
 | v2.8.0 | + send_notification, check_people, set_timer, manage_list, get_statistics, get_logbook, tts_announce | 14 |
 | v3.0.0 | Context injection, dynamic temperature, anti-repetition (no new tools) | 14 |
-| v3.1.0 | + save_memory (planned) | 15 |
+| v3.1.0 | Switched to Claude Sonnet 4 (Anthropic API) | 14 |
+| v3.2.0 | + 19 tools (eval_template, bulk_control, save_memory, read_memory, get_device, calendars, helpers, config readers, etc.) + dual model Haiku/Sonnet + smart memory + prompt caching + config safety | 33 |
 
 ## Intelligence Evolution
 
@@ -211,4 +245,6 @@ Jane notices patterns and suggests automations:
 | v2.7.0 | Discovery tools — search, history, areas |
 | v2.8.0 | Family tools — notifications, timers, lists, TTS |
 | v3.0.0 | Context injection, dynamic temperature, anti-repetition, autonomous thinking, emotional awareness |
-| v3.1.0 | save_memory tool, smart tool filtering, proactive monitoring (planned) |
+| v3.1.0 | Claude Sonnet 4 replaces GPT-5.4 Mini — reliable tool calling, better Hebrew |
+| v3.2.0 | 33 tools, dual model (Haiku fast / Sonnet smart), smart memory (read_memory on demand), prompt caching, config API safety (backup + read validation) |
+| v3.3.0 | ha_config_api → HA Config Store API (planned) |

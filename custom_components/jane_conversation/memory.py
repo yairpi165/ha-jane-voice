@@ -224,9 +224,9 @@ def rebuild_home_map(client: Anthropic, hass):
     prompt = HOME_SETUP_PROMPT.replace("{entity_list}", "\n".join(entities))
 
     try:
-        from .const import CLAUDE_MODEL
+        from .const import CLAUDE_MODEL_SMART
         response = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=CLAUDE_MODEL_SMART,
             system=prompt,
             messages=[{"role": "user", "content": "Generate the home layout now."}],
             max_tokens=1500,
@@ -304,9 +304,9 @@ def process_memory(client: Anthropic, user_name: str, user_text: str, jane_respo
     )
 
     try:
-        from .const import CLAUDE_MODEL
+        from .const import CLAUDE_MODEL_SMART
         response = client.messages.create(
-            model=CLAUDE_MODEL,
+            model=CLAUDE_MODEL_SMART,
             system=prompt,
             messages=[{"role": "user", "content": "Analyze and respond with JSON."}],
             max_tokens=2000,

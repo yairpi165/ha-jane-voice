@@ -102,7 +102,7 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for details.
 ```
 jane/
 ├── custom_components/
-│   └── jane_conversation/      # HA custom integration (v3.0.0)
+│   └── jane_conversation/      # HA custom integration (v3.2.0)
 │       ├── __init__.py         # Setup, Firebase init, restore
 │       ├── manifest.json       # Integration metadata
 │       ├── config_flow.py      # UI config (OpenAI + Tavily + Firebase keys)
@@ -153,7 +153,7 @@ jane/
 
 | Layer | Technology |
 |-------|-----------|
-| LLM | GPT-5.4 Mini (function calling, dynamic temperature, context injection) |
+| LLM | Claude Sonnet 4 (complex) + Haiku 4.5 (fast) — dual model, 33 tools |
 | STT | gpt-4o-mini-transcribe (Hebrew prompt hints) |
 | TTS | OpenAI TTS, voice nova (via HACS) |
 | Smart Home | Home Assistant (native Python API) |
@@ -166,13 +166,15 @@ jane/
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap.
 
-v3.0.0 highlights:
-- **Context injection** — real-time awareness (weather, people, active devices)
-- **Dynamic temperature** — precise for commands, creative for conversation
-- **Anti-repetition** — tracks responses, forces variety
-- **Autonomous thinking** — "keep working until done, never guess"
+v3.2.0 highlights:
+- **Claude Sonnet 4** — replaced GPT-5.4 Mini, reliable tool calling
+- **Dual model** — Haiku 4.5 for fast commands, Sonnet 4 for complex tasks
+- **33 tools** — discovery, calendar, memory, device management, config reading
+- **Smart memory** — only home.md loaded by default, read_memory tool for on-demand access
+- **Prompt caching** — system prompt cached 5 min, chat gets 2 tools instead of 33
+- **Config safety** — backup before YAML write, refuses to write if read fails
 
 Next up:
-- **save_memory tool** — explicit memory during conversations
+- **ha_config_api → HA Config Store API** — safer automation creation (no more YAML)
 - **Proactive behavior** — Jane speaks up when she notices something
 - **Per-user personality** — different behavior per family member

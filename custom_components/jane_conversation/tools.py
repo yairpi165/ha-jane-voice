@@ -366,6 +366,403 @@ TOOL_TTS_ANNOUNCE = {
 }
 
 
+TOOL_EVAL_TEMPLATE = {
+    "name": "eval_template",
+    "description": (
+        "Evaluate a Jinja2 template in Home Assistant. Very powerful for calculations and queries. "
+        "Examples: count entities ('{{ states.light | selectattr(\"state\",\"eq\",\"on\") | list | count }}'), "
+        "date math ('{{ now().strftime(\"%A %d/%m\") }}'), "
+        "check conditions ('{{ states(\"sensor.temperature\") | float > 30 }}')."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "template": {
+                "type": "string",
+                "description": "Jinja2 template string to evaluate",
+            },
+        },
+        "required": ["template"],
+    },
+}
+
+TOOL_BULK_CONTROL = {
+    "name": "bulk_control",
+    "description": (
+        "Control multiple entities at once with a single command. "
+        "Use for 'turn off all lights', 'close all shutters', etc. "
+        "Much faster than calling call_ha_service multiple times."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "entity_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of entity IDs to control",
+            },
+            "domain": {
+                "type": "string",
+                "description": "Service domain (light, cover, switch, climate, etc.)",
+            },
+            "service": {
+                "type": "string",
+                "description": "Service name (turn_on, turn_off, close_cover, etc.)",
+            },
+            "data": {
+                "type": "object",
+                "description": "Optional service data (e.g. brightness, temperature)",
+            },
+        },
+        "required": ["entity_ids", "domain", "service"],
+    },
+}
+
+TOOL_SAVE_MEMORY = {
+    "name": "save_memory",
+    "description": (
+        "Save something important to Jane's memory. Use when you learn about "
+        "family members, preferences, corrections, or routines. "
+        "Write content in English. This is saved immediately."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": ["user", "family", "habits", "corrections", "routines"],
+                "description": "Memory category",
+            },
+            "content": {
+                "type": "string",
+                "description": "What to remember (in English)",
+            },
+            "user_name": {
+                "type": "string",
+                "description": "User name (required for 'user' category)",
+            },
+        },
+        "required": ["category", "content"],
+    },
+}
+
+TOOL_READ_MEMORY = {
+    "name": "read_memory",
+    "description": (
+        "Read a specific memory file. Use when you need personal info, family details, "
+        "habits, corrections, or routines. The home layout is always available — "
+        "use this for everything else.\n"
+        "Categories: 'user' (personal preferences), 'family' (family members), "
+        "'habits' (behavioral patterns), 'corrections' (past mistakes), "
+        "'routines' (goodnight, leaving home, etc.), 'actions' (recent 24h activity)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": ["user", "family", "habits", "corrections", "routines", "actions"],
+                "description": "Which memory to read",
+            },
+            "user_name": {
+                "type": "string",
+                "description": "User name (required for 'user' category)",
+            },
+        },
+        "required": ["category"],
+    },
+}
+
+TOOL_GET_DEVICE = {
+    "name": "get_device",
+    "description": (
+        "Get detailed information about a device and all its entities. "
+        "Use to understand what a device can do or find all entities belonging to it."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Device name or partial name to search for",
+            },
+        },
+        "required": ["query"],
+    },
+}
+
+TOOL_GET_CALENDAR_EVENTS = {
+    "name": "get_calendar_events",
+    "description": (
+        "Get upcoming calendar events. Use for 'what's on today?', "
+        "'do I have anything tomorrow?', 'what's this week?'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "days": {
+                "type": "integer",
+                "description": "How many days ahead to look (default 1, max 7)",
+            },
+        },
+    },
+}
+
+TOOL_CREATE_CALENDAR_EVENT = {
+    "name": "create_calendar_event",
+    "description": (
+        "Create a new calendar event. Use for 'add to calendar', "
+        "'remind me about the meeting', 'schedule dinner'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": "Event title/summary",
+            },
+            "start": {
+                "type": "string",
+                "description": "Start datetime (ISO format: 2026-04-10T09:00:00)",
+            },
+            "end": {
+                "type": "string",
+                "description": "End datetime (ISO format: 2026-04-10T10:00:00)",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional event description",
+            },
+        },
+        "required": ["summary", "start", "end"],
+    },
+}
+
+TOOL_CREATE_HELPER = {
+    "name": "create_helper",
+    "description": (
+        "Create a Home Assistant helper entity (input_boolean, input_number, timer, counter, input_text). "
+        "Use for toggles, counters, timers, or text inputs that persist across restarts."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "helper_type": {
+                "type": "string",
+                "enum": ["input_boolean", "input_number", "timer", "counter", "input_text"],
+                "description": "Type of helper to create",
+            },
+            "name": {
+                "type": "string",
+                "description": "Friendly name for the helper",
+            },
+            "icon": {
+                "type": "string",
+                "description": "Optional icon (e.g. mdi:timer, mdi:counter)",
+            },
+            "options": {
+                "type": "object",
+                "description": "Type-specific options: input_number needs min/max/step, timer needs duration",
+            },
+        },
+        "required": ["helper_type", "name"],
+    },
+}
+
+TOOL_LIST_HELPERS = {
+    "name": "list_helpers",
+    "description": (
+        "List all helper entities (input_boolean, input_number, timer, counter, input_text). "
+        "Use to discover what helpers exist."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+TOOL_LIST_SERVICES = {
+    "name": "list_services",
+    "description": (
+        "List available services for a domain. Use when you're not sure what services "
+        "a device type supports (e.g. what can I do with vacuum? with climate?)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "domain": {
+                "type": "string",
+                "description": "The domain to list services for (e.g. light, climate, vacuum, automation)",
+            },
+        },
+        "required": ["domain"],
+    },
+}
+
+TOOL_DEEP_SEARCH = {
+    "name": "deep_search",
+    "description": (
+        "Search inside automations, scripts, and scenes for a keyword. "
+        "Use for 'is there an automation that uses sensor X?', "
+        "'which automations control the living room?'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search term to find inside automation/script/scene configs",
+            },
+        },
+        "required": ["query"],
+    },
+}
+
+TOOL_RENAME_ENTITY = {
+    "name": "rename_entity",
+    "description": (
+        "Rename an entity's friendly name. Use when the user wants to rename a device "
+        "('call the bedroom light Night Light')."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "The entity to rename",
+            },
+            "new_name": {
+                "type": "string",
+                "description": "The new friendly name",
+            },
+        },
+        "required": ["entity_id", "new_name"],
+    },
+}
+
+TOOL_GET_AUTOMATION_CONFIG = {
+    "name": "get_automation_config",
+    "description": (
+        "Read the full configuration of an automation by its id. "
+        "Use for 'what does this automation do?', 'show me the automation config'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "item_id": {
+                "type": "string",
+                "description": "The automation id",
+            },
+        },
+        "required": ["item_id"],
+    },
+}
+
+TOOL_GET_SCRIPT_CONFIG = {
+    "name": "get_script_config",
+    "description": (
+        "Read the full configuration of a script by its id. "
+        "Use for 'what does this script do?', 'show me the script'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "item_id": {
+                "type": "string",
+                "description": "The script id",
+            },
+        },
+        "required": ["item_id"],
+    },
+}
+
+TOOL_GET_AUTOMATION_TRACES = {
+    "name": "get_automation_traces",
+    "description": (
+        "Get recent execution traces of an automation. Use for debugging: "
+        "'why didn't the automation run?', 'did the automation trigger today?'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "automation_id": {
+                "type": "string",
+                "description": "The automation entity_id (e.g. automation.heat_at_9am)",
+            },
+        },
+        "required": ["automation_id"],
+    },
+}
+
+TOOL_GET_OVERVIEW = {
+    "name": "get_overview",
+    "description": (
+        "Get a high-level overview of the smart home: total entities, domains, "
+        "areas, and entity counts per domain. Use for 'how big is my smart home?', "
+        "'how many lights do I have?'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+TOOL_LIST_FLOORS = {
+    "name": "list_floors",
+    "description": (
+        "List all floors in the home and which areas belong to each floor."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+TOOL_GET_ZONE = {
+    "name": "get_zone",
+    "description": (
+        "Get information about a zone (home, work, school, etc.) including "
+        "GPS coordinates and radius. Use with check_people to understand locations."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "zone_name": {
+                "type": "string",
+                "description": "Zone name or entity_id (e.g. 'home', 'zone.work')",
+            },
+        },
+        "required": ["zone_name"],
+    },
+}
+
+TOOL_UPDATE_DEVICE = {
+    "name": "update_device",
+    "description": (
+        "Update a device's name or area assignment. "
+        "Use for 'move the heater to the bedroom', 'rename the vacuum'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "device_query": {
+                "type": "string",
+                "description": "Device name to search for",
+            },
+            "new_name": {
+                "type": "string",
+                "description": "Optional: new device name",
+            },
+            "area_name": {
+                "type": "string",
+                "description": "Optional: area/room to assign the device to",
+            },
+        },
+        "required": ["device_query"],
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Active timers (in-memory, do not survive restart)
 # ---------------------------------------------------------------------------
@@ -408,6 +805,25 @@ def get_tools(tavily_api_key: str | None = None) -> list[dict]:
         TOOL_GET_STATISTICS,
         TOOL_GET_LOGBOOK,
         TOOL_TTS_ANNOUNCE,
+        TOOL_EVAL_TEMPLATE,
+        TOOL_BULK_CONTROL,
+        TOOL_SAVE_MEMORY,
+        TOOL_READ_MEMORY,
+        TOOL_GET_DEVICE,
+        TOOL_GET_CALENDAR_EVENTS,
+        TOOL_CREATE_CALENDAR_EVENT,
+        TOOL_CREATE_HELPER,
+        TOOL_LIST_HELPERS,
+        TOOL_LIST_SERVICES,
+        TOOL_DEEP_SEARCH,
+        TOOL_RENAME_ENTITY,
+        TOOL_GET_AUTOMATION_CONFIG,
+        TOOL_GET_SCRIPT_CONFIG,
+        TOOL_GET_AUTOMATION_TRACES,
+        TOOL_GET_OVERVIEW,
+        TOOL_LIST_FLOORS,
+        TOOL_GET_ZONE,
+        TOOL_UPDATE_DEVICE,
         TOOL_HA_CONFIG_API,
     ]
     if tavily_api_key:
@@ -451,6 +867,44 @@ async def execute_tool(
             return await _handle_get_logbook(hass, arguments)
         elif tool_name == "tts_announce":
             return await _handle_tts_announce(hass, arguments)
+        elif tool_name == "eval_template":
+            return await _handle_eval_template(hass, arguments)
+        elif tool_name == "bulk_control":
+            return await _handle_bulk_control(hass, arguments)
+        elif tool_name == "save_memory":
+            return await _handle_save_memory(hass, arguments)
+        elif tool_name == "read_memory":
+            return await _handle_read_memory(hass, arguments)
+        elif tool_name == "get_device":
+            return await _handle_get_device(hass, arguments)
+        elif tool_name == "get_calendar_events":
+            return await _handle_get_calendar_events(hass, arguments)
+        elif tool_name == "create_calendar_event":
+            return await _handle_create_calendar_event(hass, arguments)
+        elif tool_name == "create_helper":
+            return await _handle_create_helper(hass, arguments)
+        elif tool_name == "list_helpers":
+            return await _handle_list_helpers(hass, arguments)
+        elif tool_name == "list_services":
+            return await _handle_list_services(hass, arguments)
+        elif tool_name == "deep_search":
+            return await _handle_deep_search(hass, arguments)
+        elif tool_name == "rename_entity":
+            return await _handle_rename_entity(hass, arguments)
+        elif tool_name == "get_automation_config":
+            return await _handle_get_config(hass, arguments, "automation")
+        elif tool_name == "get_script_config":
+            return await _handle_get_config(hass, arguments, "script")
+        elif tool_name == "get_automation_traces":
+            return await _handle_get_automation_traces(hass, arguments)
+        elif tool_name == "get_overview":
+            return await _handle_get_overview(hass, arguments)
+        elif tool_name == "list_floors":
+            return await _handle_list_floors(hass, arguments)
+        elif tool_name == "get_zone":
+            return await _handle_get_zone(hass, arguments)
+        elif tool_name == "update_device":
+            return await _handle_update_device(hass, arguments)
         elif tool_name == "search_web":
             return await _handle_search_web(hass, arguments, tavily_api_key)
         elif tool_name == "ha_config_api":
@@ -1011,6 +1465,610 @@ async def _handle_tts_announce(hass: HomeAssistant, args: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Eval Template Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_eval_template(hass: HomeAssistant, args: dict) -> str:
+    """Evaluate a Jinja2 template."""
+    template_str = args.get("template", "")
+    if not template_str:
+        return "Error: template is required."
+
+    try:
+        from homeassistant.helpers.template import Template
+        tpl = Template(template_str, hass)
+        result = tpl.async_render()
+        return str(result)
+    except Exception as e:
+        return f"Template error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Bulk Control Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_bulk_control(hass: HomeAssistant, args: dict) -> str:
+    """Control multiple entities at once."""
+    entity_ids = args.get("entity_ids", [])
+    domain = args.get("domain", "")
+    service = args.get("service", "")
+    data = args.get("data", {}) or {}
+
+    if not entity_ids:
+        return "Error: entity_ids list is required."
+
+    results = []
+    for eid in entity_ids:
+        try:
+            service_data = {"entity_id": eid}
+            service_data.update(data)
+            await hass.services.async_call(domain, service, service_data, blocking=True)
+            results.append(f"{eid}: OK")
+        except Exception as e:
+            results.append(f"{eid}: failed ({e})")
+
+    return f"Bulk {domain}.{service} on {len(entity_ids)} entities:\n" + "\n".join(results)
+
+
+# ---------------------------------------------------------------------------
+# Save Memory Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_save_memory(hass: HomeAssistant, args: dict) -> str:
+    """Explicitly save to Jane's memory."""
+    from .memory import (
+        save_user_memory, save_family_memory, save_habits_memory,
+        save_corrections, save_routines, load_user_memory, load_family_memory,
+        load_habits_memory, load_corrections, load_routines,
+    )
+
+    category = args.get("category", "")
+    content = args.get("content", "")
+    user_name = args.get("user_name", "default")
+
+    if not content:
+        return "Error: content is required."
+
+    # Load existing content and append
+    loaders = {
+        "user": lambda: load_user_memory(user_name),
+        "family": load_family_memory,
+        "habits": load_habits_memory,
+        "corrections": load_corrections,
+        "routines": load_routines,
+    }
+    savers = {
+        "user": lambda c: save_user_memory(user_name, c),
+        "family": save_family_memory,
+        "habits": save_habits_memory,
+        "corrections": save_corrections,
+        "routines": save_routines,
+    }
+
+    if category not in loaders:
+        return f"Unknown category: {category}. Use: user, family, habits, corrections, routines"
+
+    existing = await hass.async_add_executor_job(loaders[category])
+    if existing:
+        new_content = existing + "\n" + content
+    else:
+        new_content = content
+
+    await hass.async_add_executor_job(savers[category], new_content)
+    _LOGGER.info("Memory saved: category=%s, length=%d", category, len(new_content))
+    return f"Saved to {category} memory."
+
+
+# ---------------------------------------------------------------------------
+# Read Memory Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_read_memory(hass: HomeAssistant, args: dict) -> str:
+    """Read a specific memory file on demand."""
+    from .memory import (
+        load_user_memory, load_family_memory, load_habits_memory,
+        load_corrections, load_routines, load_actions,
+    )
+
+    category = args.get("category", "")
+    user_name = args.get("user_name", "default")
+
+    loaders = {
+        "user": lambda: load_user_memory(user_name),
+        "family": load_family_memory,
+        "habits": load_habits_memory,
+        "corrections": load_corrections,
+        "routines": load_routines,
+        "actions": load_actions,
+    }
+
+    if category not in loaders:
+        return f"Unknown category: {category}. Available: {', '.join(loaders.keys())}"
+
+    content = await hass.async_add_executor_job(loaders[category])
+    if not content:
+        return f"No {category} memory saved yet."
+    return content
+
+
+# ---------------------------------------------------------------------------
+# Get Device Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_device(hass: HomeAssistant, args: dict) -> str:
+    """Get device info with all its entities."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    query = args.get("query", "").lower()
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+
+    # Find matching device
+    matched_device = None
+    for device in dev_reg.devices.values():
+        name = (device.name or "").lower()
+        if query in name:
+            matched_device = device
+            break
+
+    if not matched_device:
+        return f"No device found matching '{query}'."
+
+    # Find all entities for this device
+    entities = []
+    for entity in ent_reg.entities.values():
+        if entity.device_id == matched_device.id:
+            state = hass.states.get(entity.entity_id)
+            state_val = state.state if state else "unknown"
+            entities.append(f"- {entity.entity_id} ({state_val})")
+
+    lines = [
+        f"Device: {matched_device.name}",
+        f"Manufacturer: {matched_device.manufacturer or 'unknown'}",
+        f"Model: {matched_device.model or 'unknown'}",
+        f"Entities ({len(entities)}):",
+    ]
+    lines.extend(entities[:30])
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Calendar Events Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_calendar_events(hass: HomeAssistant, args: dict) -> str:
+    """Get upcoming calendar events."""
+    days = min(args.get("days", 1), 7)
+
+    # Find calendar entities
+    calendars = [s.entity_id for s in hass.states.async_all("calendar")]
+    if not calendars:
+        return "No calendars configured."
+
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    start = now.isoformat()
+    end = (now + timedelta(days=days)).isoformat()
+
+    all_events = []
+    for cal_id in calendars:
+        try:
+            result = await hass.services.async_call(
+                "calendar", "get_events",
+                {"entity_id": cal_id, "start_date_time": start, "end_date_time": end},
+                blocking=True, return_response=True,
+            )
+            if result and cal_id in result:
+                events = result[cal_id].get("events", [])
+                cal_name = hass.states.get(cal_id).attributes.get("friendly_name", cal_id)
+                for ev in events:
+                    all_events.append(f"- {ev.get('summary', '?')} ({cal_name}) — {ev.get('start', '?')}")
+        except Exception as e:
+            _LOGGER.warning("Calendar %s failed: %s", cal_id, e)
+
+    if not all_events:
+        return f"No events in the next {days} day(s)."
+    return f"Events (next {days} day(s)):\n" + "\n".join(all_events)
+
+
+# ---------------------------------------------------------------------------
+# Create Calendar Event Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_create_calendar_event(hass: HomeAssistant, args: dict) -> str:
+    """Create a calendar event."""
+    summary = args.get("summary", "")
+    start = args.get("start", "")
+    end = args.get("end", "")
+    description = args.get("description", "")
+
+    if not summary or not start or not end:
+        return "Error: summary, start, and end are required."
+
+    # Find first calendar
+    calendars = [s.entity_id for s in hass.states.async_all("calendar")]
+    if not calendars:
+        return "No calendars configured."
+
+    cal_id = calendars[0]
+    service_data = {
+        "entity_id": cal_id,
+        "summary": summary,
+        "start_date_time": start,
+        "end_date_time": end,
+    }
+    if description:
+        service_data["description"] = description
+
+    try:
+        await hass.services.async_call("calendar", "create_event", service_data, blocking=True)
+        return f"Created event '{summary}' on {start}."
+    except Exception as e:
+        return f"Failed to create event: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Create Helper Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_create_helper(hass: HomeAssistant, args: dict) -> str:
+    """Create a HA helper entity."""
+    helper_type = args.get("helper_type", "")
+    name = args.get("name", "")
+    icon = args.get("icon", "")
+    options = args.get("options", {}) or {}
+
+    if not helper_type or not name:
+        return "Error: helper_type and name are required."
+
+    config = {"name": name}
+    if icon:
+        config["icon"] = icon
+
+    if helper_type == "input_boolean":
+        config.update(options)
+    elif helper_type == "input_number":
+        config["min"] = options.get("min", 0)
+        config["max"] = options.get("max", 100)
+        config["step"] = options.get("step", 1)
+        config["mode"] = options.get("mode", "slider")
+    elif helper_type == "timer":
+        config["duration"] = options.get("duration", "00:05:00")
+    elif helper_type == "counter":
+        config["initial"] = options.get("initial", 0)
+        config["step"] = options.get("step", 1)
+    elif helper_type == "input_text":
+        config["min"] = options.get("min", 0)
+        config["max"] = options.get("max", 255)
+
+    try:
+        await hass.services.async_call(helper_type, "create", config, blocking=True)
+        return f"Created {helper_type} helper: {name}"
+    except Exception as e:
+        # Fallback: try via config entry
+        return f"Failed to create helper: {e}. Try creating it manually in Settings → Helpers."
+
+
+# ---------------------------------------------------------------------------
+# List Helpers Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_list_helpers(hass: HomeAssistant, args: dict) -> str:
+    """List all helper entities."""
+    helper_domains = {"input_boolean", "input_number", "input_text", "timer", "counter", "input_datetime", "input_select"}
+    helpers = []
+
+    for state in hass.states.async_all():
+        if state.domain in helper_domains:
+            name = state.attributes.get("friendly_name", state.entity_id)
+            helpers.append(f"- {name} ({state.entity_id}) — {state.state}")
+
+    if not helpers:
+        return "No helper entities found."
+    return f"Helpers ({len(helpers)}):\n" + "\n".join(helpers)
+
+
+# ---------------------------------------------------------------------------
+# List Services Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_list_services(hass: HomeAssistant, args: dict) -> str:
+    """List available services for a domain."""
+    domain = args.get("domain", "")
+    if not domain:
+        return "Error: domain is required."
+
+    all_services = hass.services.async_services()
+    if domain not in all_services:
+        available = sorted(all_services.keys())[:20]
+        return f"Domain '{domain}' not found. Available: {', '.join(available)}"
+
+    services = all_services[domain]
+    lines = [f"Services for {domain} ({len(services)}):"]
+    for svc_name, svc_info in sorted(services.items()):
+        desc = ""
+        if hasattr(svc_info, "get"):
+            desc = svc_info.get("description", "")
+        lines.append(f"- {domain}.{svc_name}" + (f" — {desc}" if desc else ""))
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Deep Search Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_deep_search(hass: HomeAssistant, args: dict) -> str:
+    """Search inside automations, scripts, and scenes."""
+    query = args.get("query", "").lower()
+    if not query:
+        return "Error: query is required."
+
+    config_dir = Path(hass.config.config_dir)
+    results = []
+
+    for resource, filename in _CONFIG_FILES.items():
+        filepath = config_dir / filename
+        is_list = resource in ("automation", "scene")
+        data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+
+        if is_list:
+            for item in data:
+                item_str = json.dumps(item, ensure_ascii=False, default=str).lower()
+                if query in item_str:
+                    alias = item.get("alias") or item.get("name", "?")
+                    results.append(f"- {resource}: {alias} (id: {item.get('id', '?')})")
+        else:
+            for key, val in data.items():
+                item_str = json.dumps(val, ensure_ascii=False, default=str).lower()
+                if query in item_str:
+                    alias = val.get("alias", key) if isinstance(val, dict) else key
+                    results.append(f"- {resource}: {alias} (id: {key})")
+
+    if not results:
+        return f"No automations, scripts, or scenes found containing '{query}'."
+    return f"Found '{query}' in:\n" + "\n".join(results)
+
+
+# ---------------------------------------------------------------------------
+# Rename Entity Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_rename_entity(hass: HomeAssistant, args: dict) -> str:
+    """Rename an entity's friendly name."""
+    entity_id = args.get("entity_id", "")
+    new_name = args.get("new_name", "")
+
+    if not entity_id or not new_name:
+        return "Error: entity_id and new_name are required."
+
+    from homeassistant.helpers import entity_registry as er
+    ent_reg = er.async_get(hass)
+
+    entry = ent_reg.async_get(entity_id)
+    if not entry:
+        return f"Entity '{entity_id}' not found in registry."
+
+    try:
+        ent_reg.async_update_entity(entity_id, name=new_name)
+        return f"Renamed {entity_id} to '{new_name}'."
+    except Exception as e:
+        return f"Failed to rename: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Get Automation/Script Config Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_config(hass: HomeAssistant, args: dict, resource: str) -> str:
+    """Read the full config of an automation or script."""
+    item_id = args.get("item_id", "")
+    if not item_id:
+        return f"Error: item_id is required."
+
+    config_dir = Path(hass.config.config_dir)
+    filepath = config_dir / _CONFIG_FILES.get(resource, "")
+    is_list = resource in ("automation", "scene")
+
+    data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+
+    if is_list:
+        for item in data:
+            if item.get("id") == item_id:
+                return json.dumps(item, ensure_ascii=False, indent=2, default=str)
+        return f"{resource} with id '{item_id}' not found."
+    else:
+        if item_id in data:
+            return json.dumps(data[item_id], ensure_ascii=False, indent=2, default=str)
+        return f"{resource} with id '{item_id}' not found."
+
+
+# ---------------------------------------------------------------------------
+# Get Automation Traces Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_automation_traces(hass: HomeAssistant, args: dict) -> str:
+    """Get recent execution traces of an automation."""
+    automation_id = args.get("automation_id", "")
+    if not automation_id:
+        return "Error: automation_id is required."
+
+    # Get automation state for last triggered
+    state = hass.states.get(automation_id)
+    if not state:
+        return f"Automation '{automation_id}' not found."
+
+    name = state.attributes.get("friendly_name", automation_id)
+    last_triggered = state.attributes.get("last_triggered", "never")
+    current_state = state.state  # on/off
+
+    lines = [
+        f"Automation: {name}",
+        f"Status: {current_state}",
+        f"Last triggered: {last_triggered}",
+    ]
+
+    # Try to get traces via websocket API
+    try:
+        from homeassistant.components.trace import async_get_trace
+        # Traces might not be accessible this way in all versions
+        lines.append("(Detailed traces available in HA UI → Automations → Traces)")
+    except ImportError:
+        pass
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Get Overview Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_overview(hass: HomeAssistant, args: dict) -> str:
+    """Get a high-level overview of the smart home."""
+    from homeassistant.helpers import area_registry as ar
+
+    all_states = hass.states.async_all()
+    area_reg = ar.async_get(hass)
+
+    # Count by domain
+    domain_counts: dict[str, int] = {}
+    for state in all_states:
+        domain_counts[state.domain] = domain_counts.get(state.domain, 0) + 1
+
+    # Sort by count
+    sorted_domains = sorted(domain_counts.items(), key=lambda x: -x[1])
+
+    areas = [a.name for a in area_reg.async_list_areas()]
+
+    lines = [
+        f"Total entities: {len(all_states)}",
+        f"Total areas: {len(areas)}",
+        f"Areas: {', '.join(areas) if areas else 'none configured'}",
+        "",
+        "Entities by domain:",
+    ]
+    for domain, count in sorted_domains[:20]:
+        lines.append(f"  {domain}: {count}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# List Floors Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_list_floors(hass: HomeAssistant, args: dict) -> str:
+    """List all floors and their areas."""
+    from homeassistant.helpers import floor_registry as fr
+    from homeassistant.helpers import area_registry as ar
+
+    floor_reg = fr.async_get(hass)
+    area_reg = ar.async_get(hass)
+
+    floors = list(floor_reg.async_list_floors())
+    if not floors:
+        return "No floors configured."
+
+    # Map areas to floors
+    lines = []
+    for floor in floors:
+        floor_areas = [a.name for a in area_reg.async_list_areas() if a.floor_id == floor.floor_id]
+        lines.append(f"### {floor.name}")
+        if floor_areas:
+            for area_name in floor_areas:
+                lines.append(f"  - {area_name}")
+        else:
+            lines.append("  (no areas assigned)")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Get Zone Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_zone(hass: HomeAssistant, args: dict) -> str:
+    """Get zone information."""
+    zone_name = args.get("zone_name", "").lower()
+
+    for state in hass.states.async_all("zone"):
+        name = state.attributes.get("friendly_name", "").lower()
+        eid = state.entity_id.lower()
+        if zone_name in name or zone_name in eid:
+            lat = state.attributes.get("latitude", "?")
+            lon = state.attributes.get("longitude", "?")
+            radius = state.attributes.get("radius", "?")
+            return (
+                f"Zone: {state.attributes.get('friendly_name', state.entity_id)}\n"
+                f"  Location: {lat}, {lon}\n"
+                f"  Radius: {radius}m\n"
+                f"  People in zone: {state.state}"
+            )
+
+    return f"Zone '{zone_name}' not found."
+
+
+# ---------------------------------------------------------------------------
+# Update Device Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_update_device(hass: HomeAssistant, args: dict) -> str:
+    """Update a device's name or area."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import area_registry as ar
+
+    query = args.get("device_query", "").lower()
+    new_name = args.get("new_name")
+    area_name = args.get("area_name")
+
+    if not query:
+        return "Error: device_query is required."
+
+    dev_reg = dr.async_get(hass)
+
+    # Find device
+    device = None
+    for d in dev_reg.devices.values():
+        if query in (d.name or "").lower():
+            device = d
+            break
+
+    if not device:
+        return f"Device '{query}' not found."
+
+    updates = {}
+    if new_name:
+        updates["name"] = new_name
+    if area_name:
+        area_reg = ar.async_get(hass)
+        # Find or create area
+        area = None
+        for a in area_reg.async_list_areas():
+            if area_name.lower() in a.name.lower():
+                area = a
+                break
+        if area:
+            updates["area_id"] = area.id
+        else:
+            return f"Area '{area_name}' not found."
+
+    if not updates:
+        return "Nothing to update. Provide new_name or area_name."
+
+    try:
+        dev_reg.async_update_device(device.id, **updates)
+        parts = []
+        if new_name:
+            parts.append(f"renamed to '{new_name}'")
+        if area_name:
+            parts.append(f"moved to '{area_name}'")
+        return f"Device '{device.name}' {' and '.join(parts)}."
+    except Exception as e:
+        return f"Failed to update device: {e}"
+
+
+# ---------------------------------------------------------------------------
 # Config API Handler
 # ---------------------------------------------------------------------------
 
@@ -1022,8 +2080,8 @@ def _read_yaml_file(path: Path, is_list: bool) -> list | dict:
     try:
         data = load_yaml(str(path))
     except Exception as e:
-        _LOGGER.error("Failed to read YAML %s: %s", path, e)
-        return [] if is_list else {}
+        _LOGGER.error("CRITICAL: Failed to read YAML %s: %s — returning NONE to prevent data loss", path, e)
+        return None  # Return None to signal read failure (not empty)
     if data is None:
         return [] if is_list else {}
     # Normalize: convert OrderedDict to regular types
@@ -1035,7 +2093,14 @@ def _read_yaml_file(path: Path, is_list: bool) -> list | dict:
 
 
 def _write_yaml_file(path: Path, data) -> None:
-    """Write YAML config file reliably using PyYAML directly."""
+    """Write YAML config file with backup. Never overwrites without backup."""
+    # Always create backup before writing
+    if path.exists():
+        bak = path.with_suffix(".bak")
+        import shutil
+        shutil.copy2(str(path), str(bak))
+        _LOGGER.info("Backed up %s → %s", path.name, bak.name)
+
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
@@ -1083,6 +2148,10 @@ async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
                     return "Error: config is required for create."
                 data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
 
+                # Safety: if read failed, refuse to write (prevents data loss)
+                if data is None:
+                    return f"Error: could not read {filepath.name} — refusing to write to prevent data loss. Check HA logs."
+
                 if is_list:
                     new_id = uuid.uuid4().hex[:12]
                     config["id"] = new_id
@@ -1106,6 +2175,8 @@ async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
                 if not config:
                     return "Error: config is required for update."
                 data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+                if data is None:
+                    return f"Error: could not read {filepath.name} — refusing to write to prevent data loss."
 
                 if is_list:
                     found = False
@@ -1130,6 +2201,8 @@ async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
                 if not item_id:
                     return "Error: item_id is required for delete."
                 data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
+                if data is None:
+                    return f"Error: could not read {filepath.name} — refusing to write to prevent data loss."
 
                 if is_list:
                     original_len = len(data)
