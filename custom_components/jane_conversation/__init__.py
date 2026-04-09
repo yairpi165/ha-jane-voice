@@ -29,10 +29,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await restore_all_memory(get_memory_dir())
             _LOGGER.info("Firebase memory backup enabled")
 
-    # Build home map on first setup
+    # Build home map on first setup (OpenAI client init is blocking)
     from openai import OpenAI
 
-    client = OpenAI(api_key=entry.data[CONF_OPENAI_API_KEY])
+    client = await hass.async_add_executor_job(
+        lambda: OpenAI(api_key=entry.data[CONF_OPENAI_API_KEY])
+    )
     await hass.async_add_executor_job(rebuild_home_map, client, hass)
 
     hass.data.setdefault(DOMAIN, {})
