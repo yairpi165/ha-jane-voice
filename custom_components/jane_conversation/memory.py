@@ -184,10 +184,17 @@ def rebuild_home_map(client: OpenAI, hass):
     if home_path.exists() and _read(home_path):
         return
 
-    relevant_domains = {"light", "switch", "climate", "cover", "media_player", "fan"}
+    relevant_domains = {"light", "climate", "cover", "media_player", "fan", "vacuum", "water_heater"}
+    skip_keywords = {"camera", "motion_detection", "microphone", "speaker", "audio_recording",
+                     "pet_detection", "rtsp", "extra_dry", "child_lock", "notification",
+                     "backup_map", "wetness_level", "suction_level", "mop_pad", "cleaning_mode",
+                     "cleaning_times", "cleaning_route", "floor_material", "visibility"}
     entities = []
     for state in hass.states.async_all():
         if state.domain in relevant_domains:
+            eid = state.entity_id.lower()
+            if any(kw in eid for kw in skip_keywords):
+                continue
             name = state.attributes.get("friendly_name", state.entity_id)
             entities.append(f"- {name} ({state.entity_id}) [domain: {state.domain}, state: {state.state}]")
 
