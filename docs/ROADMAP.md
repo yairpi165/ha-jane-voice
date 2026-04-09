@@ -68,24 +68,16 @@ Current time injected into GPT context. Night mode instructions in system prompt
 ---
 
 ### 10. Continue Conversation ✅
-After Jane responds, keep listening without requiring wake word.
-Always-on `continue_conversation=True` — natural for family conversations.
+After Jane responds, keep listening when she asks a question (ends with ?).
+Uses `continue_conversation` flag in ConversationResult.
 
 ---
 
-### 11. Phase 2 Tools — Create & Manage
+### 11. Phase 2 Tools — Create & Manage ✅
 Jane becomes a home manager, not just a remote control.
-
-| Tool | What GPT can do |
-|------|----------------|
-| `create_automation` | Create HA automations from natural language |
-| `list_automations` | See existing automations |
-| `update_automation` | Modify automations |
-| `delete_automation` | Remove automations |
-| `create_scene` | Create HA scenes |
-| `create_script` | Create HA scripts |
-
-See [TOOL_CALLING_ARCHITECTURE.md](TOOL_CALLING_ARCHITECTURE.md).
+One generic tool: `ha_config_api(resource, operation, config, item_id)`.
+GPT autonomously creates/updates/deletes automations, scenes, and scripts.
+Writes to YAML config files + reloads the domain.
 
 ---
 
