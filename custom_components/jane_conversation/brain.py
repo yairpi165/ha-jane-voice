@@ -39,10 +39,14 @@ async def _build_context(hass: HomeAssistant) -> str:
     if people_lines:
         parts.append("People: " + ", ".join(people_lines))
 
-    # Active devices (lights/climate/media that are ON)
+    # Active devices (lights/climate/media that are ON, skip cameras/internal)
+    skip_keywords = {"camera", "motion", "microphone", "speaker", "rtsp", "recording", "detection"}
     active = []
     for state in hass.states.async_all():
-        if state.domain in ("light", "climate", "media_player") and state.state not in ("off", "unavailable", "idle", "unknown"):
+        if state.domain in ("light", "climate", "media_player", "fan") and state.state not in ("off", "unavailable", "idle", "unknown", "standby"):
+            eid = state.entity_id.lower()
+            if any(kw in eid for kw in skip_keywords):
+                continue
             active.append(state.attributes.get("friendly_name", state.entity_id))
     if active:
         parts.append(f"Active: {', '.join(active[:10])}")
@@ -58,9 +62,9 @@ def _get_model_params(user_text: str) -> dict:
     if any(kw in text_lower for kw in _COMMAND_KEYWORDS):
         return {"temperature": 0.4}
 
-    # Conversation → varied and warm
+    # Conversation → varied but controlled
     if any(kw in text_lower for kw in _CHAT_KEYWORDS):
-        return {"temperature": 0.9, "frequency_penalty": 1.5, "presence_penalty": 0.6}
+        return {"temperature": 0.8, "frequency_penalty": 1.0, "presence_penalty": 0.4}
 
     # Default → balanced
     return {"temperature": 0.7, "frequency_penalty": 0.5}
