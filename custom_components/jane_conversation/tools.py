@@ -235,6 +235,185 @@ TOOL_LIST_AREAS = {
     },
 }
 
+TOOL_SEND_NOTIFICATION = {
+    "type": "function",
+    "function": {
+        "name": "send_notification",
+        "description": (
+            "Send a push notification to a family member's phone or the home tablet. "
+            "Use for reminders, alerts, or messages between family members."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Who to notify — a person's name (e.g. 'yair') or 'all' for everyone",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The notification message",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional notification title",
+                },
+            },
+            "required": ["target", "message"],
+        },
+    },
+}
+
+TOOL_CHECK_PEOPLE = {
+    "type": "function",
+    "function": {
+        "name": "check_people",
+        "description": (
+            "Check who is home and where family members are. "
+            "Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+}
+
+TOOL_SET_TIMER = {
+    "type": "function",
+    "function": {
+        "name": "set_timer",
+        "description": (
+            "Set a countdown timer. When it expires, Jane sends a notification. "
+            "Use for 'set a timer for 5 minutes', 'remind me in 10 minutes', etc. "
+            "Max 120 minutes. For longer delays use ha_config_api to create an automation."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "minutes": {
+                    "type": "integer",
+                    "description": "Timer duration in minutes",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message when timer expires (default: 'הטיימר הסתיים!')",
+                },
+            },
+            "required": ["minutes"],
+        },
+    },
+}
+
+TOOL_MANAGE_LIST = {
+    "type": "function",
+    "function": {
+        "name": "manage_list",
+        "description": (
+            "Manage shopping and todo lists — add, remove, or view items. "
+            "Available lists: shopping (רשימת קניות), personal lists per family member, family list."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "list_name": {
+                    "type": "string",
+                    "description": "Which list — 'shopping', 'family', or a person's name (yair, efrat, etc.)",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["view", "add", "remove"],
+                    "description": "What to do with the list",
+                },
+                "item": {
+                    "type": "string",
+                    "description": "Item text (required for add/remove)",
+                },
+            },
+            "required": ["list_name", "action"],
+        },
+    },
+}
+
+TOOL_GET_STATISTICS = {
+    "type": "function",
+    "function": {
+        "name": "get_statistics",
+        "description": (
+            "Get min/max/average statistics for a numeric sensor over a time period. "
+            "Use for 'what was the average temperature?', 'how much energy today?', etc."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "description": "The sensor entity to get statistics for",
+                },
+                "hours": {
+                    "type": "integer",
+                    "description": "Period in hours (default 24, max 168)",
+                },
+            },
+            "required": ["entity_id"],
+        },
+    },
+}
+
+TOOL_GET_LOGBOOK = {
+    "type": "function",
+    "function": {
+        "name": "get_logbook",
+        "description": (
+            "Get recent events and state changes in the home. "
+            "Use for 'what happened today?', 'what changed in the last hour?', "
+            "'show me recent activity'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "How many hours back to look (default 4, max 24)",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "Optional: filter to a specific entity",
+                },
+            },
+        },
+    },
+}
+
+TOOL_TTS_ANNOUNCE = {
+    "type": "function",
+    "function": {
+        "name": "tts_announce",
+        "description": (
+            "Announce a message through a speaker in the home. "
+            "Use for broadcasting: 'tell the kids dinner is ready', "
+            "'announce that we are leaving in 5 minutes'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The message to announce (in Hebrew)",
+                },
+            },
+            "required": ["message"],
+        },
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Active timers (in-memory, do not survive restart)
+# ---------------------------------------------------------------------------
+
+_ACTIVE_TIMERS: dict[str, asyncio.Task] = {}
+
 
 # ---------------------------------------------------------------------------
 # Config API constants
@@ -264,6 +443,13 @@ def get_tools(tavily_api_key: str | None = None) -> list[dict]:
         TOOL_SEARCH_ENTITIES,
         TOOL_GET_HISTORY,
         TOOL_LIST_AREAS,
+        TOOL_SEND_NOTIFICATION,
+        TOOL_CHECK_PEOPLE,
+        TOOL_SET_TIMER,
+        TOOL_MANAGE_LIST,
+        TOOL_GET_STATISTICS,
+        TOOL_GET_LOGBOOK,
+        TOOL_TTS_ANNOUNCE,
         TOOL_HA_CONFIG_API,
     ]
     if tavily_api_key:
@@ -293,6 +479,20 @@ async def execute_tool(
             return await _handle_get_history(hass, arguments)
         elif tool_name == "list_areas":
             return await _handle_list_areas(hass, arguments)
+        elif tool_name == "send_notification":
+            return await _handle_send_notification(hass, arguments)
+        elif tool_name == "check_people":
+            return await _handle_check_people(hass, arguments)
+        elif tool_name == "set_timer":
+            return await _handle_set_timer(hass, arguments)
+        elif tool_name == "manage_list":
+            return await _handle_manage_list(hass, arguments)
+        elif tool_name == "get_statistics":
+            return await _handle_get_statistics(hass, arguments)
+        elif tool_name == "get_logbook":
+            return await _handle_get_logbook(hass, arguments)
+        elif tool_name == "tts_announce":
+            return await _handle_tts_announce(hass, arguments)
         elif tool_name == "search_web":
             return await _handle_search_web(hass, arguments, tavily_api_key)
         elif tool_name == "ha_config_api":
@@ -517,6 +717,339 @@ async def _handle_list_areas(hass: HomeAssistant, args: dict) -> str:
     if not lines:
         return "No areas configured in Home Assistant."
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Notification Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_send_notification(hass: HomeAssistant, args: dict) -> str:
+    """Send push notification to a family member."""
+    target = args.get("target", "all").lower().strip()
+    message = args.get("message", "")
+    title = args.get("title")
+
+    # Find matching notify service dynamically
+    all_services = hass.services.async_services().get("notify", {})
+    service_name = None
+
+    for svc_name in all_services:
+        if target in svc_name.lower() and svc_name != "persistent_notification":
+            service_name = svc_name
+            break
+
+    if not service_name:
+        if target == "all":
+            service_name = "notify"
+        else:
+            available = [s for s in all_services if s not in ("persistent_notification", "notify")]
+            return f"No notification target found for '{target}'. Available: {', '.join(available)}"
+
+    data = {"message": message}
+    if title:
+        data["title"] = title
+
+    try:
+        await hass.services.async_call("notify", service_name, data, blocking=True)
+        return f"Notification sent to {target}."
+    except Exception as e:
+        return f"Failed to send notification: {e}"
+
+
+# ---------------------------------------------------------------------------
+# People Tracker Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_check_people(hass: HomeAssistant, args: dict) -> str:
+    """Check who is home."""
+    people = []
+    for state in hass.states.async_all("person"):
+        name = state.attributes.get("friendly_name", state.entity_id)
+        location = state.state
+        gps = ""
+        if "latitude" in state.attributes and location not in ("home", "not_home"):
+            gps = f" (GPS: {state.attributes['latitude']:.4f}, {state.attributes['longitude']:.4f})"
+        if location == "home":
+            status = "at home"
+        elif location == "not_home":
+            status = "away"
+        else:
+            status = location
+        people.append(f"- {name}: {status}{gps}")
+
+    if not people:
+        return "No people configured in Home Assistant."
+    return "Family members:\n" + "\n".join(people)
+
+
+# ---------------------------------------------------------------------------
+# Timer Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_set_timer(hass: HomeAssistant, args: dict) -> str:
+    """Set a countdown timer with notification on expiry."""
+    minutes = args.get("minutes", 0)
+    message = args.get("message", "הטיימר הסתיים!")
+
+    if minutes <= 0:
+        return "Error: minutes must be positive."
+    if minutes > 120:
+        return "Error: max 120 minutes. For longer, use ha_config_api to create an automation."
+
+    timer_id = f"jane_timer_{uuid.uuid4().hex[:6]}"
+
+    async def _timer_callback():
+        try:
+            await asyncio.sleep(minutes * 60)
+            # Send persistent notification (always visible on dashboard)
+            await hass.services.async_call("notify", "persistent_notification", {
+                "message": message,
+                "title": "Jane Timer",
+            }, blocking=True)
+            # Also try push notification
+            try:
+                await hass.services.async_call("notify", "notify", {
+                    "message": message,
+                    "title": "Jane Timer",
+                }, blocking=True)
+            except Exception:
+                pass
+            _LOGGER.info("Timer %s completed: %s", timer_id, message)
+        except asyncio.CancelledError:
+            _LOGGER.info("Timer %s cancelled", timer_id)
+        finally:
+            _ACTIVE_TIMERS.pop(timer_id, None)
+
+    task = hass.async_create_task(_timer_callback())
+    _ACTIVE_TIMERS[timer_id] = task
+    return f"Timer set for {minutes} minutes. I'll notify you when it's done."
+
+
+# ---------------------------------------------------------------------------
+# List Management Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_manage_list(hass: HomeAssistant, args: dict) -> str:
+    """Manage shopping/todo lists."""
+    list_name = args.get("list_name", "").lower().strip()
+    action = args.get("action", "view")
+    item = args.get("item", "")
+
+    # Find matching todo entity dynamically
+    entity_id = None
+    for state in hass.states.async_all("todo"):
+        name = (state.attributes.get("friendly_name") or "").lower()
+        eid = state.entity_id.lower()
+        if list_name in name or list_name in eid or (
+            list_name in ("shopping", "קניות") and "qnyvt" in eid
+        ):
+            entity_id = state.entity_id
+            break
+
+    if not entity_id:
+        lists = [
+            f"{s.attributes.get('friendly_name', s.entity_id)} ({s.entity_id})"
+            for s in hass.states.async_all("todo")
+        ]
+        return f"List '{list_name}' not found. Available:\n" + "\n".join(lists)
+
+    try:
+        if action == "view":
+            result = await hass.services.async_call(
+                "todo", "get_items",
+                {"entity_id": entity_id},
+                blocking=True, return_response=True,
+            )
+            if result and entity_id in result:
+                items = result[entity_id].get("items", [])
+                if not items:
+                    return "The list is empty."
+                lines = [f"Items in {list_name}:"]
+                for i in items:
+                    status = "x" if i.get("status") == "completed" else " "
+                    lines.append(f"  [{status}] {i.get('summary', '?')}")
+                return "\n".join(lines)
+            return "The list is empty."
+
+        elif action == "add":
+            if not item:
+                return "Error: item text is required for add."
+            await hass.services.async_call(
+                "todo", "add_item",
+                {"entity_id": entity_id, "item": item},
+                blocking=True,
+            )
+            return f"Added '{item}' to {list_name}."
+
+        elif action == "remove":
+            if not item:
+                return "Error: item text is required for remove."
+            await hass.services.async_call(
+                "todo", "remove_item",
+                {"entity_id": entity_id, "item": item},
+                blocking=True,
+            )
+            return f"Removed '{item}' from {list_name}."
+
+        return f"Unknown action: {action}. Use: view, add, remove"
+    except Exception as e:
+        return f"List operation failed: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Statistics Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_statistics(hass: HomeAssistant, args: dict) -> str:
+    """Get min/max/avg statistics for a numeric sensor."""
+    entity_id = args.get("entity_id", "")
+    hours = min(args.get("hours", 24), 168)
+
+    try:
+        from homeassistant.components.recorder.history import get_significant_states
+        from homeassistant.components.recorder import get_instance
+    except ImportError:
+        return "Statistics not available (recorder not loaded)."
+
+    start = dt_util.utcnow() - timedelta(hours=hours)
+
+    try:
+        states = await get_instance(hass).async_add_executor_job(
+            get_significant_states, hass, start, None, [entity_id],
+        )
+    except Exception as e:
+        return f"Could not get statistics: {e}"
+
+    if not states or entity_id not in states:
+        return f"No data for {entity_id} in the last {hours} hours."
+
+    values = []
+    for state in states[entity_id]:
+        try:
+            values.append(float(state.state))
+        except (ValueError, TypeError):
+            continue
+
+    if not values:
+        return f"No numeric data for {entity_id}. State values are not numbers."
+
+    avg = sum(values) / len(values)
+    unit = ""
+    current_state = hass.states.get(entity_id)
+    if current_state:
+        unit = current_state.attributes.get("unit_of_measurement", "")
+
+    lines = [f"Statistics for {entity_id} (last {hours}h):"]
+    lines.append(f"  Average: {avg:.1f} {unit}")
+    lines.append(f"  Min: {min(values):.1f} {unit}")
+    lines.append(f"  Max: {max(values):.1f} {unit}")
+    lines.append(f"  Current: {values[-1]:.1f} {unit}")
+    lines.append(f"  Data points: {len(values)}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Logbook Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_get_logbook(hass: HomeAssistant, args: dict) -> str:
+    """Get recent events/state changes in the home."""
+    hours = min(args.get("hours", 4), 24)
+    entity_id = args.get("entity_id")
+
+    try:
+        from homeassistant.components.recorder.history import get_significant_states
+        from homeassistant.components.recorder import get_instance
+    except ImportError:
+        return "Logbook not available (recorder not loaded)."
+
+    start = dt_util.utcnow() - timedelta(hours=hours)
+    interesting_domains = {
+        "light", "climate", "cover", "media_player", "switch",
+        "vacuum", "lock", "person", "fan", "water_heater",
+    }
+
+    # Get entity IDs to query
+    if entity_id:
+        entity_ids = [entity_id]
+    else:
+        entity_ids = [
+            s.entity_id for s in hass.states.async_all()
+            if s.domain in interesting_domains
+        ]
+
+    try:
+        states = await get_instance(hass).async_add_executor_job(
+            get_significant_states, hass, start, None, entity_ids,
+        )
+    except Exception as e:
+        return f"Could not get logbook: {e}"
+
+    if not states:
+        return f"No events in the last {hours} hours."
+
+    # Flatten and sort by time
+    events = []
+    for eid, entity_states in states.items():
+        for state in entity_states:
+            name = state.attributes.get("friendly_name", eid)
+            events.append((state.last_changed, name, state.state))
+
+    events.sort(key=lambda e: e[0])
+    events = events[-30:]  # Last 30 events
+
+    lines = [f"Logbook (last {hours}h):"]
+    for ts, name, state_val in events:
+        t = ts.astimezone(dt_util.DEFAULT_TIME_ZONE).strftime("%H:%M")
+        lines.append(f"  {t} — {name}: {state_val}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# TTS Announce Handler
+# ---------------------------------------------------------------------------
+
+async def _handle_tts_announce(hass: HomeAssistant, args: dict) -> str:
+    """Announce a message through a speaker."""
+    message = args.get("message", "")
+    if not message:
+        return "Error: message is required."
+
+    # Find TTS entity dynamically
+    tts_entity = None
+    for state in hass.states.async_all("tts"):
+        tts_entity = state.entity_id
+        break
+
+    if not tts_entity:
+        return "No TTS engine configured."
+
+    # Find a media_player to use (prefer HomePod, fall back to any)
+    target_player = None
+    for state in hass.states.async_all("media_player"):
+        eid = state.entity_id
+        if "homepod" in eid.lower() or "slvn" in eid.lower():
+            target_player = eid
+            break
+    if not target_player:
+        # Fall back to first available media player
+        for state in hass.states.async_all("media_player"):
+            target_player = state.entity_id
+            break
+
+    if not target_player:
+        return "No speaker found to announce on."
+
+    try:
+        await hass.services.async_call("tts", "speak", {
+            "entity_id": tts_entity,
+            "media_player_entity_id": target_player,
+            "message": message,
+        }, blocking=True)
+        return f"Announced on {target_player}."
+    except Exception as e:
+        return f"TTS announce failed: {e}"
 
 
 # ---------------------------------------------------------------------------

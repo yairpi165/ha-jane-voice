@@ -2,375 +2,253 @@
 
 ## Overview
 
-Jane uses OpenAI's function calling to autonomously decide what tools to use. Instead of us pre-fetching data and hardcoding logic, GPT receives a set of tools and decides on its own what to call, when, and in what order.
+Jane uses OpenAI's function calling to autonomously decide what tools to use. GPT-5.4 Mini receives tool definitions and decides on its own what to call, when, and in what order.
 
 This is the same pattern as Claude with MCP tools — the LLM has capabilities and uses them as needed.
 
 ---
 
-## Current vs New Approach
+## How It Works
 
-### Current (hardcoded)
 ```
-We pre-fetch all device states → send everything to GPT → GPT responds
-We pre-fetch weather → send to GPT
-We decide what GPT sees
+User speaks → Whisper STT → text
+                              │
+                              ▼
+                    ┌──────────────────┐
+                    │    brain.py       │
+                    │                   │
+                    │  System prompt    │
+                    │  + Context injection (weather, people, home state)
+                    │  + Memory context │
+                    │  + Session history│
+                    │  + User text      │
+                    │                   │
+                    │  GPT-5.4 Mini     │──→ Tool call?
+                    │  (function calling)│      │
+                    └──────────┬────────┘      │
+                               │           ┌───┴───┐
+                               │           │ Yes   │ No → return response
+                               │           └───┬───┘
+                               │               ▼
+                               │    Execute tool(s) via tools.py
+                               │               │
+                               │               ▼
+                               │    Feed result back to GPT
+                               │               │
+                               │    ◄──────────┘ (loop, max 10 iterations)
+                               │
+                               ▼
+                    Final response → TTS → Speaker
 ```
-
-**Problems:**
-- GPT gets data it doesn't need (all entities on every call)
-- GPT can't get data we didn't think to fetch (forecasts, history, calendars)
-- Every new capability requires code changes
-- Wastes tokens on irrelevant context
-
-### New (tool calling)
-```
-GPT receives tool definitions → GPT decides what to call → we execute → GPT responds
-```
-
-**Benefits:**
-- GPT only fetches what it needs
-- New HA capabilities are automatic (any service, any entity)
-- Web search is just another tool
-- Less code, more flexible
-- Lower token usage (no pre-fetching everything)
 
 ---
 
-## Tools
+## All Tools (v2.8.0 — 14 tools)
 
-### 1. get_entity_state
-Read the current state and attributes of any HA entity.
+### Core — Device Control
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `get_entity_state` | Read current state + attributes | "כמה מעלות?", "האור דולק?" |
+| `call_ha_service` | Call any HA service | "תדליקי אור", "תשני ל-24 מעלות" |
 
-```json
-{
-  "name": "get_entity_state",
-  "description": "Get the current state of a Home Assistant entity. Use to check device status, temperature, weather, sensor readings, etc.",
-  "parameters": {
-    "entity_id": "The entity ID (e.g. weather.forecast_home, light.living_room)"
-  }
-}
-```
+### Discovery — Find & Explore
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `search_entities` | Find entities by name/domain | "מה יש בחדר שינה?", "תמצאי חיישן טמפרטורה" |
+| `list_areas` | List all rooms + devices | "מה החדרים בבית?" |
+| `get_history` | State change history | "מתי המזגן נדלק?", "כמה זמן רץ השואב?" |
+| `get_statistics` | Min/max/avg over time | "מה הטמפרטורה הממוצעת היום?" |
+| `get_logbook` | Recent events | "מה קרה בבית היום?" |
 
-**GPT uses this for:**
-- "כמה מעלות בבית?" → `get_entity_state("weather.forecast_home")`
-- "האם האור בסלון דולק?" → `get_entity_state("light.switcher_light_3708")`
-- "מה מצב השואב?" → `get_entity_state("vacuum.x40_ultra")`
+### Family Life
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `check_people` | Who's home, where | "מי בבית?", "איפה אפרת?" |
+| `send_notification` | Push to phone/tablet | "תשלחי ליאיר הודעה שאני מאחרת" |
+| `set_timer` | Countdown + notification | "טיימר 5 דקות", "תזכירי לי בעוד 10 דקות" |
+| `manage_list` | Shopping/todo lists | "תוסיפי חלב לרשימת קניות" |
+| `tts_announce` | Broadcast via speaker | "תגידי לילדים שארוחת ערב מוכנה" |
 
-**Returns:** Entity state + all attributes as formatted text.
+### Creation & Management
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `ha_config_api` | CRUD automations/scenes/scripts | "תיצרי אוטומציה לחימום כל בוקר ב-7" |
 
-### 2. call_ha_service
-Call any Home Assistant service — control devices, get forecasts, trigger scripts.
-
-```json
-{
-  "name": "call_ha_service",
-  "description": "Call a Home Assistant service. Use to control devices (turn on/off, set temperature, open/close), get weather forecasts, trigger scripts, or any other HA service.",
-  "parameters": {
-    "domain": "Service domain (e.g. light, climate, weather, script)",
-    "service": "Service name (e.g. turn_on, turn_off, get_forecasts)",
-    "entity_id": "Target entity ID",
-    "data": "Additional service data as JSON object (optional)"
-  }
-}
-```
-
-**GPT uses this for:**
-- "תדליקי אור בסלון" → `call_ha_service("light", "turn_on", "light.switcher_light_3708")`
-- "מה מזג האוויר מחר?" → `call_ha_service("weather", "get_forecasts", "weather.forecast_home", {"type": "daily"})`
-- "כבי הכל" → multiple `call_ha_service` calls
-- "תפעילי את השואב" → `call_ha_service("vacuum", "start", "vacuum.x40_ultra")`
-
-**Returns:** Service execution result or response data.
-
-### 3. search_web
-Search the internet for real-time information not available in HA.
-
-```json
-{
-  "name": "search_web",
-  "description": "Search the web for current information. Use ONLY when the information is not available from Home Assistant entities or services. Good for: news, exchange rates, traffic, business hours, sports scores, general knowledge.",
-  "parameters": {
-    "query": "Search query (Hebrew for Israeli topics, English for international)"
-  }
-}
-```
-
-**GPT uses this for:**
-- "מה שער הדולר?" → `search_web("USD ILS exchange rate today")`
-- "מה קורה בחדשות?" → `search_web("Israel news today")`
-- "כמה זמן נסיעה לירושלים?" → `search_web("driving time to Jerusalem now")`
-
-**Returns:** Tavily clean text results (answer + source snippets).
+### External
+| Tool | What it does | Example |
+|------|-------------|---------|
+| `search_web` | Tavily web search | "מה שער הדולר?", "מה קורה בחדשות?" |
 
 ---
 
-## Flow
+## Tool Implementation Details
 
-### Simple device command
+### get_entity_state
+- **Handler**: `hass.states.get(entity_id)`
+- **Returns**: Entity name, state, and all useful attributes (skips internal ones)
+- **GPT uses**: To check any device before acting or answering
+
+### call_ha_service
+- **Handler**: `hass.services.async_call(domain, service, data, blocking=True)`
+- **Returns**: "Success" or response data (for weather/calendar/todo services)
+- **Special**: `return_response=True` for services that return data (weather.get_forecasts, todo.get_items, calendar.get_events)
+- **Data examples**: brightness_pct, temperature, volume_level (0.0–1.0), position (0–100)
+
+### search_entities
+- **Handler**: Iterates `hass.states.async_all()`, fuzzy match on friendly_name and entity_id
+- **Returns**: JSON array of matching entities with state (max 15 results)
+- **Why needed**: Jane can find devices without knowing exact entity_ids
+
+### get_history
+- **Handler**: `recorder.history.get_significant_states()` via executor
+- **Returns**: Last 25 state changes with timestamps and key attributes
+- **Fallback**: Graceful error if recorder not loaded
+
+### list_areas
+- **Handler**: `area_registry` + `entity_registry` + `device_registry`
+- **Returns**: Rooms with all their entities and current states
+- **Includes**: Unassigned devices section for devices not in any area
+
+### send_notification
+- **Handler**: Dynamically finds notify service matching target name
+- **Returns**: Confirmation or list of available targets
+- **Services**: `notify.mobile_app_yair_phone_14`, `notify.mobile_app_home`, `notify.notify`
+
+### check_people
+- **Handler**: Reads all `person.*` entities
+- **Returns**: Name + location (home/away/zone) + GPS if available
+
+### set_timer
+- **Handler**: `asyncio.sleep(minutes * 60)` → persistent notification + push
+- **Limits**: Max 120 minutes (longer → use ha_config_api for automation)
+- **Note**: In-memory, does not survive HA restart
+
+### manage_list
+- **Handler**: Dynamically finds todo entity by name matching
+- **Services**: `todo.get_items`, `todo.add_item`, `todo.remove_item`
+- **Lists**: רשימת קניות, יאיר, אפרת, משפחתי, אלון, יערה
+
+### get_statistics
+- **Handler**: `recorder.history.get_significant_states()` → extract numeric values → calculate min/max/avg
+- **Returns**: Average, min, max, current value with unit of measurement
+
+### get_logbook
+- **Handler**: `recorder.history.get_significant_states()` across interesting domains
+- **Domains**: light, climate, cover, media_player, switch, vacuum, lock, person, fan, water_heater
+- **Returns**: Last 30 state changes sorted by time
+
+### tts_announce
+- **Handler**: Finds TTS entity + media player dynamically → `tts.speak`
+- **Priority**: Prefers HomePod mini (`media_player.slvn_2`), falls back to any speaker
+
+### ha_config_api
+- **Handler**: Reads/writes YAML config files + `domain.reload` service
+- **Resources**: automation, scene, script
+- **Operations**: list, create, update, delete
+- **Safety**: asyncio.Lock per resource type, UUID generation for new items
+
+### search_web
+- **Handler**: Tavily REST API (`search_web.py`)
+- **Condition**: Only available when Tavily API key is configured
+- **Returns**: Clean text answer + source snippets
+
+---
+
+## Planned Tools (v3.0.0)
+
+### save_memory
+Explicit memory management during conversation. Jane calls this when she learns something important.
+```
+save_memory(category="family", content="Maor is 8 years old, likes soccer")
+```
+Coexists with background memory extraction.
+
+---
+
+## Planned: Context Injection (v3.0.0)
+
+Not a tool — automatically injected as system message before every conversation:
+
+```python
+# In brain.py, before GPT call:
+context = []
+context.append(f"Weather: {weather_state} {temperature}°C")
+context.append(f"People: {', '.join(people_at_home)} at home")
+context.append(f"Active devices: {', '.join(active_devices)}")
+context.append(f"Calendar: {today_events}")
+
+messages.append({"role": "system", "content": "Current context:\n" + "\n".join(context)})
+```
+
+This gives Jane ambient awareness without needing tool calls for basic context.
+
+---
+
+## Flow Examples
+
+### Simple command
 ```
 User: "תדליקי אור בסלון"
-  → GPT call #1 (tools available)
-  → GPT: call_ha_service("light", "turn_on", "light.switcher_light_3708")
-  → HA executes → success
-  → GPT call #2 (with result)
-  → "בוצע"
+  → GPT sees home.md → knows light.switcher_light_3708
+  → call_ha_service("light", "turn_on", "light.switcher_light_3708")
+  → "הדלקתי"
 ```
 
-### Weather forecast (from HA)
+### Discovery + action
 ```
-User: "מה מזג האוויר מחר?"
-  → GPT call #1 (tools available)
-  → GPT: call_ha_service("weather", "get_forecasts", "weather.forecast_home", {"type": "daily"})
-  → HA returns forecast data
-  → GPT call #2 (with forecast)
-  → "מחר יהיה שמשי, 21 מעלות, בלי גשם"
+User: "תרתיחי מים"
+  → GPT searches home.md for "מים" or "tami" → finds button.myny_br_boil_water
+  → call_ha_service("button", "press", "button.myny_br_boil_water")
+  → "המים ברזי מרתיחים"
 ```
 
-### Web search (from Tavily)
+### Multi-tool reasoning
 ```
-User: "מה שער הדולר?"
-  → GPT call #1 (tools available)
-  → GPT: search_web("USD ILS exchange rate")
-  → Tavily returns results
-  → GPT call #2 (with search results)
-  → "שער הדולר היום הוא 3.72 שקלים"
-```
-
-### Simple conversation (no tools)
-```
-User: "ספרי לי בדיחה"
-  → GPT call #1 (tools available but not used)
-  → GPT returns response directly
-  → "למה התרנגולת חצתה את הכביש?..."
+User: "יוצא מהבית, תסגרי הכל"
+  → GPT calls list_areas or uses home.md
+  → call_ha_service: turn_off lights (multiple)
+  → call_ha_service: turn_off AC
+  → call_ha_service: close covers
+  → "סגרתי הכל — אורות, מזגן, תריסים. יום טוב!"
 ```
 
-### Multi-tool (GPT calls multiple tools)
+### Family interaction
 ```
-User: "כבי את כל האורות וספרי לי מה מזג האוויר"
-  → GPT call #1 (tools)
-  → GPT: call_ha_service("light", "turn_off", "all") + get_entity_state("weather.forecast_home")
-  → Both execute
-  → GPT call #2 (with results)
-  → "כיביתי את כל האורות. בחוץ 19 מעלות, מעונן חלקית"
+User: "מי בבית?"
+  → check_people()
+  → "יאיר בבית, אפרת לא בבית."
 ```
 
----
-
-## What GPT Needs to Know
-
-Instead of pre-fetching all entity states, GPT gets:
-1. **System prompt** — personality, response format
-2. **Memory** — personal, family, habits, corrections, routines (from MD files)
-3. **Home layout** — `home.md` with room→device mapping + entity IDs
-4. **Session history** — previous turns in this conversation
-5. **Tools** — `get_entity_state`, `call_ha_service`, `search_web`
-
-GPT uses `home.md` to know WHAT exists, and the tools to interact with them.
-
-**We no longer pre-fetch entity states.** GPT fetches only what it needs via `get_entity_state`.
-
----
-
-## Changes from Current Architecture
-
-### What's removed
-- `get_exposed_entities()` function — no more pre-fetching all states
-- Hardcoded JSON response format in system prompt — GPT uses tools natively
-- Custom action parsing in `execute()` — replaced by tool execution
-
-### What's added
-- `tools.py` — tool definitions + execution handlers
-- Function calling loop in `brain.py` — multi-step tool use
-- `web_search.py` — Tavily wrapper (one of the tools)
-
-### What stays the same
-- Memory system (load context before GPT call, extract after)
-- Session history (multi-turn conversations)
-- User identification (from HA auth)
-- Action logging (append_action after each interaction)
-- Memory extraction (background GPT call after response)
-- `memory.py` — unchanged
-- `config_flow.py` — extended with optional Tavily key
-- `manifest.json` — unchanged
-
-### Memory integration with tool calling
+### Timer + notification
 ```
-1. Load memory (before GPT call)        ← unchanged
-2. GPT call with tools                  ← NEW (was: GPT call with JSON format)
-3. Tool execution loop                  ← NEW
-4. Final response to user               ← unchanged
-5. append_action() in background         ← unchanged
-6. process_memory() in background        ← unchanged
+User: "תזכירי לי בעוד 10 דקות לצאת"
+  → set_timer(10, "תזכורת: הגיע הזמן לצאת!")
+  → "בסדר, אזכיר לך בעוד 10 דקות."
+  ... 10 minutes later → push notification
 ```
 
-Memory extraction receives the final response text, not the tool calls.
-Tool call details are NOT stored in memory (too noisy).
-Only the user's question and Jane's final answer go to memory extraction.
-
----
-
-## System Prompt (Updated)
-
-The system prompt simplifies dramatically. No more JSON format instructions — GPT uses tools:
-
+### Context-aware greeting (v3.0.0)
 ```
-את ג'יין — עוזרת בית חכמה ומסייעת אישית.
-את מדברת עברית בצורה טבעית וידידותית.
-
-יש לך כלים לשלוט בבית ולחפש מידע. השתמשי בהם כשצריך.
-לפקודות פשוטות (הדלקת אור, כיבוי) — עני בקצרה: "בוצע", "נעשה".
-לשאלות — עני בצורה טבעית ותמציתית.
-
-אם המשתמש שואל על מזג אוויר, טמפרטורה, או מצב מכשיר — השתמשי ב-get_entity_state או call_ha_service כדי לקבל מידע עדכני.
-אל תנחשי מצב מכשירים — תמיד בדקי קודם.
-
-חפשי באינטרנט רק כשהמידע לא זמין מהבית החכם (חדשות, שערי מטבע, שעות פעילות וכו').
+User: "בוקר טוב ג'יין"
+  → Context already injected: 28°C, sunny, Yair home, Efrat left at 7:30
+  → "בוקר טוב יאיר! היום חם, 28 מעלות ושמשי. אפרת כבר יצאה ב-7:30."
+  (No tool calls needed — context was pre-loaded)
 ```
-
----
-
-## Tavily Web Search
-
-### Why Tavily
-- Returns **clean text** optimized for LLMs (no HTML, no ads, no SEO noise)
-- Includes pre-summarized answer + source snippets
-- Free tier: 1,000 searches/month (no credit card required)
-- Pay as you go beyond: $0.008/search (~1 cent)
-
-### API Call
-```
-POST https://api.tavily.com/search
-{
-  "api_key": "tvly-...",
-  "query": "USD ILS exchange rate today",
-  "max_results": 3,
-  "include_answer": true,
-  "search_depth": "basic"
-}
-```
-
-### Cost Estimate
-- ~20 voice interactions/day, ~30% trigger web search = ~6 searches/day
-- ~180 searches/month — well within free 1,000 tier
-
-### Without Tavily Key
-If no Tavily API key is configured:
-- `search_web` tool is NOT offered to GPT
-- GPT answers from training data or says it doesn't have current info
-- Everything else works normally (device control, forecasts from HA, memory)
-
----
-
-## call_ha_service: return_response
-
-Some HA services return data (e.g. `weather.get_forecasts`). The tool handler must:
-1. Call `hass.services.async_call()` with `return_response=True`
-2. If service returns data → format and return to GPT
-3. If service is fire-and-forget (e.g. `light.turn_on`) → return "Success"
-
-This is critical for GPT to answer questions like "what's the weather tomorrow" using HA data instead of web search.
 
 ---
 
 ## Configuration
 
-### Config Flow (Settings → Integrations → Add → Jane)
-```
-Step 1: OpenAI API Key (required)
-Step 2: Tavily API Key (optional — enables web search)
-```
+### GPT Settings
+- **Model**: gpt-5.4-mini
+- **max_completion_tokens**: 1000 (planned: 2000 for v3.0.0)
+- **temperature**: 0.7
+- **MAX_TOOL_ITERATIONS**: 5 (planned: 10 for v3.0.0)
 
-### Options Flow (Settings → Integrations → Jane → Configure)
-Add or change Tavily API key after initial setup without removing the integration.
-
-### How the Key Flows
-```
-config_flow → config_entry.data["tavily_api_key"]
-  → conversation.py reads it
-  → passes to brain.think()
-  → brain.py includes/excludes search_web tool based on key presence
-```
-
----
-
-## Implementation
-
-### Files
-
-| File | Change |
-|------|--------|
-| `tools.py` | **New** — tool definitions, execution handlers |
-| `web_search.py` | **New** — Tavily REST wrapper |
-| `brain.py` | Replace hardcoded logic with function calling loop |
-| `const.py` | Simplified system prompt, add Tavily key constant |
-| `config_flow.py` | Add optional Tavily key |
-| `strings.json` | Add Tavily field label |
-| `conversation.py` | Pass Tavily key, simplify result handling |
-
-### tools.py
-```
-TOOLS = [get_entity_state, call_ha_service, search_web]
-
-execute_tool(hass, tool_name, arguments, tavily_key) → str
-    Routes to the right handler:
-    - get_entity_state → hass.states.get()
-    - call_ha_service → hass.services.async_call()
-    - search_web → tavily API call
-```
-
-### brain.py (new flow)
-```
-think(client, user_text, user_name, hass, history, tavily_key) → str
-    1. Build messages:
-       - system: SYSTEM_PROMPT
-       - system: memory context (load_all_memory)
-       - system: home layout (home.md)
-       - [conversation history]
-       - user: user_text
-
-    2. Build tools list:
-       - Always: get_entity_state, call_ha_service
-       - If tavily_key: + search_web
-
-    3. Call GPT with tools=tools_list
-
-    4. Loop (max 5 iterations):
-       a. response = GPT response
-       b. If response has tool_calls:
-          - For each tool_call:
-            - Execute via execute_tool()
-            - Append assistant message (with tool_call) to messages
-            - Append tool result message to messages
-          - Call GPT again with updated messages
-       c. If response has no tool_calls (text content):
-          - Extract response text → done
-
-    5. Return final response text
-```
-
-No more `execute()` function — tool execution happens inside the loop.
-
-### Key implementation detail: the message chain
-
-OpenAI function calling requires a specific message sequence:
-```
-messages = [
-  {role: "system", content: "..."},          # prompt
-  {role: "user", content: "תדליקי אור"},      # user request
-  {role: "assistant", tool_calls: [...]},      # GPT decides to call tool
-  {role: "tool", tool_call_id: "...",          # tool result
-   content: "Success"},
-  {role: "assistant", content: "בוצע"}         # final response
-]
-```
-
-Each iteration appends the assistant's tool_call message AND the tool result. GPT sees the full chain and decides what to do next.
-
-### Token Budget
-- Before: ~1,500 tokens input (prompt + ALL entities + memory)
-- After: ~800 tokens input (prompt + memory + home.md) + tool results only when needed
-- Net saving on most interactions (simple commands don't fetch all states)
+### API Keys
+- **OpenAI**: Required (config flow)
+- **Tavily**: Optional (options flow, enables search_web)
+- **Firebase**: Optional (options flow, enables memory backup)
 
 ---
 
@@ -378,132 +256,12 @@ Each iteration appends the assistant's tool_call message AND the tool result. GP
 
 | Error | Behavior |
 |-------|----------|
-| Tool execution fails | Return error message to GPT → GPT adapts response |
-| Entity not found | GPT gets "Entity not found" → asks user to clarify |
-| Service call fails | GPT gets "Service failed" → tells user |
-| Tavily fails | GPT gets "Search unavailable" → answers from knowledge |
-| Too many tool calls (>3) | Stop loop → GPT responds with what it has |
+| Tool execution fails | Error message returned to GPT → GPT adapts response |
+| Entity not found | GPT gets "Entity not found" → tries search_entities or asks user |
+| Service call fails | GPT gets "Service failed: {error}" → tells user |
+| Recorder not loaded | History/stats/logbook return "not available" → GPT answers from knowledge |
+| Notify target not found | Returns available targets → GPT can retry |
+| Timer >120 min | Error suggests using ha_config_api instead |
+| Max iterations reached | Force final response without tools |
 
 GPT is resilient — if a tool fails, it adapts. No crashes.
-
----
-
-## Jane as Home Manager
-
-Jane is not just a remote control — she is an **autonomous home manager**. She can observe, decide, create, and manage.
-
-### Three levels of autonomy
-
-**Level 1: Execute** (what she does today)
-```
-"תדליקי אור בסלון" → turns on light
-```
-
-**Level 2: Reason & Act** (tool calling — what we're building)
-```
-"מה מזג האוויר מחר?" → fetches forecast from HA → answers
-"כבי הכל וספרי מה הטמפרטורה" → multiple tool calls → combined answer
-```
-
-**Level 3: Create & Manage** (full autonomy)
-```
-"כל יום ב-7 בבוקר תדליקי חימום" → creates HA automation
-"תכיני לי סצנה לערב רומנטי" → creates HA scene (dim lights, warm temp)
-"כשאני יוצא מהבית תכבי הכל" → creates presence-based automation
-"מחקי את האוטומציה של הבוקר" → manages existing automations
-```
-
-### Creation & Management Tools
-
-| Tool | What GPT can do | Example |
-|------|----------------|---------|
-| `create_automation` | Create HA automations from natural language | "כשיורד גשם וחלון פתוח — תתריעי" |
-| `list_automations` | See what automations exist | "מה האוטומציות שיש?" |
-| `update_automation` | Modify existing automations | "שני את שעת החימום ל-6:30" |
-| `delete_automation` | Remove automations | "תבטלי את האוטומציה הזאת" |
-| `create_scene` | Create HA scenes | "תיצרי סצנה לצפייה בסרט" |
-| `create_script` | Create reusable sequences | "תיצרי סקריפט ללילה טוב" |
-| `get_automations` | List all automations and their status | "מה רץ עכשיו?" |
-
-### How it works
-
-User says: "כל ערב ב-8 תעמעמי את האור בסלון ל-30%"
-
-GPT thinks:
-1. User wants a time-based automation
-2. I need to create an automation with trigger: time 20:00, action: light.turn_on with brightness 30%
-3. Call `create_automation` with the right YAML
-
-```
-→ GPT: create_automation({
-    alias: "Evening dim living room",
-    trigger: {platform: "time", at: "20:00"},
-    action: {
-      service: "light.turn_on",
-      entity_id: "light.switcher_light_3708",
-      data: {brightness_pct: 30}
-    }
-  })
-→ HA creates automation
-→ GPT: "יצרתי אוטומציה — כל ערב ב-8 האור בסלון יעמעם ל-30%"
-```
-
-### Safety
-
-Destructive actions require confirmation:
-- Creating automations → GPT describes what it will do → waits for "כן"
-- Deleting automations → "את בטוחה שלמחוק?" → waits for confirmation
-- Modifying scripts → describes the change first
-
-This is enforced in the system prompt, not in code — GPT naturally confirms before destructive actions.
-
----
-
-## All Tools (Phase 1 + Phase 2)
-
-### Phase 1 — Core (build now)
-
-| Tool | Type | Description |
-|------|------|-------------|
-| `get_entity_state` | Read | Get current state of any entity |
-| `call_ha_service` | Execute | Call any HA service (control devices, get forecasts) |
-| `search_web` | External | Search the internet via Tavily |
-
-### Phase 2 — Creation & Management (build next)
-
-| Tool | Type | Description |
-|------|------|-------------|
-| `create_automation` | Create | Create HA automation from natural language |
-| `list_automations` | Read | List existing automations |
-| `update_automation` | Update | Modify an automation |
-| `delete_automation` | Delete | Remove an automation |
-| `create_scene` | Create | Create HA scene |
-| `create_script` | Create | Create HA script |
-
-### Phase 3 — Extended (future)
-
-| Tool | Type | Description |
-|------|------|-------------|
-| `get_calendar_events` | Read | "מה יש לנו השבוע?" |
-| `send_notification` | Execute | "תזכירי לי בעוד שעה" |
-| `get_entity_history` | Read | "מתי הדלקתי לאחרונה את האור?" |
-| `get_person_location` | Read | "איפה יאיר?" |
-| `play_media` | Execute | "תפעילי מוזיקה" |
-
-Each tool = one function definition + one handler. No brain.py changes needed.
-
----
-
-## Vision
-
-Jane evolves from a voice remote control to an intelligent home manager:
-
-```
-Today:     "תדליקי אור"              → executes command
-Next:      "מה מזג האוויר מחר?"       → fetches data, answers
-Then:      "תיצרי אוטומציה ל..."      → creates automations
-Future:    "שמתי לב שכל ערב את מעממת   → suggests automation proactively
-            אור — רוצה שאיצור אוטומציה?"
-```
-
-The tool framework makes each step trivial to add — just another tool definition.
