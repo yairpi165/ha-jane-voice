@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -198,8 +198,8 @@ Write a concise home layout document in English, organized by ROOM (not by devic
 - Keep it concise — one line per device, max 50 lines total"""
 
 
-def rebuild_home_map(client: OpenAI, hass):
-    """Generate home.md by asking GPT to organize HA entities by room."""
+def rebuild_home_map(client: Anthropic, hass):
+    """Generate home.md by asking Claude to organize HA entities by room."""
     home_path = get_memory_dir() / "home.md"
     if home_path.exists() and _read(home_path):
         return
@@ -224,17 +224,19 @@ def rebuild_home_map(client: OpenAI, hass):
     prompt = HOME_SETUP_PROMPT.replace("{entity_list}", "\n".join(entities))
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-5.4-mini",
-            messages=[{"role": "system", "content": prompt}],
-            max_completion_tokens=1500,
+        from .const import CLAUDE_MODEL
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            system=prompt,
+            messages=[{"role": "user", "content": "Generate the home layout now."}],
+            max_tokens=1500,
             temperature=0.3,
         )
-        content = response.choices[0].message.content.strip()
+        content = response.content[0].text.strip()
         if not content.startswith("#"):
             content = "# Home Layout\n\n" + content
         _write(home_path, content)
-        _LOGGER.info("Home map created by GPT")
+        _LOGGER.info("Home map created by Claude")
     except Exception as e:
         _LOGGER.error("Home map generation failed: %s", e)
 
@@ -286,7 +288,7 @@ Respond in JSON only:
 }"""
 
 
-def process_memory(client: OpenAI, user_name: str, user_text: str, jane_response: str, action: str):
+def process_memory(client: Anthropic, user_name: str, user_text: str, jane_response: str, action: str):
     """Analyze conversation and update memory if needed."""
     if action == "ha_service" and len(jane_response) < 30:
         return
@@ -302,14 +304,16 @@ def process_memory(client: OpenAI, user_name: str, user_text: str, jane_response
     )
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-5.4-mini",
-            messages=[{"role": "system", "content": prompt}],
-            max_completion_tokens=2000,
+        from .const import CLAUDE_MODEL
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            system=prompt,
+            messages=[{"role": "user", "content": "Analyze and respond with JSON."}],
+            max_tokens=2000,
             temperature=0.3,
         )
 
-        raw = response.choices[0].message.content.strip()
+        raw = response.content[0].text.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):

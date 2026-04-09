@@ -1,13 +1,12 @@
-"""Jane brain — LLM integration with autonomous tool calling."""
+"""Jane brain — LLM integration with autonomous tool calling (Claude Sonnet 4)."""
 
-import json
 import logging
 from datetime import datetime
-from openai import OpenAI
+from anthropic import Anthropic
 
 from homeassistant.core import HomeAssistant
 
-from .const import SYSTEM_PROMPT
+from .const import SYSTEM_PROMPT, CLAUDE_MODEL
 from .memory import load_all_memory, get_recent_responses
 from .tools import get_tools, execute_tool
 
@@ -54,31 +53,31 @@ async def _build_context(hass: HomeAssistant) -> str:
     return "\n".join(parts) if parts else ""
 
 
-def _get_model_params(user_text: str) -> dict:
-    """Choose temperature and penalties based on request type."""
+def _get_temperature(user_text: str) -> float:
+    """Choose temperature based on request type."""
     text_lower = user_text.lower().strip()
 
     # Commands → precise
     if any(kw in text_lower for kw in _COMMAND_KEYWORDS):
-        return {"temperature": 0.4}
+        return 0.4
 
-    # Conversation → varied but controlled
+    # Conversation → varied
     if any(kw in text_lower for kw in _CHAT_KEYWORDS):
-        return {"temperature": 0.8, "frequency_penalty": 1.0, "presence_penalty": 0.4}
+        return 0.8
 
     # Default → balanced
-    return {"temperature": 0.7, "frequency_penalty": 0.5}
+    return 0.7
 
 
 async def think(
-    client: OpenAI,
+    client: Anthropic,
     user_text: str,
     user_name: str,
     hass: HomeAssistant,
     history: list[dict] | None = None,
     tavily_api_key: str | None = None,
 ) -> str:
-    """Send text to GPT with tools. GPT decides what to call. Returns final response."""
+    """Send text to Claude with tools. Claude decides what to call. Returns final response."""
 
     # Load context
     memory_context = await hass.async_add_executor_job(load_all_memory, user_name)
@@ -86,98 +85,121 @@ async def think(
     # Build real-time home awareness
     home_context = await _build_context(hass)
 
-    # Build messages
+    # Build system prompt (Anthropic: separate parameter, not in messages)
     now = datetime.now().strftime("%A %H:%M")
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "system", "content": f"Current time: {now}"},
+    system_parts = [
+        SYSTEM_PROMPT,
+        f"\nCurrent time: {now}",
     ]
-
-    # Inject home context (weather, people, active devices)
     if home_context:
-        messages.append({"role": "system", "content": f"Home status:\n{home_context}"})
+        system_parts.append(f"\nHome status:\n{home_context}")
+    system_parts.append(f"\nMemory:\n{memory_context}")
 
-    messages.append({"role": "system", "content": f"Memory:\n{memory_context}"})
-
-    # Anti-repetition: inject recent response openings
+    # Anti-repetition
     recent = get_recent_responses()
     if recent:
-        messages.append({"role": "system", "content": recent})
+        system_parts.append(f"\n{recent}")
 
-    # Add conversation history
+    system = "\n".join(system_parts)
+
+    # Build messages (Anthropic: only user/assistant, no system messages)
+    messages = []
     if history:
         messages.extend(history)
-
     messages.append({"role": "user", "content": user_text})
 
-    # Get available tools and model parameters
+    # Get available tools and temperature
     tools = get_tools(tavily_api_key)
-    model_params = _get_model_params(user_text)
+    temperature = _get_temperature(user_text)
 
     # Tool calling loop
     for iteration in range(MAX_TOOL_ITERATIONS):
         response = await hass.async_add_executor_job(
-            _call_gpt, client, messages, tools, model_params
+            _call_claude, client, system, messages, tools, temperature
         )
 
-        message = response.choices[0].message
+        # Check if Claude is done (no tool calls)
+        if response.stop_reason == "end_turn":
+            return _extract_text(response)
 
-        # No tool calls — GPT is done, return the text response
-        if not message.tool_calls:
-            return message.content or ""
+        # Claude wants to call tools
+        if response.stop_reason == "tool_use":
+            tool_names = [b.name for b in response.content if b.type == "tool_use"]
+            _LOGGER.info("Jane tool call #%d: %s", iteration + 1, ", ".join(tool_names))
 
-        # GPT wants to call tools — execute them
-        _LOGGER.info(
-            "Jane tool call #%d: %s",
-            iteration + 1,
-            ", ".join(tc.function.name for tc in message.tool_calls),
-        )
+            # Append assistant response to messages
+            messages.append({"role": "assistant", "content": _serialize_content(response.content)})
 
-        # Append assistant message with tool calls
-        messages.append(message)
+            # Execute each tool and collect results
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    result = await execute_tool(
+                        hass, block.name, block.input, tavily_api_key
+                    )
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
 
-        # Execute each tool and append results
-        for tool_call in message.tool_calls:
-            try:
-                arguments = json.loads(tool_call.function.arguments)
-            except json.JSONDecodeError:
-                arguments = {}
+            # Send tool results back as user message
+            messages.append({"role": "user", "content": tool_results})
+            continue
 
-            result = await execute_tool(
-                hass, tool_call.function.name, arguments, tavily_api_key
-            )
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": result,
-            })
+        # max_tokens or other stop reason — extract whatever text we got
+        text = _extract_text(response)
+        if text:
+            return text
 
     # Max iterations reached — get final response without tools
     _LOGGER.warning("Max tool iterations reached, forcing final response")
     response = await hass.async_add_executor_job(
-        _call_gpt, client, messages, None, model_params
+        _call_claude, client, system, messages, None, temperature
     )
-    return response.choices[0].message.content or ""
+    return _extract_text(response)
 
 
-def _call_gpt(
-    client: OpenAI,
+def _call_claude(
+    client: Anthropic,
+    system: str,
     messages: list[dict],
     tools: list[dict] | None,
-    model_params: dict | None = None,
+    temperature: float = 0.7,
 ) -> object:
-    """Synchronous GPT call (runs in executor)."""
+    """Synchronous Claude call (runs in executor)."""
     kwargs = {
-        "model": "gpt-5.4-mini",
+        "model": CLAUDE_MODEL,
+        "system": system,
         "messages": messages,
-        "max_completion_tokens": 2000,
+        "max_tokens": 2000,
+        "temperature": temperature,
     }
-    if model_params:
-        kwargs.update(model_params)
-    else:
-        kwargs["temperature"] = 0.7
     if tools:
         kwargs["tools"] = tools
 
-    return client.chat.completions.create(**kwargs)
+    return client.messages.create(**kwargs)
+
+
+def _extract_text(response) -> str:
+    """Extract text from Claude response content blocks."""
+    for block in response.content:
+        if hasattr(block, "text"):
+            return block.text
+    return ""
+
+
+def _serialize_content(content) -> list[dict]:
+    """Serialize Anthropic content blocks to dicts for message history."""
+    result = []
+    for block in content:
+        if block.type == "text":
+            result.append({"type": "text", "text": block.text})
+        elif block.type == "tool_use":
+            result.append({
+                "type": "tool_use",
+                "id": block.id,
+                "name": block.name,
+                "input": block.input,
+            })
+    return result

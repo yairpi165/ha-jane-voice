@@ -15,396 +15,353 @@ from homeassistant.util.yaml import load_yaml
 _LOGGER = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Tool Definitions (OpenAI function calling format)
+# Tool Definitions (Anthropic tool use format)
 # ---------------------------------------------------------------------------
 
 TOOL_GET_ENTITY_STATE = {
-    "type": "function",
-    "function": {
-        "name": "get_entity_state",
-        "description": (
-            "Get the current state and attributes of a Home Assistant entity. "
-            "Use to check device status, temperature, weather, sensor readings, "
-            "whether a light is on/off, vacuum status, etc."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "entity_id": {
-                    "type": "string",
-                    "description": "The entity ID (e.g. weather.forecast_home, light.switcher_light_3708, vacuum.x40_ultra)",
-                },
+    "name": "get_entity_state",
+    "description": (
+        "Get the current state and attributes of a Home Assistant entity. "
+        "Use to check device status, temperature, weather, sensor readings, "
+        "whether a light is on/off, vacuum status, etc."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "The entity ID (e.g. weather.forecast_home, light.switcher_light_3708, vacuum.x40_ultra)",
             },
-            "required": ["entity_id"],
         },
+        "required": ["entity_id"],
     },
 }
 
 TOOL_CALL_HA_SERVICE = {
-    "type": "function",
-    "function": {
-        "name": "call_ha_service",
-        "description": (
-            "Call a Home Assistant service. Use to control devices (turn on/off, "
-            "set temperature, open/close covers, set brightness), get weather forecasts, "
-            "trigger scripts, or any other HA service."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "domain": {
-                    "type": "string",
-                    "description": "Service domain (e.g. light, climate, weather, cover, vacuum, script, switch)",
-                },
-                "service": {
-                    "type": "string",
-                    "description": "Service name (e.g. turn_on, turn_off, toggle, set_temperature, get_forecasts, start)",
-                },
-                "entity_id": {
-                    "type": "string",
-                    "description": "Target entity ID",
-                },
-                "data": {
-                    "type": "object",
-                    "description": (
-                        "Additional service data. Examples:\n"
-                        "- Brightness: {\"brightness_pct\": 50}\n"
-                        "- AC temperature: {\"temperature\": 23}\n"
-                        "- Volume: {\"volume_level\": 0.5} (0.0=mute, 1.0=max)\n"
-                        "- Cover position: {\"position\": 40} (0=closed, 100=open)\n"
-                        "- Weather forecast: {\"type\": \"daily\"}"
-                    ),
-                },
+    "name": "call_ha_service",
+    "description": (
+        "Call a Home Assistant service. Use to control devices (turn on/off, "
+        "set temperature, open/close covers, set brightness), get weather forecasts, "
+        "trigger scripts, or any other HA service."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "domain": {
+                "type": "string",
+                "description": "Service domain (e.g. light, climate, weather, cover, vacuum, script, switch)",
             },
-            "required": ["domain", "service", "entity_id"],
+            "service": {
+                "type": "string",
+                "description": "Service name (e.g. turn_on, turn_off, toggle, set_temperature, get_forecasts, start)",
+            },
+            "entity_id": {
+                "type": "string",
+                "description": "Target entity ID",
+            },
+            "data": {
+                "type": "object",
+                "description": (
+                    "Additional service data. Examples:\n"
+                    "- Brightness: {\"brightness_pct\": 50}\n"
+                    "- AC temperature: {\"temperature\": 23}\n"
+                    "- Volume: {\"volume_level\": 0.5} (0.0=mute, 1.0=max)\n"
+                    "- Cover position: {\"position\": 40} (0=closed, 100=open)\n"
+                    "- Weather forecast: {\"type\": \"daily\"}"
+                ),
+            },
         },
+        "required": ["domain", "service", "entity_id"],
     },
 }
 
 TOOL_SEARCH_WEB = {
-    "type": "function",
-    "function": {
-        "name": "search_web",
-        "description": (
-            "Search the web for current information. Use ONLY when the information "
-            "is not available from Home Assistant entities or services. "
-            "Good for: news, exchange rates, traffic, business hours, sports scores, "
-            "recipes, general knowledge questions."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query. Use Hebrew for Israeli topics, English for international.",
-                },
+    "name": "search_web",
+    "description": (
+        "Search the web for current information. Use ONLY when the information "
+        "is not available from Home Assistant entities or services. "
+        "Good for: news, exchange rates, traffic, business hours, sports scores, "
+        "recipes, general knowledge questions."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query. Use Hebrew for Israeli topics, English for international.",
             },
-            "required": ["query"],
         },
+        "required": ["query"],
     },
 }
 
-
 TOOL_HA_CONFIG_API = {
-    "type": "function",
-    "function": {
-        "name": "ha_config_api",
-        "description": (
-            "Manage Home Assistant configuration: create, update, delete, or list "
-            "automations, scenes, and scripts. Use this to schedule future actions, "
-            "create recurring automations, define scenes, or build scripts.\n\n"
-            "OPERATIONS:\n"
-            "- list: Get all items of a resource type\n"
-            "- create: Create a new item\n"
-            "- update: Update an existing item by id\n"
-            "- delete: Delete an item by id\n\n"
-            "AUTOMATION EXAMPLE (triggers + actions):\n"
-            '{"alias": "Heat at 9am", "trigger": [{"platform": "time", "at": "09:00"}], '
-            '"condition": [], '
-            '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}], '
-            '"mode": "single"}\n\n'
-            "AUTOMATION WITH DATE CONDITION (one-time):\n"
-            '{"alias": "Heat tomorrow", "trigger": [{"platform": "time", "at": "09:00"}], '
-            '"condition": [{"condition": "template", "value_template": '
-            '"{{ now().strftime(\'%Y-%m-%d\') == \'2026-04-10\' }}"}], '
-            '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}], '
-            '"mode": "single"}\n\n'
-            "SCRIPT EXAMPLE (sequence with delay):\n"
-            '{"alias": "TV off in 30min", "sequence": ['
-            '{"delay": {"minutes": 30}}, '
-            '{"service": "media_player.turn_off", "target": {"entity_id": "media_player.tv"}}], '
-            '"mode": "single"}\n\n'
-            "SCENE EXAMPLE (device states snapshot):\n"
-            '{"name": "Movie Night", "entities": {'
-            '"light.living_room": {"state": "on", "brightness": 50}, '
-            '"climate.ac": {"state": "cool", "temperature": 24}}}'
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "resource": {
-                    "type": "string",
-                    "enum": ["automation", "scene", "script"],
-                    "description": "The type of resource to manage",
-                },
-                "operation": {
-                    "type": "string",
-                    "enum": ["list", "create", "update", "delete"],
-                    "description": "The operation to perform",
-                },
-                "item_id": {
-                    "type": "string",
-                    "description": "The id of the item (required for update and delete)",
-                },
-                "config": {
-                    "type": "object",
-                    "description": "The configuration object (required for create and update)",
-                },
+    "name": "ha_config_api",
+    "description": (
+        "Manage Home Assistant configuration: create, update, delete, or list "
+        "automations, scenes, and scripts. Use this to schedule future actions, "
+        "create recurring automations, define scenes, or build scripts.\n\n"
+        "OPERATIONS:\n"
+        "- list: Get all items of a resource type\n"
+        "- create: Create a new item\n"
+        "- update: Update an existing item by id\n"
+        "- delete: Delete an item by id\n\n"
+        "AUTOMATION EXAMPLE (triggers + actions):\n"
+        '{"alias": "Heat at 9am", "trigger": [{"platform": "time", "at": "09:00"}], '
+        '"condition": [], '
+        '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}], '
+        '"mode": "single"}\n\n'
+        "AUTOMATION WITH DATE CONDITION (one-time):\n"
+        '{"alias": "Heat tomorrow", "trigger": [{"platform": "time", "at": "09:00"}], '
+        '"condition": [{"condition": "template", "value_template": '
+        '"{{ now().strftime(\'%Y-%m-%d\') == \'2026-04-10\' }}"}], '
+        '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}], '
+        '"mode": "single"}\n\n'
+        "SCRIPT EXAMPLE (sequence with delay):\n"
+        '{"alias": "TV off in 30min", "sequence": ['
+        '{"delay": {"minutes": 30}}, '
+        '{"service": "media_player.turn_off", "target": {"entity_id": "media_player.tv"}}], '
+        '"mode": "single"}\n\n'
+        "SCENE EXAMPLE (device states snapshot):\n"
+        '{"name": "Movie Night", "entities": {'
+        '"light.living_room": {"state": "on", "brightness": 50}, '
+        '"climate.ac": {"state": "cool", "temperature": 24}}}'
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "resource": {
+                "type": "string",
+                "enum": ["automation", "scene", "script"],
+                "description": "The type of resource to manage",
             },
-            "required": ["resource", "operation"],
+            "operation": {
+                "type": "string",
+                "enum": ["list", "create", "update", "delete"],
+                "description": "The operation to perform",
+            },
+            "item_id": {
+                "type": "string",
+                "description": "The id of the item (required for update and delete)",
+            },
+            "config": {
+                "type": "object",
+                "description": "The configuration object (required for create and update)",
+            },
         },
+        "required": ["resource", "operation"],
     },
 }
 
 TOOL_SEARCH_ENTITIES = {
-    "type": "function",
-    "function": {
-        "name": "search_entities",
-        "description": (
-            "Search for Home Assistant entities by name, room, or type. "
-            "Use when you don't know the exact entity_id. "
-            "Returns matching entities with their current state. "
-            "Examples: search for 'bedroom' to find bedroom devices, "
-            "'tami' to find the water bar, 'temperature' to find temp sensors."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search term — device name, room, or type",
-                },
-                "domain": {
-                    "type": "string",
-                    "description": "Optional domain filter (light, sensor, switch, climate, cover, media_player, fan, vacuum, button, etc.)",
-                },
+    "name": "search_entities",
+    "description": (
+        "Search for Home Assistant entities by name, room, or type. "
+        "Use when you don't know the exact entity_id. "
+        "Returns matching entities with their current state. "
+        "Examples: search for 'bedroom' to find bedroom devices, "
+        "'tami' to find the water bar, 'temperature' to find temp sensors."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search term — device name, room, or type",
             },
-            "required": ["query"],
+            "domain": {
+                "type": "string",
+                "description": "Optional domain filter (light, sensor, switch, climate, cover, media_player, fan, vacuum, button, etc.)",
+            },
         },
+        "required": ["query"],
     },
 }
 
 TOOL_GET_HISTORY = {
-    "type": "function",
-    "function": {
-        "name": "get_history",
-        "description": (
-            "Get state change history for an entity over the last hours. "
-            "Use to answer: 'when did X last turn on?', 'how long was the AC running?', "
-            "'what was the temperature this morning?', 'did someone open the door today?'"
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "entity_id": {
-                    "type": "string",
-                    "description": "The entity to get history for",
-                },
-                "hours": {
-                    "type": "integer",
-                    "description": "Hours of history to look back (default 24, max 72)",
-                },
+    "name": "get_history",
+    "description": (
+        "Get state change history for an entity over the last hours. "
+        "Use to answer: 'when did X last turn on?', 'how long was the AC running?', "
+        "'what was the temperature this morning?', 'did someone open the door today?'"
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "The entity to get history for",
             },
-            "required": ["entity_id"],
+            "hours": {
+                "type": "integer",
+                "description": "Hours of history to look back (default 24, max 72)",
+            },
         },
+        "required": ["entity_id"],
     },
 }
 
 TOOL_LIST_AREAS = {
-    "type": "function",
-    "function": {
-        "name": "list_areas",
-        "description": (
-            "List all rooms/areas in the home and the devices in each area. "
-            "Use to discover what's available, find which room a device is in, "
-            "or get an overview of the smart home."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {},
-        },
+    "name": "list_areas",
+    "description": (
+        "List all rooms/areas in the home and the devices in each area. "
+        "Use to discover what's available, find which room a device is in, "
+        "or get an overview of the smart home."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
     },
 }
 
 TOOL_SEND_NOTIFICATION = {
-    "type": "function",
-    "function": {
-        "name": "send_notification",
-        "description": (
-            "Send a push notification to a family member's phone or the home tablet. "
-            "Use for reminders, alerts, or messages between family members."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": "Who to notify — a person's name (e.g. 'yair') or 'all' for everyone",
-                },
-                "message": {
-                    "type": "string",
-                    "description": "The notification message",
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Optional notification title",
-                },
+    "name": "send_notification",
+    "description": (
+        "Send a push notification to a family member's phone or the home tablet. "
+        "Use for reminders, alerts, or messages between family members."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": "Who to notify — a person's name (e.g. 'yair') or 'all' for everyone",
             },
-            "required": ["target", "message"],
+            "message": {
+                "type": "string",
+                "description": "The notification message",
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional notification title",
+            },
         },
+        "required": ["target", "message"],
     },
 }
 
 TOOL_CHECK_PEOPLE = {
-    "type": "function",
-    "function": {
-        "name": "check_people",
-        "description": (
-            "Check who is home and where family members are. "
-            "Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {},
-        },
+    "name": "check_people",
+    "description": (
+        "Check who is home and where family members are. "
+        "Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {},
     },
 }
 
 TOOL_SET_TIMER = {
-    "type": "function",
-    "function": {
-        "name": "set_timer",
-        "description": (
-            "Set a countdown timer. When it expires, Jane sends a notification. "
-            "Use for 'set a timer for 5 minutes', 'remind me in 10 minutes', etc. "
-            "Max 120 minutes. For longer delays use ha_config_api to create an automation."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "minutes": {
-                    "type": "integer",
-                    "description": "Timer duration in minutes",
-                },
-                "message": {
-                    "type": "string",
-                    "description": "Message when timer expires (default: 'הטיימר הסתיים!')",
-                },
+    "name": "set_timer",
+    "description": (
+        "Set a countdown timer. When it expires, Jane sends a notification. "
+        "Use for 'set a timer for 5 minutes', 'remind me in 10 minutes', etc. "
+        "Max 120 minutes. For longer delays use ha_config_api to create an automation."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "minutes": {
+                "type": "integer",
+                "description": "Timer duration in minutes",
             },
-            "required": ["minutes"],
+            "message": {
+                "type": "string",
+                "description": "Message when timer expires (default: 'הטיימר הסתיים!')",
+            },
         },
+        "required": ["minutes"],
     },
 }
 
 TOOL_MANAGE_LIST = {
-    "type": "function",
-    "function": {
-        "name": "manage_list",
-        "description": (
-            "Manage shopping and todo lists — add, remove, or view items. "
-            "Available lists: shopping (רשימת קניות), personal lists per family member, family list."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "list_name": {
-                    "type": "string",
-                    "description": "Which list — 'shopping', 'family', or a person's name (yair, efrat, etc.)",
-                },
-                "action": {
-                    "type": "string",
-                    "enum": ["view", "add", "remove"],
-                    "description": "What to do with the list",
-                },
-                "item": {
-                    "type": "string",
-                    "description": "Item text (required for add/remove)",
-                },
+    "name": "manage_list",
+    "description": (
+        "Manage shopping and todo lists — add, remove, or view items. "
+        "Available lists: shopping (רשימת קניות), personal lists per family member, family list."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "list_name": {
+                "type": "string",
+                "description": "Which list — 'shopping', 'family', or a person's name (yair, efrat, etc.)",
             },
-            "required": ["list_name", "action"],
+            "action": {
+                "type": "string",
+                "enum": ["view", "add", "remove"],
+                "description": "What to do with the list",
+            },
+            "item": {
+                "type": "string",
+                "description": "Item text (required for add/remove)",
+            },
         },
+        "required": ["list_name", "action"],
     },
 }
 
 TOOL_GET_STATISTICS = {
-    "type": "function",
-    "function": {
-        "name": "get_statistics",
-        "description": (
-            "Get min/max/average statistics for a numeric sensor over a time period. "
-            "Use for 'what was the average temperature?', 'how much energy today?', etc."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "entity_id": {
-                    "type": "string",
-                    "description": "The sensor entity to get statistics for",
-                },
-                "hours": {
-                    "type": "integer",
-                    "description": "Period in hours (default 24, max 168)",
-                },
+    "name": "get_statistics",
+    "description": (
+        "Get min/max/average statistics for a numeric sensor over a time period. "
+        "Use for 'what was the average temperature?', 'how much energy today?', etc."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "The sensor entity to get statistics for",
             },
-            "required": ["entity_id"],
+            "hours": {
+                "type": "integer",
+                "description": "Period in hours (default 24, max 168)",
+            },
         },
+        "required": ["entity_id"],
     },
 }
 
 TOOL_GET_LOGBOOK = {
-    "type": "function",
-    "function": {
-        "name": "get_logbook",
-        "description": (
-            "Get recent events and state changes in the home. "
-            "Use for 'what happened today?', 'what changed in the last hour?', "
-            "'show me recent activity'."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "hours": {
-                    "type": "integer",
-                    "description": "How many hours back to look (default 4, max 24)",
-                },
-                "entity_id": {
-                    "type": "string",
-                    "description": "Optional: filter to a specific entity",
-                },
+    "name": "get_logbook",
+    "description": (
+        "Get recent events and state changes in the home. "
+        "Use for 'what happened today?', 'what changed in the last hour?', "
+        "'show me recent activity'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "hours": {
+                "type": "integer",
+                "description": "How many hours back to look (default 4, max 24)",
+            },
+            "entity_id": {
+                "type": "string",
+                "description": "Optional: filter to a specific entity",
             },
         },
     },
 }
 
 TOOL_TTS_ANNOUNCE = {
-    "type": "function",
-    "function": {
-        "name": "tts_announce",
-        "description": (
-            "Announce a message through a speaker in the home. "
-            "Use for broadcasting: 'tell the kids dinner is ready', "
-            "'announce that we are leaving in 5 minutes'."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "The message to announce (in Hebrew)",
-                },
+    "name": "tts_announce",
+    "description": (
+        "Announce a message through a speaker in the home. "
+        "Use for broadcasting: 'tell the kids dinner is ready', "
+        "'announce that we are leaving in 5 minutes'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "message": {
+                "type": "string",
+                "description": "The message to announce (in Hebrew)",
             },
-            "required": ["message"],
         },
+        "required": ["message"],
     },
 }
 

@@ -1,7 +1,7 @@
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
+from .const import DOMAIN, CONF_ANTHROPIC_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -11,13 +11,17 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Validate OpenAI API key
-            from openai import OpenAI
+            # Validate Anthropic API key
+            from anthropic import Anthropic
 
             try:
-                client = OpenAI(api_key=user_input[CONF_OPENAI_API_KEY])
+                client = Anthropic(api_key=user_input[CONF_ANTHROPIC_API_KEY])
                 await self.hass.async_add_executor_job(
-                    lambda: client.models.list()
+                    lambda: client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=10,
+                        messages=[{"role": "user", "content": "test"}],
+                    )
                 )
             except Exception:
                 errors["base"] = "invalid_api_key"
@@ -30,7 +34,7 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_OPENAI_API_KEY): str,
+                vol.Required(CONF_ANTHROPIC_API_KEY): str,
                 vol.Optional(CONF_TAVILY_API_KEY): str,
             }),
             errors=errors,
@@ -42,7 +46,7 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class JaneOptionsFlow(config_entries.OptionsFlow):
-    """Options flow for adding/changing Tavily key after setup."""
+    """Options flow for adding/changing keys after setup."""
 
     def __init__(self, config_entry):
         self._config_entry = config_entry

@@ -5,13 +5,13 @@
         "title": "Jane Voice Assistant",
         "description": "Configure Jane — your Hebrew smart home voice assistant.",
         "data": {
-          "openai_api_key": "OpenAI API Key",
+          "anthropic_api_key": "Anthropic API Key",
           "tavily_api_key": "Tavily API Key (optional — enables web search)"
         }
       }
     },
     "error": {
-      "invalid_api_key": "Invalid OpenAI API key. Please check and try again."
+      "invalid_api_key": "Invalid Anthropic API key. Please check and try again."
     }
   },
   "options": {
