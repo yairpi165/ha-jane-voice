@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY
+from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .brain import think
 from .memory import append_action, process_memory
 
@@ -75,6 +75,16 @@ class JaneConversationEntity(ConversationEntity):
         conversation_id, history = self._get_history(user_input.conversation_id)
 
         _LOGGER.info("Jane received: %s (user: %s)", user_text, user_name)
+
+        # Filter Whisper hallucinations (phantom phrases from silence/noise)
+        if user_text.strip().lower() in WHISPER_HALLUCINATIONS:
+            _LOGGER.info("Ignoring Whisper hallucination: %s", user_text)
+            response = intent.IntentResponse(language=user_input.language or "he")
+            response.async_set_speech("")
+            return ConversationResult(
+                conversation_id=conversation_id,
+                response=response,
+            )
 
         # Think with tool calling
         response_text = await think(

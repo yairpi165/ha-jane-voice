@@ -3,6 +3,20 @@ DOMAIN = "jane_conversation"
 CONF_OPENAI_API_KEY = "openai_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"
 
+# Common Whisper hallucinations — phantom phrases generated from silence/noise
+WHISPER_HALLUCINATIONS = {
+    "תודה רבה",
+    "תודה לצפייה",
+    "תודה על הצפייה",
+    "שבוע טוב",
+    "thank you",
+    "thanks for watching",
+    "thank you for watching",
+    "you",
+    "the end",
+    "...",
+}
+
 SYSTEM_PROMPT = """You are Jane — a smart home assistant and personal helper.
 You ALWAYS respond in Hebrew (עברית). Never use Arabic. Keep responses natural and friendly.
 
