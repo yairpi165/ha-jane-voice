@@ -1,5 +1,6 @@
 """Jane Memory System — LLM-managed markdown memory."""
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -9,15 +10,19 @@ from openai import OpenAI
 
 _LOGGER = logging.getLogger(__name__)
 
+# Firebase backup handle (set by __init__.py if configured)
+_hass = None
+
 # Memory stored in HA config directory
 _memory_dir: Path | None = None
 
 
-def init_memory(config_dir: str):
+def init_memory(config_dir: str, hass=None):
     """Initialize memory directory under HA config."""
-    global _memory_dir
+    global _memory_dir, _hass
     _memory_dir = Path(config_dir) / "jane_memory"
     (_memory_dir / "users").mkdir(parents=True, exist_ok=True)
+    _hass = hass
 
 
 def get_memory_dir() -> Path:
@@ -79,27 +84,41 @@ def load_all_memory(user_name: str) -> str:
 # Save
 # ---------------------------------------------------------------------------
 
-def _write(path: Path, content: str):
+def _write(path: Path, content: str, firebase_doc: str | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
+    # Background Firebase backup
+    if firebase_doc and _hass:
+        _hass.async_create_task(_firebase_backup(firebase_doc, content))
+
+
+async def _firebase_backup(doc_name: str, content: str):
+    """Push memory to Firestore in background. Never blocks or raises."""
+    try:
+        from .firebase import backup_memory
+        await backup_memory(doc_name, content)
+    except Exception as e:
+        _LOGGER.warning("Firebase backup failed for %s: %s", doc_name, e)
+
 
 def save_user_memory(user_name: str, content: str):
-    _write(get_memory_dir() / "users" / f"{user_name.lower().strip()}.md", content)
+    name = user_name.lower().strip()
+    _write(get_memory_dir() / "users" / f"{name}.md", content, f"users_{name}")
 
 def save_family_memory(content: str):
-    _write(get_memory_dir() / "family.md", content)
+    _write(get_memory_dir() / "family.md", content, "family")
 
 def save_habits_memory(content: str):
-    _write(get_memory_dir() / "habits.md", content)
+    _write(get_memory_dir() / "habits.md", content, "habits")
 
 def save_corrections(content: str):
-    _write(get_memory_dir() / "corrections.md", content)
+    _write(get_memory_dir() / "corrections.md", content, "corrections")
 
 def save_routines(content: str):
-    _write(get_memory_dir() / "routines.md", content)
+    _write(get_memory_dir() / "routines.md", content, "routines")
 
 
 # ---------------------------------------------------------------------------

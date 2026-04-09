@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY
+from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_FIREBASE_KEY_PATH
 from .memory import init_memory, rebuild_home_map
 
 _LOGGER = logging.getLogger(__name__)
@@ -16,7 +16,18 @@ PLATFORMS = [Platform.CONVERSATION]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Jane from a config entry."""
     # Initialize memory directory
-    await hass.async_add_executor_job(init_memory, hass.config.config_dir)
+    await hass.async_add_executor_job(init_memory, hass.config.config_dir, hass)
+
+    # Initialize Firebase backup if configured
+    firebase_key = entry.data.get(CONF_FIREBASE_KEY_PATH)
+    if firebase_key:
+        from .firebase import init_firebase, restore_all_memory
+        from .memory import get_memory_dir
+
+        ok = await hass.async_add_executor_job(init_firebase, firebase_key)
+        if ok:
+            await restore_all_memory(get_memory_dir())
+            _LOGGER.info("Firebase memory backup enabled")
 
     # Build home map on first setup
     from openai import OpenAI

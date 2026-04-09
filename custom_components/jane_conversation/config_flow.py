@@ -1,7 +1,7 @@
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY
+from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -59,10 +59,12 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data={})
 
         current_tavily = self._config_entry.data.get(CONF_TAVILY_API_KEY, "")
+        current_firebase = self._config_entry.data.get(CONF_FIREBASE_KEY_PATH, "")
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Optional(CONF_TAVILY_API_KEY, default=current_tavily): str,
+                vol.Optional(CONF_FIREBASE_KEY_PATH, default=current_firebase): str,
             }),
         )

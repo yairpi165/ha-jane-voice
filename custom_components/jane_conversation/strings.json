@@ -19,7 +19,8 @@
       "init": {
         "title": "Jane Settings",
         "data": {
-          "tavily_api_key": "Tavily API Key (optional — enables web search)"
+          "tavily_api_key": "Tavily API Key (optional — enables web search)",
+          "firebase_key_path": "Firebase Key Path (optional — e.g. /config/jane_firebase_key.json)"
         }
       }
     }

@@ -83,11 +83,9 @@ Writes to YAML config files + reloads the domain.
 
 ## Data & Infrastructure
 
-### 12. Firebase Memory Backup
-Cloud backup for memory files — write-through pattern.
-If the Pi dies, Jane's memory survives.
-
-See [MEMORY_ARCHITECTURE.md](MEMORY_ARCHITECTURE.md).
+### 12. Firebase Memory Backup ✅
+Write-through Firestore backup. Save locally → push to Firebase in background.
+On startup, missing files restored from cloud. Optional — works without Firebase too.
 
 ---
 
