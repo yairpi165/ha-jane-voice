@@ -241,9 +241,25 @@ User: "בוקר טוב ג'יין"
 
 ### GPT Settings
 - **Model**: gpt-5.4-mini
-- **max_completion_tokens**: 1000 (planned: 2000 for v3.0.0)
-- **temperature**: 0.7
-- **MAX_TOOL_ITERATIONS**: 5 (planned: 10 for v3.0.0)
+- **max_completion_tokens**: 2000
+- **MAX_TOOL_ITERATIONS**: 10
+- **Temperature**: Dynamic based on request type:
+  - Commands ("הדלק", "כבה"): 0.4 — precise tool calls
+  - Conversation ("מה שלומך", "ספרי"): 0.9, frequency_penalty=1.5, presence_penalty=0.6
+  - Default: 0.7, frequency_penalty=0.5
+
+### Context Injection (v3.0.0)
+Every GPT call receives a "Home status" system message with:
+- Weather (state + temperature from `weather.forecast_home`)
+- People (home/away from `person.*` entities)
+- Active devices (lights/climate/media that are ON)
+
+~50-100 tokens. Gives Jane ambient awareness without tool calls.
+
+### Anti-Repetition (v3.0.0)
+Last 10 response openings tracked in memory. Injected as:
+"Your recent response openings (don't repeat these): ..."
+Forces GPT to vary greetings and confirmations.
 
 ### API Keys
 - **OpenAI**: Required (config flow)

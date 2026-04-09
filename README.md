@@ -102,12 +102,12 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for details.
 ```
 jane/
 ├── custom_components/
-│   └── jane_conversation/      # HA custom integration (v2.8.0)
+│   └── jane_conversation/      # HA custom integration (v3.0.0)
 │       ├── __init__.py         # Setup, Firebase init, restore
 │       ├── manifest.json       # Integration metadata
 │       ├── config_flow.py      # UI config (OpenAI + Tavily + Firebase keys)
 │       ├── conversation.py     # ConversationEntity, sessions, hallucination filter
-│       ├── brain.py            # GPT-5.4 Mini function calling loop
+│       ├── brain.py            # GPT-5.4 Mini with context injection + dynamic temperature
 │       ├── tools.py            # 14 tool definitions + execution handlers
 │       ├── web_search.py       # Tavily REST wrapper
 │       ├── memory.py           # 7 memory files, extraction, history log, home map
@@ -153,7 +153,7 @@ jane/
 
 | Layer | Technology |
 |-------|-----------|
-| LLM | GPT-5.4 Mini (function calling, max 2000 tokens) |
+| LLM | GPT-5.4 Mini (function calling, dynamic temperature, context injection) |
 | STT | gpt-4o-mini-transcribe (Hebrew prompt hints) |
 | TTS | OpenAI TTS, voice nova (via HACS) |
 | Smart Home | Home Assistant (native Python API) |
@@ -166,8 +166,13 @@ jane/
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap.
 
+v3.0.0 highlights:
+- **Context injection** — real-time awareness (weather, people, active devices)
+- **Dynamic temperature** — precise for commands, creative for conversation
+- **Anti-repetition** — tracks responses, forces variety
+- **Autonomous thinking** — "keep working until done, never guess"
+
 Next up:
-- **Context injection** — real-time awareness (weather, people, home state)
 - **save_memory tool** — explicit memory during conversations
 - **Proactive behavior** — Jane speaks up when she notices something
 - **Per-user personality** — different behavior per family member
