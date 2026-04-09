@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, CONF_OPENAI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .brain import think
-from .memory import append_action, append_history, process_memory
+from .memory import append_action, append_history, process_memory, track_response
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,6 +114,9 @@ class JaneConversationEntity(ConversationEntity):
             self._sessions[conversation_id] = history[-20:]
 
         _LOGGER.info("Jane responds: %s", response_text)
+
+        # Track response for anti-repetition
+        track_response(response_text)
 
         # Log action in background
         await self.hass.async_add_executor_job(

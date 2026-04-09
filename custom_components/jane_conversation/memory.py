@@ -16,6 +16,26 @@ _hass = None
 # Memory stored in HA config directory
 _memory_dir: Path | None = None
 
+# Anti-repetition: track recent response openings (in-memory only)
+_recent_responses: list[str] = []
+
+
+def get_recent_responses() -> str:
+    """Return recent response openings for anti-repetition injection."""
+    if not _recent_responses:
+        return ""
+    return "Your recent response openings (don't repeat these): " + " | ".join(_recent_responses[-10:])
+
+
+def track_response(response: str):
+    """Track a response opening to avoid repetition."""
+    if not response:
+        return
+    opening = response.strip()[:60]
+    _recent_responses.append(opening)
+    if len(_recent_responses) > 20:
+        _recent_responses.pop(0)
+
 
 def init_memory(config_dir: str, hass=None):
     """Initialize memory directory under HA config."""
