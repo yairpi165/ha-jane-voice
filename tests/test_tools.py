@@ -1,0 +1,200 @@
+"""Tests for tools.py — YAML normalization, tool format, routing."""
+
+import pytest
+import yaml
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+from jane_conversation.tools import (
+    _normalize_for_yaml,
+    _read_yaml_file,
+    _write_yaml_file,
+    _ALL_FUNCTION_DECLARATIONS,
+    get_tools,
+    get_tools_minimal,
+    execute_tool,
+    TOOL_SAVE_MEMORY,
+    TOOL_READ_MEMORY,
+    TOOL_SEARCH_WEB,
+)
+
+
+# ---------------------------------------------------------------------------
+# YAML Normalization
+# ---------------------------------------------------------------------------
+
+class TestNormalizeForYaml:
+    """Test _normalize_for_yaml prevents Python-specific YAML tags."""
+
+    def test_plain_string(self):
+        assert _normalize_for_yaml("hello") == "hello"
+        assert type(_normalize_for_yaml("hello")) is str
+
+    def test_integer(self):
+        assert _normalize_for_yaml(42) == 42
+
+    def test_float(self):
+        assert _normalize_for_yaml(3.14) == 3.14
+
+    def test_boolean(self):
+        assert _normalize_for_yaml(True) is True
+        assert _normalize_for_yaml(False) is False
+
+    def test_none(self):
+        assert _normalize_for_yaml(None) is None
+
+    def test_custom_string_subclass(self):
+        """Simulate HA's NodeStrClass — must become plain str."""
+        class NodeStr(str):
+            pass
+        result = _normalize_for_yaml(NodeStr("test"))
+        assert result == "test"
+        assert type(result) is str  # Not NodeStr!
+
+    def test_nested_dict(self):
+        data = {"a": {"b": "c"}}
+        result = _normalize_for_yaml(data)
+        assert result == {"a": {"b": "c"}}
+
+    def test_list_of_dicts(self):
+        data = [{"id": "abc", "alias": "Test"}]
+        result = _normalize_for_yaml(data)
+        assert result == [{"id": "abc", "alias": "Test"}]
+
+    def test_deep_nested_custom_objects(self):
+        class NodeStr(str):
+            pass
+        data = [{"trigger": [{"platform": NodeStr("time"), "at": NodeStr("09:00")}]}]
+        result = _normalize_for_yaml(data)
+        dumped = yaml.safe_dump(result)
+        assert "python" not in dumped
+        assert "NodeStr" not in dumped
+
+    def test_safe_dump_produces_clean_yaml(self):
+        """The ultimate test: safe_dump should produce no Python tags."""
+        class NodeStr(str):
+            pass
+        data = [{"id": NodeStr("abc"), "alias": NodeStr("Test"), "mode": NodeStr("single")}]
+        clean = _normalize_for_yaml(data)
+        output = yaml.safe_dump(clean, default_flow_style=False)
+        assert "!!" not in output
+        assert "python" not in output
+
+
+# ---------------------------------------------------------------------------
+# YAML Read/Write
+# ---------------------------------------------------------------------------
+
+class TestYamlReadWrite:
+    def test_read_missing_file(self, tmp_path):
+        result = _read_yaml_file(tmp_path / "nonexistent.yaml", is_list=True)
+        assert result == []
+
+    def test_read_missing_file_dict(self, tmp_path):
+        result = _read_yaml_file(tmp_path / "nonexistent.yaml", is_list=False)
+        assert result == {}
+
+    def test_write_creates_backup(self, tmp_path):
+        filepath = tmp_path / "test.yaml"
+        filepath.write_text("original content")
+        _write_yaml_file(filepath, [{"id": "new"}])
+        bak = tmp_path / "test.bak"
+        assert bak.exists()
+        assert bak.read_text() == "original content"
+
+    def test_write_produces_valid_yaml(self, tmp_path):
+        filepath = tmp_path / "test.yaml"
+        data = [{"id": "abc", "alias": "Test", "trigger": [{"platform": "time"}]}]
+        _write_yaml_file(filepath, data)
+        loaded = yaml.safe_load(filepath.read_text())
+        assert loaded[0]["id"] == "abc"
+        assert loaded[0]["alias"] == "Test"
+
+    def test_read_corrupt_file_returns_none(self, tmp_path):
+        """When load_yaml raises, _read_yaml_file should return None."""
+        from unittest.mock import patch
+        filepath = tmp_path / "corrupt.yaml"
+        filepath.write_text("some content")
+        with patch("jane_conversation.tools.load_yaml", side_effect=Exception("parse error")):
+            result = _read_yaml_file(filepath, is_list=True)
+        assert result is None  # Not [] — signals read failure
+
+
+# ---------------------------------------------------------------------------
+# Tool Format Validation
+# ---------------------------------------------------------------------------
+
+class TestToolFormat:
+    def test_all_tools_have_name(self):
+        for tool in _ALL_FUNCTION_DECLARATIONS:
+            assert "name" in tool, f"Tool missing 'name': {tool}"
+
+    def test_all_tools_have_description(self):
+        for tool in _ALL_FUNCTION_DECLARATIONS:
+            assert "description" in tool, f"Tool {tool.get('name')} missing 'description'"
+
+    def test_all_tools_have_parameters(self):
+        for tool in _ALL_FUNCTION_DECLARATIONS:
+            assert "parameters" in tool, f"Tool {tool.get('name')} has 'input_schema' instead of 'parameters'"
+
+    def test_no_tool_has_input_schema(self):
+        """Ensure no leftover Anthropic format."""
+        for tool in _ALL_FUNCTION_DECLARATIONS:
+            assert "input_schema" not in tool, f"Tool {tool.get('name')} still has 'input_schema'"
+
+    def test_no_tool_has_type_function(self):
+        """Ensure no leftover OpenAI format."""
+        for tool in _ALL_FUNCTION_DECLARATIONS:
+            assert "type" not in tool or tool.get("type") != "function", \
+                f"Tool {tool.get('name')} still has OpenAI 'type: function'"
+
+    def test_tool_count(self):
+        assert len(_ALL_FUNCTION_DECLARATIONS) >= 32
+
+    def test_unique_tool_names(self):
+        names = [t["name"] for t in _ALL_FUNCTION_DECLARATIONS]
+        assert len(names) == len(set(names)), f"Duplicate names: {[n for n in names if names.count(n) > 1]}"
+
+    def test_get_tools_returns_gemini_tool_objects(self):
+        tools = get_tools()
+        from google.genai import types
+        assert all(isinstance(t, types.Tool) for t in tools)
+
+    def test_get_tools_minimal_has_3_declarations(self):
+        tools = get_tools_minimal()
+        declarations = tools[0].function_declarations
+        names = [d.name if hasattr(d, 'name') else d['name'] for d in declarations]
+        assert "save_memory" in names
+        assert "read_memory" in names
+        assert "search_web" in names
+
+
+# ---------------------------------------------------------------------------
+# Tool Routing
+# ---------------------------------------------------------------------------
+
+class TestToolRouting:
+    @pytest.mark.asyncio
+    async def test_unknown_tool_returns_error(self, hass_mock):
+        result = await execute_tool(hass_mock, "nonexistent_tool", {})
+        assert "Unknown tool" in result
+
+    @pytest.mark.asyncio
+    async def test_get_entity_state_routes(self, hass_mock):
+        result = await execute_tool(hass_mock, "get_entity_state", {"entity_id": "light.living_room"})
+        assert "אור סלון" in result or "on" in result
+
+    @pytest.mark.asyncio
+    async def test_get_entity_state_not_found(self, hass_mock):
+        result = await execute_tool(hass_mock, "get_entity_state", {"entity_id": "light.nonexistent"})
+        assert "not found" in result
+
+    @pytest.mark.asyncio
+    async def test_search_entities_finds_match(self, hass_mock):
+        result = await execute_tool(hass_mock, "search_entities", {"query": "סלון"})
+        assert "light.living_room" in result
+
+    @pytest.mark.asyncio
+    async def test_search_entities_no_match(self, hass_mock):
+        result = await execute_tool(hass_mock, "search_entities", {"query": "nonexistent_xyz"})
+        assert "No entities found" in result
