@@ -27,6 +27,7 @@ sys.modules["homeassistant.helpers.device_registry"] = ha_mock
 sys.modules["homeassistant.helpers.floor_registry"] = ha_mock
 sys.modules["homeassistant.helpers.template"] = ha_mock
 sys.modules["homeassistant.helpers.collection"] = ha_mock
+sys.modules["homeassistant.helpers.aiohttp_client"] = ha_mock
 sys.modules["homeassistant.util"] = ha_mock
 sys.modules["homeassistant.util.dt"] = ha_mock
 sys.modules["homeassistant.util.yaml"] = ha_mock

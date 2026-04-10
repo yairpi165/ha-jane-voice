@@ -142,10 +142,11 @@ User speaks → Whisper STT → text
 - **Priority**: Prefers HomePod mini (`media_player.slvn_2`), falls back to any speaker
 
 ### ha_config_api
-- **Handler**: Reads/writes YAML config files + `domain.reload` service
+- **Handler**: HA Config Store REST API (`POST/GET/DELETE /api/config/{resource}/config/{id}`)
 - **Resources**: automation, scene, script
 - **Operations**: list, create, update, delete
-- **Safety**: asyncio.Lock per resource type, UUID generation for new items
+- **Auth**: Internal LLAT created on first use via `hass.auth`
+- **Safety**: Same API as HA UI and MCP — writes to `.storage/`, no YAML file manipulation
 
 ### search_web
 - **Handler**: Tavily REST API (`search_web.py`)
@@ -260,10 +261,11 @@ Every Gemini call receives home awareness via `system_instruction`:
 ### Anti-Repetition
 Last 10 response openings tracked in memory. Injected in system_instruction.
 
-### YAML Safety
-- `_normalize_for_yaml()` converts HA objects (NodeStrClass) to plain Python types
-- `yaml.safe_dump` prevents Python-specific tags
-- Backup (.bak) before every write, refuses to write if read fails
+### Config Store API (v3.4.0)
+- ha_config_api uses HA's REST API (`/api/config/{resource}/config/{id}`) — same as MCP and HA UI
+- No direct YAML file reading/writing — HA handles all serialization
+- Internal LLAT (Long-Lived Access Token) created via `hass.auth` on first use
+- Normalizes plural keys (triggers→trigger, actions→action) before sending to API
 
 ### API Keys
 - **Gemini**: Required (config flow)
@@ -271,9 +273,9 @@ Last 10 response openings tracked in memory. Injected in system_instruction.
 - **Tavily**: No longer needed (Google Search replaces it)
 
 ### Tests
-107 tests in 7 files, run with `pytest tests/ -v`:
+98 tests in 7 files, run with `pytest tests/ -v`:
 - Brain: classification, context, text extraction
-- Tools: YAML safety, format validation, routing
+- Tools: config key normalization, format validation, routing
 - HA Handlers: all 33 tool handlers
 - Memory: tracking, file I/O, logs
 - Gemini API: history conversion, model selection, tool loop

@@ -102,7 +102,7 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for details.
 ```
 jane/
 ├── custom_components/
-│   └── jane_conversation/      # HA custom integration (v3.3.4)
+│   └── jane_conversation/      # HA custom integration (v3.4.0)
 │       ├── __init__.py         # Setup, Firebase init, restore
 │       ├── manifest.json       # Integration metadata
 │       ├── config_flow.py      # UI config (OpenAI + Tavily + Firebase keys)
@@ -176,15 +176,14 @@ jane/
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap.
 
-v3.3.4 highlights:
+v3.4.0 highlights:
+- **Config Store API** — automation CRUD via HA REST API, no more YAML file corruption
 - **Gemini 2.5 Pro + Flash** — dual model, ~$5-6/month
 - **Google Search built-in** — replaces Tavily, no extra API key
 - **33 tools** — discovery, calendar, memory, device management, config reading
-- **107 tests** — brain, tools, handlers, memory, E2E, Gemini API
-- **YAML safe_dump** — prevents Python tags that corrupted automations.yaml
+- **98 tests** — brain, tools, handlers, memory, E2E, Gemini API
 - **Routine triggers** — "לילה טוב" runs scripts, not just greetings
 
 Next up:
-- **ha_config_api → HA Config Store API** — safer automation creation (no more YAML)
 - **Proactive behavior** — Jane speaks up when she notices something
 - **Per-user personality** — different behavior per family member

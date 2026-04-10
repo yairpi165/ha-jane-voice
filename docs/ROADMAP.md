@@ -190,15 +190,21 @@ Brain switched from Claude (Anthropic) to Gemini (Google AI).
 - System prompt teaches Jane to search for matching script/scene and run it
 - These get all 33 tools, not just save_memory/read_memory
 
+### 35. ha_config_api → HA Config Store API ✅ (v3.4.0)
+**Critical upgrade:** Replaced direct YAML file writing with HA's internal Config Store REST API.
+Previously ha_config_api wrote to `automations.yaml` directly using `yaml.safe_dump` — this caused
+data corruption (Python tags from HA's NodeStrClass) and data loss (overwriting existing automations).
+
+Now uses the same REST API as HA's MCP server (`POST /api/config/automation/config/{id}`).
+- Writes via HA's internal handlers — no direct file manipulation
+- Creates internal LLAT for authenticated API calls
+- Normalizes plural keys (triggers→trigger, actions→action) like MCP does
+- Removed: `_read_yaml_file`, `_write_yaml_file`, `_normalize_for_yaml`, YAML imports
+- 98 tests passing
+
 ---
 
-## Planned — v3.4.0
-
-### 35. ha_config_api → HA Config Store API
-**Critical upgrade:** Replace direct YAML file writing with HA's internal Config Store API.
-Currently ha_config_api writes to `automations.yaml` directly — this is fragile and caused
-data loss (overwriting existing automations). HA's Config Store API (used by the UI and MCP)
-writes to `.storage/` which is safer, supports undo, and doesn't conflict with UI-created automations.
+## Planned — v3.5.0
 
 ### 36. Per-User Behavior
 Jane adapts personality per family member:
@@ -265,6 +271,7 @@ Jane notices patterns and suggests automations:
 | v3.2.0 | + 19 tools (eval_template, bulk_control, save_memory, read_memory, get_device, calendars, helpers, config readers, etc.) + dual model Haiku/Sonnet + smart memory + prompt caching + config safety | 33 |
 | v3.3.0 | Switched to Gemini 2.5 Pro + Flash. Google Search built-in (replaces Tavily). YAML safe_dump + normalize | 33 |
 | v3.3.4 | 107 tests added. YAML Python tags fix. History format fix. Routine trigger fix | 33 |
+| v3.4.0 | ha_config_api migrated to Config Store REST API. No more YAML writing. 98 tests | 33 |
 
 ## Intelligence Evolution
 
@@ -277,6 +284,7 @@ Jane notices patterns and suggests automations:
 | v3.1.0 | Claude Sonnet 4 replaces GPT-5.4 Mini — reliable tool calling, better Hebrew |
 | v3.2.0 | 33 tools, dual model (Haiku/Sonnet), smart memory, prompt caching, config safety |
 | v3.3.0 | Gemini 2.5 Pro + Flash, Google Search built-in, YAML safe_dump, 107 tests |
+| v3.4.0 | Config Store API replaces YAML writing — no more data corruption |
 
 ## Model History
 

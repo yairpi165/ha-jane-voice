@@ -4,13 +4,10 @@ import asyncio
 import json
 import logging
 import uuid
-import yaml
 from datetime import timedelta
-from pathlib import Path
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from homeassistant.util.yaml import load_yaml
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,37 +92,160 @@ TOOL_SEARCH_WEB = {
     },
 }
 
-TOOL_HA_CONFIG_API = {
-    "name": "ha_config_api",
+TOOL_SET_AUTOMATION = {
+    "name": "set_automation",
     "description": (
-        "Manage Home Assistant configuration: create, update, delete, or list "
-        "automations, scenes, and scripts. Use this to schedule future actions, "
-        "create recurring automations, define scenes, or build scripts.\n\n"
-        "OPERATIONS:\n"
-        "- list: Get all items of a resource type\n"
-        "- create: Create a new item\n"
-        "- update: Update an existing item by id\n"
-        "- delete: Delete an item by id\n\n"
-        "AUTOMATION EXAMPLE (triggers + actions):\n"
-        '{"alias": "Heat at 9am", "trigger": [{"platform": "time", "at": "09:00"}], '
-        '"condition": [], '
+        "Create or update a Home Assistant automation.\n\n"
+        "REQUIRED FIELDS:\n"
+        "- alias: Human-readable name\n"
+        "- trigger: List of triggers (time, state, event, etc.)\n"
+        "- action: List of actions to execute\n\n"
+        "OPTIONAL: description, condition, mode (single/restart/queued/parallel)\n\n"
+        "EXAMPLE — Time trigger:\n"
+        '{"alias": "Heat at 9am", "trigger": [{"platform": "time", "at": "09:00:00"}], '
         '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}], '
         '"mode": "single"}\n\n'
-        "AUTOMATION WITH DATE CONDITION (one-time):\n"
-        '{"alias": "Heat tomorrow", "trigger": [{"platform": "time", "at": "09:00"}], '
+        "EXAMPLE — One-time with date condition:\n"
+        '{"alias": "Heat tomorrow", "trigger": [{"platform": "time", "at": "09:00:00"}], '
         '"condition": [{"condition": "template", "value_template": '
         '"{{ now().strftime(\'%Y-%m-%d\') == \'2026-04-10\' }}"}], '
-        '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}], '
-        '"mode": "single"}\n\n'
-        "SCRIPT EXAMPLE (sequence with delay):\n"
+        '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}]}\n\n'
+        "EXAMPLE — Blueprint:\n"
+        '{"alias": "Motion Light", "use_blueprint": {"path": "homeassistant/motion_light.yaml", '
+        '"input": {"motion_entity": "binary_sensor.motion", "light_target": {"entity_id": "light.hall"}}}}\n\n'
+        "To UPDATE an existing automation, pass its entity_id or unique_id as identifier."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "config": {
+                "type": "object",
+                "description": "Automation config with alias, trigger, action, etc.",
+            },
+            "identifier": {
+                "type": "string",
+                "description": "Entity_id (automation.xxx) or unique_id for updates. Omit to create new.",
+            },
+        },
+        "required": ["config"],
+    },
+}
+
+TOOL_REMOVE_AUTOMATION = {
+    "name": "remove_automation",
+    "description": (
+        "Delete a Home Assistant automation permanently.\n"
+        "Use entity_id (automation.morning_routine) or unique_id."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "identifier": {
+                "type": "string",
+                "description": "Entity_id (automation.xxx) or unique_id to delete",
+            },
+        },
+        "required": ["identifier"],
+    },
+}
+
+TOOL_SET_SCRIPT = {
+    "name": "set_script",
+    "description": (
+        "Create or update a Home Assistant script.\n\n"
+        "REQUIRED FIELDS:\n"
+        "- alias: Human-readable name\n"
+        "- sequence: List of actions to execute in order\n\n"
+        "EXAMPLE:\n"
         '{"alias": "TV off in 30min", "sequence": ['
         '{"delay": {"minutes": 30}}, '
         '{"service": "media_player.turn_off", "target": {"entity_id": "media_player.tv"}}], '
         '"mode": "single"}\n\n'
-        "SCENE EXAMPLE (device states snapshot):\n"
+        "To UPDATE, pass the script entity_id or unique_id as identifier."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "config": {
+                "type": "object",
+                "description": "Script config with alias, sequence, mode, etc.",
+            },
+            "identifier": {
+                "type": "string",
+                "description": "Script entity_id (script.xxx) or unique_id for updates. Omit to create new.",
+            },
+        },
+        "required": ["config"],
+    },
+}
+
+TOOL_REMOVE_SCRIPT = {
+    "name": "remove_script",
+    "description": (
+        "Delete a Home Assistant script permanently.\n"
+        "Use entity_id (script.xxx) or unique_id."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "identifier": {
+                "type": "string",
+                "description": "Script entity_id (script.xxx) or unique_id to delete",
+            },
+        },
+        "required": ["identifier"],
+    },
+}
+
+TOOL_SET_SCENE = {
+    "name": "set_scene",
+    "description": (
+        "Create or update a Home Assistant scene (device states snapshot).\n\n"
+        "EXAMPLE:\n"
         '{"name": "Movie Night", "entities": {'
         '"light.living_room": {"state": "on", "brightness": 50}, '
-        '"climate.ac": {"state": "cool", "temperature": 24}}}'
+        '"climate.ac": {"state": "cool", "temperature": 24}}}\n\n'
+        "To UPDATE, pass the scene entity_id or unique_id as identifier."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "config": {
+                "type": "object",
+                "description": "Scene config with name and entities.",
+            },
+            "identifier": {
+                "type": "string",
+                "description": "Scene entity_id (scene.xxx) or unique_id for updates. Omit to create new.",
+            },
+        },
+        "required": ["config"],
+    },
+}
+
+TOOL_REMOVE_SCENE = {
+    "name": "remove_scene",
+    "description": (
+        "Delete a Home Assistant scene permanently.\n"
+        "Use entity_id (scene.xxx) or unique_id."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "identifier": {
+                "type": "string",
+                "description": "Scene entity_id (scene.xxx) or unique_id to delete",
+            },
+        },
+        "required": ["identifier"],
+    },
+}
+
+TOOL_LIST_CONFIG = {
+    "name": "list_config",
+    "description": (
+        "List all automations, scripts, or scenes. "
+        "Returns id and alias for each item."
     ),
     "parameters": {
         "type": "object",
@@ -133,23 +253,10 @@ TOOL_HA_CONFIG_API = {
             "resource": {
                 "type": "string",
                 "enum": ["automation", "scene", "script"],
-                "description": "The type of resource to manage",
-            },
-            "operation": {
-                "type": "string",
-                "enum": ["list", "create", "update", "delete"],
-                "description": "The operation to perform",
-            },
-            "item_id": {
-                "type": "string",
-                "description": "The id of the item (required for update and delete)",
-            },
-            "config": {
-                "type": "object",
-                "description": "The configuration object (required for create and update)",
+                "description": "The type of resource to list",
             },
         },
-        "required": ["resource", "operation"],
+        "required": ["resource"],
     },
 }
 
@@ -770,24 +877,17 @@ TOOL_UPDATE_DEVICE = {
 _ACTIVE_TIMERS: dict[str, asyncio.Task] = {}
 
 
-# ---------------------------------------------------------------------------
-# Config API constants
-# ---------------------------------------------------------------------------
-
-_CONFIG_FILES = {
-    "automation": "automations.yaml",
-    "scene": "scenes.yaml",
-    "script": "scripts.yaml",
-}
-
-_CONFIG_LOCKS: dict[str, asyncio.Lock] = {}
-
-
-def _get_lock(resource: str) -> asyncio.Lock:
-    """Get or create a lock for a resource type."""
-    if resource not in _CONFIG_LOCKS:
-        _CONFIG_LOCKS[resource] = asyncio.Lock()
-    return _CONFIG_LOCKS[resource]
+# Config Store API functions imported from config_api.py
+from .config_api import (  # noqa: E402
+    set_config,
+    get_config,
+    remove_config,
+    list_config,
+    ha_config_request,
+    resolve_config_id,
+    normalize_config_for_roundtrip,
+    _CONFIG_API_RESOURCES,
+)
 
 
 _ALL_FUNCTION_DECLARATIONS = [
@@ -822,7 +922,13 @@ _ALL_FUNCTION_DECLARATIONS = [
     TOOL_LIST_FLOORS,
     TOOL_GET_ZONE,
     TOOL_UPDATE_DEVICE,
-    TOOL_HA_CONFIG_API,
+    TOOL_SET_AUTOMATION,
+    TOOL_REMOVE_AUTOMATION,
+    TOOL_SET_SCRIPT,
+    TOOL_REMOVE_SCRIPT,
+    TOOL_SET_SCENE,
+    TOOL_REMOVE_SCENE,
+    TOOL_LIST_CONFIG,
 ]
 
 
@@ -919,8 +1025,20 @@ async def execute_tool(
             return await _handle_update_device(hass, arguments)
         elif tool_name == "search_web":
             return await _handle_search_web(hass, arguments, tavily_api_key)
-        elif tool_name == "ha_config_api":
-            return await _handle_ha_config_api(hass, arguments)
+        elif tool_name == "set_automation":
+            return await _handle_set_config(hass, arguments, "automation")
+        elif tool_name == "remove_automation":
+            return await _handle_remove_config(hass, arguments, "automation")
+        elif tool_name == "set_script":
+            return await _handle_set_config(hass, arguments, "script")
+        elif tool_name == "remove_script":
+            return await _handle_remove_config(hass, arguments, "script")
+        elif tool_name == "set_scene":
+            return await _handle_set_config(hass, arguments, "scene")
+        elif tool_name == "remove_scene":
+            return await _handle_remove_config(hass, arguments, "scene")
+        elif tool_name == "list_config":
+            return await _handle_list_config(hass, arguments)
         else:
             return f"Unknown tool: {tool_name}"
     except Exception as e:
@@ -1834,31 +1952,33 @@ async def _handle_list_services(hass: HomeAssistant, args: dict) -> str:
 # ---------------------------------------------------------------------------
 
 async def _handle_deep_search(hass: HomeAssistant, args: dict) -> str:
-    """Search inside automations, scripts, and scenes."""
+    """Search inside automations, scripts, and scenes via Config Store API."""
     query = args.get("query", "").lower()
     if not query:
         return "Error: query is required."
 
-    config_dir = Path(hass.config.config_dir)
     results = []
-
-    for resource, filename in _CONFIG_FILES.items():
-        filepath = config_dir / filename
-        is_list = resource in ("automation", "scene")
-        data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
-
-        if is_list:
-            for item in data:
-                item_str = json.dumps(item, ensure_ascii=False, default=str).lower()
-                if query in item_str:
-                    alias = item.get("alias") or item.get("name", "?")
-                    results.append(f"- {resource}: {alias} (id: {item.get('id', '?')})")
-        else:
-            for key, val in data.items():
-                item_str = json.dumps(val, ensure_ascii=False, default=str).lower()
-                if query in item_str:
-                    alias = val.get("alias", key) if isinstance(val, dict) else key
-                    results.append(f"- {resource}: {alias} (id: {key})")
+    for domain in _CONFIG_API_RESOURCES:
+        # Get all entities in this domain from HA states
+        states = hass.states.async_all(domain)
+        for state in states:
+            unique_id = state.attributes.get("id", "")
+            if not unique_id:
+                continue
+            try:
+                config = await ha_config_request(
+                    hass, "GET", f"/config/{domain}/config/{unique_id}"
+                )
+                config_str = json.dumps(config, ensure_ascii=False, default=str).lower()
+                if query in config_str:
+                    alias = config.get("alias") or state.attributes.get("friendly_name", "?")
+                    results.append(f"- {domain}: {alias} (id: {unique_id})")
+            except Exception:
+                # Fall back to checking state attributes
+                attr_str = json.dumps(dict(state.attributes), ensure_ascii=False, default=str).lower()
+                if query in attr_str:
+                    alias = state.attributes.get("friendly_name", "?")
+                    results.append(f"- {domain}: {alias} (id: {unique_id})")
 
     if not results:
         return f"No automations, scripts, or scenes found containing '{query}'."
@@ -1896,26 +2016,18 @@ async def _handle_rename_entity(hass: HomeAssistant, args: dict) -> str:
 # ---------------------------------------------------------------------------
 
 async def _handle_get_config(hass: HomeAssistant, args: dict, resource: str) -> str:
-    """Read the full config of an automation or script."""
+    """Read the full config of an automation or script via Config Store API."""
     item_id = args.get("item_id", "")
     if not item_id:
-        return f"Error: item_id is required."
+        return "Error: item_id is required."
 
-    config_dir = Path(hass.config.config_dir)
-    filepath = config_dir / _CONFIG_FILES.get(resource, "")
-    is_list = resource in ("automation", "scene")
-
-    data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
-
-    if is_list:
-        for item in data:
-            if item.get("id") == item_id:
-                return json.dumps(item, ensure_ascii=False, indent=2, default=str)
-        return f"{resource} with id '{item_id}' not found."
-    else:
-        if item_id in data:
-            return json.dumps(data[item_id], ensure_ascii=False, indent=2, default=str)
-        return f"{resource} with id '{item_id}' not found."
+    try:
+        config = await get_config(hass, resource, item_id)
+        return json.dumps(config, ensure_ascii=False, indent=2, default=str)
+    except RuntimeError as e:
+        if "404" in str(e):
+            return f"{resource} with id '{item_id}' not found."
+        return f"Error reading {resource} config: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -2103,178 +2215,82 @@ async def _handle_update_device(hass: HomeAssistant, args: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Config API Handler
+# Config API Handler — uses HA Config Store REST API (no YAML file writing)
 # ---------------------------------------------------------------------------
 
-def _read_yaml_file(path: Path, is_list: bool) -> list | dict:
-    """Read a YAML config file. Returns [] or {} if missing/empty."""
-    if not path.exists():
-        _LOGGER.info("Config file %s does not exist, returning empty", path)
-        return [] if is_list else {}
-    try:
-        data = load_yaml(str(path))
-    except Exception as e:
-        _LOGGER.error("CRITICAL: Failed to read YAML %s: %s — returning NONE to prevent data loss", path, e)
-        return None  # Return None to signal read failure (not empty)
-    if data is None:
-        return [] if is_list else {}
-    # Normalize: convert OrderedDict to regular types
-    if is_list and isinstance(data, list):
-        return [dict(item) if hasattr(item, "items") else item for item in data]
-    if not is_list and hasattr(data, "items"):
-        return dict(data)
-    return data
-
-
-def _normalize_for_yaml(obj):
-    """Deep-convert all values to basic Python types (no HA NodeStrClass etc)."""
-    if isinstance(obj, dict):
-        return {str(k): _normalize_for_yaml(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_normalize_for_yaml(v) for v in obj]
-    if isinstance(obj, bool):
-        return obj
-    if isinstance(obj, int):
-        return obj
-    if isinstance(obj, float):
-        return obj
-    if obj is None:
-        return None
-    return str(obj)
-
-
-def _write_yaml_file(path: Path, data) -> None:
-    """Write YAML config file with backup. Uses safe_dump to avoid Python tags."""
-    # Always create backup before writing
-    if path.exists():
-        bak = path.with_suffix(".bak")
-        import shutil
-        shutil.copy2(str(path), str(bak))
-        _LOGGER.info("Backed up %s → %s", path.name, bak.name)
-
-    # Normalize to basic Python types — prevents yaml writing HA-specific object tags
-    clean_data = _normalize_for_yaml(data)
-
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        yaml.safe_dump(clean_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    tmp.replace(path)
-    _LOGGER.info("Wrote config file: %s (%d bytes)", path, path.stat().st_size)
-
-
-async def _handle_ha_config_api(hass: HomeAssistant, args: dict) -> str:
-    """Manage HA config: automations, scenes, scripts."""
-    resource = args.get("resource", "")
-    operation = args.get("operation", "")
-    item_id = args.get("item_id")
+async def _handle_set_config(hass: HomeAssistant, args: dict, resource: str) -> str:
+    """Create or update an automation/script/scene (like MCP's ha_config_set_*)."""
     config = args.get("config", {}) or {}
+    identifier = args.get("identifier")
 
-    _LOGGER.info("ha_config_api called: resource=%s, operation=%s, config_keys=%s",
-                 resource, operation, list(config.keys()) if config else "none")
+    # Handle config passed as JSON string
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except json.JSONDecodeError:
+            return f"Error: config is not valid JSON: {config[:100]}"
 
-    if resource not in _CONFIG_FILES:
+    if not config:
+        return "Error: config is required."
+
+    # Guard: config has 'id' but no identifier → probably meant to update
+    if identifier is None and "id" in config:
+        existing_id = config["id"]
+        return (
+            f"Error: config contains 'id' ('{existing_id}') but no identifier was provided. "
+            f"To update, pass identifier='{existing_id}'. "
+            f"To create new, remove 'id' from config."
+        )
+
+    _LOGGER.info("set_%s called: identifier=%s, config_keys=%s",
+                 resource, identifier, list(config.keys()))
+
+    try:
+        result = await set_config(hass, resource, config, identifier)
+        alias = config.get("alias") or config.get("name", result["unique_id"])
+        op = result["operation"]
+        entity_id = result.get("entity_id")
+
+        if op == "created" and entity_id:
+            return f"Created {resource} '{alias}' (entity: {entity_id})."
+        elif op == "created":
+            return f"Created {resource} '{alias}' (entity not yet visible, may take a moment)."
+        else:
+            return f"Updated {resource} '{alias}'."
+    except ValueError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        _LOGGER.error("set_%s failed: %s", resource, e)
+        return f"Error creating/updating {resource}: {e}"
+
+
+async def _handle_remove_config(hass: HomeAssistant, args: dict, resource: str) -> str:
+    """Delete an automation/script/scene (like MCP's ha_config_remove_*)."""
+    identifier = args.get("identifier", "")
+    if not identifier:
+        return "Error: identifier is required."
+
+    _LOGGER.info("remove_%s called: identifier=%s", resource, identifier)
+
+    try:
+        result = await remove_config(hass, resource, identifier)
+        return f"Deleted {resource} '{identifier}'."
+    except RuntimeError as e:
+        if "404" in str(e):
+            return f"{resource} '{identifier}' not found."
+        return f"Error deleting {resource}: {e}"
+    except Exception as e:
+        _LOGGER.error("remove_%s failed: %s", resource, e)
+        return f"Error deleting {resource}: {e}"
+
+
+async def _handle_list_config(hass: HomeAssistant, args: dict) -> str:
+    """List all automations/scripts/scenes."""
+    resource = args.get("resource", "")
+    if resource not in _CONFIG_API_RESOURCES:
         return f"Unknown resource: {resource}. Use: automation, scene, script"
 
-    config_dir = Path(hass.config.config_dir)
-    filepath = config_dir / _CONFIG_FILES[resource]
-    is_list = resource in ("automation", "scene")
-
-    async with _get_lock(resource):
-        try:
-            if operation == "list":
-                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
-                if is_list:
-                    items = [
-                        {"id": item.get("id"), "alias": item.get("alias") or item.get("name", "?")}
-                        for item in data
-                    ]
-                else:
-                    items = [
-                        {"id": key, "alias": val.get("alias", key) if isinstance(val, dict) else key}
-                        for key, val in data.items()
-                    ]
-                if not items:
-                    return f"No {resource}s found."
-                return json.dumps(items, ensure_ascii=False)
-
-            elif operation == "create":
-                if not config:
-                    return "Error: config is required for create."
-                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
-
-                # Safety: if read failed, refuse to write (prevents data loss)
-                if data is None:
-                    return f"Error: could not read {filepath.name} — refusing to write to prevent data loss. Check HA logs."
-
-                if is_list:
-                    new_id = uuid.uuid4().hex[:12]
-                    config["id"] = new_id
-                    data.append(config)
-                else:
-                    alias = config.get("alias", "")
-                    key = item_id or alias.lower().replace(" ", "_").replace("-", "_")[:40]
-                    if not key:
-                        key = uuid.uuid4().hex[:12]
-                    data[key] = config
-                    new_id = key
-
-                await hass.async_add_executor_job(_write_yaml_file, filepath, data)
-                _LOGGER.info("Created %s, reloading domain...", resource)
-                await hass.services.async_call(resource, "reload", blocking=True)
-                return f"Created {resource} with id '{new_id}'."
-
-            elif operation == "update":
-                if not item_id:
-                    return "Error: item_id is required for update."
-                if not config:
-                    return "Error: config is required for update."
-                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
-                if data is None:
-                    return f"Error: could not read {filepath.name} — refusing to write to prevent data loss."
-
-                if is_list:
-                    found = False
-                    for i, item in enumerate(data):
-                        if item.get("id") == item_id:
-                            config["id"] = item_id
-                            data[i] = config
-                            found = True
-                            break
-                    if not found:
-                        return f"Error: {resource} with id '{item_id}' not found."
-                else:
-                    if item_id not in data:
-                        return f"Error: {resource} with id '{item_id}' not found."
-                    data[item_id] = config
-
-                await hass.async_add_executor_job(_write_yaml_file, filepath, data)
-                await hass.services.async_call(resource, "reload", blocking=True)
-                return f"Updated {resource} '{item_id}'."
-
-            elif operation == "delete":
-                if not item_id:
-                    return "Error: item_id is required for delete."
-                data = await hass.async_add_executor_job(_read_yaml_file, filepath, is_list)
-                if data is None:
-                    return f"Error: could not read {filepath.name} — refusing to write to prevent data loss."
-
-                if is_list:
-                    original_len = len(data)
-                    data = [item for item in data if item.get("id") != item_id]
-                    if len(data) == original_len:
-                        return f"Error: {resource} with id '{item_id}' not found."
-                else:
-                    if item_id not in data:
-                        return f"Error: {resource} with id '{item_id}' not found."
-                    del data[item_id]
-
-                await hass.async_add_executor_job(_write_yaml_file, filepath, data)
-                await hass.services.async_call(resource, "reload", blocking=True)
-                return f"Deleted {resource} '{item_id}'."
-
-            else:
-                return f"Unknown operation: {operation}. Use: list, create, update, delete"
-
-        except Exception as e:
-            _LOGGER.error("ha_config_api failed: %s (resource=%s, operation=%s)", e, resource, operation)
-            return f"Error creating {resource}: {e}"
+    items = await list_config(hass, resource)
+    if not items:
+        return f"No {resource}s found."
+    return json.dumps(items, ensure_ascii=False)

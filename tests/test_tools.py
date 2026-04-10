@@ -1,14 +1,10 @@
-"""Tests for tools.py — YAML normalization, tool format, routing."""
+"""Tests for tools.py — Config Store API, tool format, routing."""
 
 import pytest
-import yaml
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from jane_conversation.config_api import normalize_config_keys
 from jane_conversation.tools import (
-    _normalize_for_yaml,
-    _read_yaml_file,
-    _write_yaml_file,
     _ALL_FUNCTION_DECLARATIONS,
     get_tools,
     get_tools_minimal,
@@ -20,104 +16,49 @@ from jane_conversation.tools import (
 
 
 # ---------------------------------------------------------------------------
-# YAML Normalization
+# Config Key Normalization (plural → singular)
 # ---------------------------------------------------------------------------
 
-class TestNormalizeForYaml:
-    """Test _normalize_for_yaml prevents Python-specific YAML tags."""
+class TestNormalizeConfigKeys:
+    """Test normalize_config_keys for REST API format."""
 
-    def test_plain_string(self):
-        assert _normalize_for_yaml("hello") == "hello"
-        assert type(_normalize_for_yaml("hello")) is str
+    def test_triggers_to_trigger(self):
+        config = {"alias": "Test", "triggers": [{"platform": "time"}]}
+        result = normalize_config_keys(config)
+        assert "trigger" in result
+        assert "triggers" not in result
 
-    def test_integer(self):
-        assert _normalize_for_yaml(42) == 42
+    def test_actions_to_action(self):
+        config = {"alias": "Test", "actions": [{"service": "light.turn_on"}]}
+        result = normalize_config_keys(config)
+        assert "action" in result
+        assert "actions" not in result
 
-    def test_float(self):
-        assert _normalize_for_yaml(3.14) == 3.14
+    def test_conditions_to_condition(self):
+        config = {"alias": "Test", "conditions": [{"condition": "time"}]}
+        result = normalize_config_keys(config)
+        assert "condition" in result
+        assert "conditions" not in result
 
-    def test_boolean(self):
-        assert _normalize_for_yaml(True) is True
-        assert _normalize_for_yaml(False) is False
+    def test_singular_keys_unchanged(self):
+        config = {"alias": "Test", "trigger": [{"platform": "time"}], "action": []}
+        result = normalize_config_keys(config)
+        assert result["trigger"] == [{"platform": "time"}]
+        assert result["action"] == []
 
-    def test_none(self):
-        assert _normalize_for_yaml(None) is None
+    def test_does_not_overwrite_existing_singular(self):
+        """If both plural and singular exist, keep the singular."""
+        config = {"trigger": [{"platform": "time"}], "triggers": [{"platform": "state"}]}
+        result = normalize_config_keys(config)
+        assert result["trigger"] == [{"platform": "time"}]
+        assert "triggers" in result  # Not removed if singular already exists
 
-    def test_custom_string_subclass(self):
-        """Simulate HA's NodeStrClass — must become plain str."""
-        class NodeStr(str):
-            pass
-        result = _normalize_for_yaml(NodeStr("test"))
-        assert result == "test"
-        assert type(result) is str  # Not NodeStr!
-
-    def test_nested_dict(self):
-        data = {"a": {"b": "c"}}
-        result = _normalize_for_yaml(data)
-        assert result == {"a": {"b": "c"}}
-
-    def test_list_of_dicts(self):
-        data = [{"id": "abc", "alias": "Test"}]
-        result = _normalize_for_yaml(data)
-        assert result == [{"id": "abc", "alias": "Test"}]
-
-    def test_deep_nested_custom_objects(self):
-        class NodeStr(str):
-            pass
-        data = [{"trigger": [{"platform": NodeStr("time"), "at": NodeStr("09:00")}]}]
-        result = _normalize_for_yaml(data)
-        dumped = yaml.safe_dump(result)
-        assert "python" not in dumped
-        assert "NodeStr" not in dumped
-
-    def test_safe_dump_produces_clean_yaml(self):
-        """The ultimate test: safe_dump should produce no Python tags."""
-        class NodeStr(str):
-            pass
-        data = [{"id": NodeStr("abc"), "alias": NodeStr("Test"), "mode": NodeStr("single")}]
-        clean = _normalize_for_yaml(data)
-        output = yaml.safe_dump(clean, default_flow_style=False)
-        assert "!!" not in output
-        assert "python" not in output
-
-
-# ---------------------------------------------------------------------------
-# YAML Read/Write
-# ---------------------------------------------------------------------------
-
-class TestYamlReadWrite:
-    def test_read_missing_file(self, tmp_path):
-        result = _read_yaml_file(tmp_path / "nonexistent.yaml", is_list=True)
-        assert result == []
-
-    def test_read_missing_file_dict(self, tmp_path):
-        result = _read_yaml_file(tmp_path / "nonexistent.yaml", is_list=False)
-        assert result == {}
-
-    def test_write_creates_backup(self, tmp_path):
-        filepath = tmp_path / "test.yaml"
-        filepath.write_text("original content")
-        _write_yaml_file(filepath, [{"id": "new"}])
-        bak = tmp_path / "test.bak"
-        assert bak.exists()
-        assert bak.read_text() == "original content"
-
-    def test_write_produces_valid_yaml(self, tmp_path):
-        filepath = tmp_path / "test.yaml"
-        data = [{"id": "abc", "alias": "Test", "trigger": [{"platform": "time"}]}]
-        _write_yaml_file(filepath, data)
-        loaded = yaml.safe_load(filepath.read_text())
-        assert loaded[0]["id"] == "abc"
-        assert loaded[0]["alias"] == "Test"
-
-    def test_read_corrupt_file_returns_none(self, tmp_path):
-        """When load_yaml raises, _read_yaml_file should return None."""
-        from unittest.mock import patch
-        filepath = tmp_path / "corrupt.yaml"
-        filepath.write_text("some content")
-        with patch("jane_conversation.tools.load_yaml", side_effect=Exception("parse error")):
-            result = _read_yaml_file(filepath, is_list=True)
-        assert result is None  # Not [] — signals read failure
+    def test_preserves_other_keys(self):
+        config = {"alias": "Test", "mode": "single", "description": "A test"}
+        result = normalize_config_keys(config)
+        assert result["alias"] == "Test"
+        assert result["mode"] == "single"
+        assert result["description"] == "A test"
 
 
 # ---------------------------------------------------------------------------
