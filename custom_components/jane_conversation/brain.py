@@ -8,12 +8,27 @@ from google.genai import types
 from homeassistant.core import HomeAssistant
 
 from .const import SYSTEM_PROMPT, GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
-from .memory import load_home, get_recent_responses
+from pathlib import Path
+
+from .memory import load_home, get_recent_responses, get_memory_dir
 from .tools import get_tools, get_tools_minimal, execute_tool
 
 _LOGGER = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
+
+
+def _load_routines_index() -> str:
+    """Load routines memory for context injection — zero-cost cache hits."""
+    mem_dir = get_memory_dir()
+    if not mem_dir:
+        return ""
+    routines_path = Path(mem_dir) / "routines.md"
+    if routines_path.exists():
+        content = routines_path.read_text(encoding="utf-8").strip()
+        if content:
+            return content
+    return ""
 
 # Hebrew keywords for request classification
 _COMMAND_KEYWORDS = {"הדלק", "כבה", "פתח", "סגור", "הפעל", "כבי", "הדליק", "תדליק", "תכבה",
@@ -104,6 +119,7 @@ async def think(
     # Build context
     home_context = await _build_context(hass)
     home_layout = await hass.async_add_executor_job(load_home)
+    routines_context = await hass.async_add_executor_job(_load_routines_index)
 
     # Build system instruction
     now = datetime.now().strftime("%A %H:%M")
@@ -112,6 +128,8 @@ async def think(
         system_parts.append(f"\nHome status:\n{home_context}")
     if home_layout:
         system_parts.append(f"\nHome layout:\n{home_layout}")
+    if routines_context:
+        system_parts.append(f"\nKnown routines:\n{routines_context}")
 
     recent = get_recent_responses()
     if recent:

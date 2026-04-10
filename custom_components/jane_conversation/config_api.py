@@ -130,9 +130,9 @@ async def resolve_config_id(
             from homeassistant.helpers import entity_registry as er
             ent_reg = er.async_get(hass)
             entry = ent_reg.async_get(identifier)
-            if entry and entry.unique_id:
+            if entry and entry.unique_id and isinstance(entry.unique_id, str):
                 _LOGGER.debug("Resolved %s → storage key %s", identifier, entry.unique_id)
-                return str(entry.unique_id)
+                return entry.unique_id
         except Exception:
             pass
         # Fallback: strip prefix (script.morning_routine → morning_routine)
