@@ -7,11 +7,13 @@ CONF_MODEL = "model"
 CONF_VOICE = "voice"
 CONF_LANGUAGE = "language"
 CONF_STYLE_PROMPT = "style_prompt"
+CONF_CACHE = "cache"
 
 DEFAULT_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_VOICE = "callirrhoe"
 DEFAULT_LANGUAGE = "he"
 DEFAULT_STYLE_PROMPT = ""
+DEFAULT_CACHE = True
 
 MODELS = [
     "gemini-2.5-flash-preview-tts",

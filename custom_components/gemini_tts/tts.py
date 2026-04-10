@@ -15,10 +15,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CONF_API_KEY,
+    CONF_CACHE,
     CONF_LANGUAGE,
     CONF_MODEL,
     CONF_STYLE_PROMPT,
     CONF_VOICE,
+    DEFAULT_CACHE,
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
     DEFAULT_STYLE_PROMPT,
@@ -57,8 +59,17 @@ class GeminiTTSEntity(TextToSpeechEntity):
         self._voice = options.get(CONF_VOICE, data.get(CONF_VOICE, DEFAULT_VOICE))
         self._language = options.get(CONF_LANGUAGE, data.get(CONF_LANGUAGE, DEFAULT_LANGUAGE))
         self._style_prompt = options.get(CONF_STYLE_PROMPT, data.get(CONF_STYLE_PROMPT, DEFAULT_STYLE_PROMPT))
+        self._cache_enabled = options.get(CONF_CACHE, data.get(CONF_CACHE, DEFAULT_CACHE))
 
         self._client = genai.Client(api_key=self._api_key)
+
+    @property
+    def default_options(self) -> dict[str, Any]:
+        """Return default options."""
+        return {
+            CONF_VOICE: self._voice,
+            CONF_STYLE_PROMPT: self._style_prompt,
+        }
 
     @property
     def supported_languages(self) -> list[str]:
@@ -74,14 +85,6 @@ class GeminiTTSEntity(TextToSpeechEntity):
     def supported_options(self) -> list[str]:
         """Return supported options."""
         return [CONF_VOICE, CONF_STYLE_PROMPT]
-
-    @property
-    def default_options(self) -> dict[str, Any]:
-        """Return default options."""
-        return {
-            CONF_VOICE: self._voice,
-            CONF_STYLE_PROMPT: self._style_prompt,
-        }
 
     async def async_get_supported_voices(self, language: str) -> list[Voice] | None:
         """Return list of supported voices for a language."""

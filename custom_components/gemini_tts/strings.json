@@ -9,7 +9,8 @@
           "model": "Model",
           "voice": "Voice",
           "language": "Default Language",
-          "style_prompt": "Style Prompt (e.g. 'warm and friendly')"
+          "style_prompt": "Style Prompt (e.g. 'warm and friendly')",
+          "cache": "Enable audio caching"
         }
       }
     },
@@ -25,7 +26,8 @@
           "model": "Model",
           "voice": "Voice",
           "language": "Default Language",
-          "style_prompt": "Style Prompt"
+          "style_prompt": "Style Prompt",
+          "cache": "Enable audio caching"
         }
       }
     }

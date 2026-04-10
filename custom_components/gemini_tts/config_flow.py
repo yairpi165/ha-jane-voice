@@ -11,10 +11,12 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_API_KEY,
+    CONF_CACHE,
     CONF_LANGUAGE,
     CONF_MODEL,
     CONF_STYLE_PROMPT,
     CONF_VOICE,
+    DEFAULT_CACHE,
     DEFAULT_LANGUAGE,
     DEFAULT_MODEL,
     DEFAULT_STYLE_PROMPT,
@@ -82,6 +84,7 @@ class GeminiTTSConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_STYLE_PROMPT, default=DEFAULT_STYLE_PROMPT
                     ): str,
+                    vol.Optional(CONF_CACHE, default=DEFAULT_CACHE): bool,
                 }
             ),
             errors=errors,
@@ -126,6 +129,10 @@ class GeminiTTSOptionsFlow(config_entries.OptionsFlow):
                         CONF_STYLE_PROMPT,
                         default=current.get(CONF_STYLE_PROMPT, DEFAULT_STYLE_PROMPT),
                     ): str,
+                    vol.Optional(
+                        CONF_CACHE,
+                        default=current.get(CONF_CACHE, DEFAULT_CACHE),
+                    ): bool,
                 }
             ),
         )
