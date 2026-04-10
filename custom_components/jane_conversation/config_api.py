@@ -31,7 +31,10 @@ def _slugify(text: str) -> str:
     # Keep only ASCII letters, digits, spaces, hyphens
     slug = re.sub(r"[^a-z0-9\s-]", "", slug)
     slug = re.sub(r"[\s-]+", "_", slug).strip("_")
-    return slug[:40] or str(int(time.time() * 1000))
+    # Must have at least 3 chars and start with a letter — otherwise use timestamp
+    if len(slug) < 3 or not slug[0].isalpha():
+        return f"jane_{int(time.time() * 1000)}"
+    return slug[:40]
 
 
 # ---------------------------------------------------------------------------
