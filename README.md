@@ -1,6 +1,6 @@
 # Jane — AI-Powered Smart Home Voice Assistant
 
-A private, Hebrew-speaking voice assistant for smart home control. Built on GPT-5.4 Mini with Home Assistant integration, running on a Raspberry Pi 5.
+A private, Hebrew-speaking voice assistant for smart home control. Built on Gemini 2.5 Pro + Flash with Home Assistant integration, running on a Raspberry Pi 5.
 
 ## What Jane Does
 
@@ -30,30 +30,26 @@ HA Voice Pipeline
   ┌──────────────────────┐
   │        Jane           │  ← Conversation Agent (custom_component)
   │      brain.py         │
-  │                        │──→ GPT-5.4 Mini (function calling)
-  │  14 tools:             │      │
+  │                        │──→ Gemini 2.5 Pro/Flash (function calling)
+  │  38 tools:             │      │
   │  ├─ get_entity_state   │      ├→ Device control
   │  ├─ call_ha_service    │      ├→ Entity search & discovery
   │  ├─ search_entities    │      ├→ History & statistics
-  │  ├─ get_history        │      ├→ Notifications & timers
-  │  ├─ list_areas         │      ├→ Shopping lists
-  │  ├─ send_notification  │      ├→ TTS announcements
-  │  ├─ check_people       │      ├→ Automations/scenes/scripts
-  │  ├─ set_timer          │      └→ Web search (Tavily)
-  │  ├─ manage_list        │
-  │  ├─ get_statistics     │
-  │  ├─ get_logbook        │
-  │  ├─ tts_announce       │
-  │  ├─ ha_config_api      │
-  │  └─ search_web         │
+  │  ├─ set_automation     │      ├→ Notifications & timers
+  │  ├─ set_script         │      ├→ Shopping lists & calendars
+  │  ├─ set_scene          │      ├→ TTS announcements
+  │  ├─ check_people       │      ├→ Config Store API (automations/scripts/scenes)
+  │  ├─ set_timer          │      ├→ Smart Routines (cache & reuse)
+  │  ├─ manage_list        │      └→ Web search (Google Search)
+  │  └─ ... 29 more        │
   │                        │
-  │  memory:               │──→ 7 markdown files (GPT-managed)
+  │  memory:               │──→ 7 markdown files (Gemini-managed)
   │                        │──→ Firebase backup (Firestore)
   └────────────┬───────────┘
                │ response text
                ▼
   ┌────────────┴──────┐
-  │    OpenAI TTS     │  ← voice: nova
+  │   Gemini TTS      │  ← voice: callirrhoe (ha-gemini-tts)
   └────────────┬──────┘
                │ audio
                ▼
@@ -76,8 +72,11 @@ HA Voice Pipeline
 | | `set_timer` | Countdown with notification |
 | | `manage_list` | Shopping/todo lists |
 | | `tts_announce` | Broadcast via speaker |
-| **Create** | `ha_config_api` | Automations, scenes, scripts |
-| **External** | `search_web` | Web search (Tavily) |
+| **Config** | `set_automation` / `remove_automation` | Create/update/delete automations |
+| | `set_script` / `remove_script` | Create/update/delete scripts |
+| | `set_scene` / `remove_scene` | Create/update/delete scenes |
+| | `list_config` | List all automations/scripts/scenes |
+| **External** | `search_web` | Web search (Google Search) |
 
 See [docs/TOOL_CALLING_ARCHITECTURE.md](docs/TOOL_CALLING_ARCHITECTURE.md) for details.
 
@@ -105,11 +104,12 @@ jane/
 │   └── jane_conversation/      # HA custom integration (v3.5.0)
 │       ├── __init__.py         # Setup, Firebase init, restore
 │       ├── manifest.json       # Integration metadata
-│       ├── config_flow.py      # UI config (OpenAI + Tavily + Firebase keys)
+│       ├── config_flow.py      # UI config (Gemini API key + Firebase)
 │       ├── conversation.py     # ConversationEntity, sessions, hallucination filter
-│       ├── brain.py            # GPT-5.4 Mini with context injection + dynamic temperature
+│       ├── brain.py            # Gemini 2.5 Pro/Flash with context injection + smart routines
 │       ├── tools.py            # 14 tool definitions + execution handlers
-│       ├── web_search.py       # Tavily REST wrapper
+│       ├── config_api.py       # Config Store API client (automations/scripts/scenes)
+│       ├── web_search.py       # Google Search via Gemini
 │       ├── memory.py           # 7 memory files, extraction, history log, home map
 │       ├── firebase.py         # Firestore REST API backup
 │       ├── const.py            # Constants + system prompt
@@ -140,7 +140,7 @@ jane/
 ### Prerequisites
 - Raspberry Pi 5 running Home Assistant OS
 - OpenAI API key
-- Tavily API key (optional — enables web search)
+- Gemini TTS: Install [ha-gemini-tts](https://github.com/yairpi165/ha-gemini-tts) via HACS
 - Firebase service account key (optional — enables memory backup)
 
 ### Installation via HACS
@@ -149,14 +149,14 @@ jane/
 3. Restart HA
 4. Add integration: Settings → Integrations → Add → Jane Voice Assistant
 5. Enter OpenAI API key
-6. Optionally configure Tavily and Firebase in Jane settings
+6. Optionally configure Firebase in Jane settings
 
 ### Voice Pipeline Setup
-1. Install via HACS: "OpenAI Whisper STT API" + "OpenAI TTS"
+1. Install via HACS: "OpenAI Whisper STT API" + [ha-gemini-tts](https://github.com/yairpi165/ha-gemini-tts)
 2. Create Voice Assistant: Settings → Voice Assistants → Add
    - Conversation Agent: **Jane**
    - STT: **OpenAI Whisper**
-   - TTS: **OpenAI TTS** (voice: nova)
+   - TTS: **Gemini TTS** (voice: callirrhoe)
    - Language: **Hebrew**
 
 ## Tech Stack
@@ -167,7 +167,7 @@ jane/
 | STT | gpt-4o-mini-transcribe (Hebrew prompt hints) |
 | TTS | Gemini TTS, voice callirrhoe ([ha-gemini-tts](https://github.com/yairpi165/ha-gemini-tts)) |
 | Smart Home | Home Assistant (native Python API) |
-| Web Search | Tavily API (optional) |
+| Web Search | Google Search (built-in via Gemini) |
 | Memory Backup | Firebase Firestore (optional) |
 | Wake Word | microWakeWord "Hey Jane" + Voice Satellite Card |
 | Server | Raspberry Pi 5 (HAOS) |

@@ -188,7 +188,7 @@ Brain switched from Claude (Anthropic) to Gemini (Google AI).
 ### 34. Routine Triggers ✅ (v3.3.4)
 - "לילה טוב", "בוקר טוב", "ערב טוב" classified as commands (not chat)
 - System prompt teaches Jane to search for matching script/scene and run it
-- These get all 33 tools, not just save_memory/read_memory
+- These get all 38 tools, not just save_memory/read_memory
 
 ### 35. ha_config_api → HA Config Store API ✅ (v3.4.0)
 **Critical upgrade:** Replaced direct YAML file writing with HA's internal Config Store REST API.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Jane uses an LLM-managed memory system. GPT-5.4 Mini reads, consolidates, and rewrites concise Markdown files. No code-side deduplication or schema validation — the LLM handles all memory management in natural language.
+Jane uses an LLM-managed memory system. Gemini 2.5 reads, consolidates, and rewrites concise Markdown files. No code-side deduplication or schema validation — the LLM handles all memory management in natural language.
 
 Memory content is stored in **English** for LLM precision. Conversations with users remain in **Hebrew**.
 
@@ -130,7 +130,7 @@ save_memory(category="family", content="Maor is 8, loves soccer and Minecraft")
          Load memory (7 files → English context)
                        │
                        ▼
-         GPT-5.4 Mini (function calling loop)
+         Gemini 2.5 (function calling loop)
            │                           │
            ▼                           ▼
     Tool calls (0–10)           Final response (Hebrew)

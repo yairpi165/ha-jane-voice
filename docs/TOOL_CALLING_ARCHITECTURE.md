@@ -4,7 +4,7 @@
 
 Jane uses Gemini 2.5's function calling to autonomously decide what tools to use. Dual model: Gemini 2.5 Flash (fast commands) + Gemini 2.5 Pro (complex reasoning). 38 tools + Google Search built-in.
 
-Model history: GPT-5.4 Mini → Claude Sonnet 4 → **Gemini 2.5 Pro** (current).
+Model history: GPT-5.4 Mini → Claude Sonnet 4 → **Gemini 2.5 Pro + Flash** (current).
 
 ---
 
@@ -23,7 +23,7 @@ User speaks → Whisper STT → text
                     │  + Session history│
                     │  + User text      │
                     │                   │
-                    │  GPT-5.4 Mini     │──→ Tool call?
+                    │  Gemini 2.5       │──→ Tool call?
                     │  (function calling)│      │
                     └──────────┬────────┘      │
                                │           ┌───┴───┐
@@ -43,7 +43,7 @@ User speaks → Whisper STT → text
 
 ---
 
-## All Tools (v2.8.0 — 14 tools)
+## All Tools (v3.5.0 — 38 tools)
 
 ### Core — Device Control
 | Tool | What it does | Example |
@@ -83,7 +83,7 @@ User speaks → Whisper STT → text
 ### External
 | Tool | What it does | Example |
 |------|-------------|---------|
-| `search_web` | Tavily web search | "מה שער הדולר?", "מה קורה בחדשות?" |
+| `search_web` | Google Search (via Gemini) | "מה שער הדולר?", "מה קורה בחדשות?" |
 
 ---
 
@@ -126,7 +126,7 @@ User speaks → Whisper STT → text
 
 ### set_timer
 - **Handler**: `asyncio.sleep(minutes * 60)` → persistent notification + push
-- **Limits**: Max 120 minutes (longer → use ha_config_api for automation)
+- **Limits**: Max 120 minutes (longer → use set_automation)
 - **Note**: In-memory, does not survive HA restart
 
 ### manage_list
@@ -164,8 +164,7 @@ User speaks → Whisper STT → text
 - **Returns**: id + alias for each item
 
 ### search_web
-- **Handler**: Tavily REST API (`search_web.py`)
-- **Condition**: Only available when Tavily API key is configured
+- **Handler**: Google Search via Gemini (`search_web.py`)
 - **Returns**: Clean text answer + source snippets
 
 ---
@@ -285,7 +284,7 @@ Last 10 response openings tracked in memory. Injected in system_instruction.
 ### API Keys
 - **Gemini**: Required (config flow)
 - **Firebase**: Optional (options flow, enables memory backup)
-- **Tavily**: No longer needed (Google Search replaces it)
+- **Google Search**: Built-in via Gemini (no extra API key)
 
 ### Tests
 98 tests in 7 files, run with `pytest tests/ -v`:
@@ -308,7 +307,7 @@ Last 10 response openings tracked in memory. Injected in system_instruction.
 | Service call fails | GPT gets "Service failed: {error}" → tells user |
 | Recorder not loaded | History/stats/logbook return "not available" → GPT answers from knowledge |
 | Notify target not found | Returns available targets → GPT can retry |
-| Timer >120 min | Error suggests using ha_config_api instead |
+| Timer >120 min | Error suggests using set_automation instead |
 | Max iterations reached | Force final response without tools |
 
 GPT is resilient — if a tool fails, it adapts. No crashes.
