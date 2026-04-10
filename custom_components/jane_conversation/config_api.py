@@ -25,11 +25,12 @@ _CONFIG_API_RESOURCES = {"automation", "scene", "script"}
 
 
 def _slugify(text: str) -> str:
-    """Convert text to a URL-safe slug for script IDs."""
+    """Convert text to an ASCII-only slug for script IDs. HA rejects non-ASCII."""
     import re
     slug = text.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s-]+", "_", slug)
+    # Keep only ASCII letters, digits, spaces, hyphens
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+    slug = re.sub(r"[\s-]+", "_", slug).strip("_")
     return slug[:40] or str(int(time.time() * 1000))
 
 
