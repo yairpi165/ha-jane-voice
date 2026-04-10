@@ -119,10 +119,18 @@ async def think(
 
     system_instruction = "\n".join(system_parts)
 
-    # Build messages
+    # Build messages — convert history from dict format to Gemini Content objects
     messages = []
     if history:
-        messages.extend(history)
+        for msg in history:
+            if isinstance(msg, dict):
+                role = "model" if msg.get("role") == "assistant" else msg.get("role", "user")
+                messages.append(types.Content(
+                    role=role,
+                    parts=[types.Part(text=msg.get("content", ""))],
+                ))
+            else:
+                messages.append(msg)  # Already a Content object
     messages.append(types.Content(
         role="user",
         parts=[types.Part(text=user_text)],

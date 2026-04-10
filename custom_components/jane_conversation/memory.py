@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
 
+from .const import GEMINI_MODEL_FAST
+
 _LOGGER = logging.getLogger(__name__)
 
 # Firebase backup handle (set by __init__.py if configured)
