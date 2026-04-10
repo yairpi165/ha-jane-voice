@@ -125,7 +125,7 @@ async def think(
         messages.extend(history)
     messages.append(types.Content(
         role="user",
-        parts=[types.Part.from_text(user_text)],
+        parts=[types.Part(text=user_text)],
     ))
 
     # Tools
@@ -178,10 +178,10 @@ async def think(
             result = await execute_tool(hass, fc.name, args, tavily_api_key)
 
             function_response_parts.append(
-                types.Part.from_function_response(
+                types.Part(function_response=types.FunctionResponse(
                     name=fc.name,
                     response={"result": result},
-                )
+                ))
             )
 
         messages.append(types.Content(
