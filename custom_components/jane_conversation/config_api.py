@@ -24,6 +24,15 @@ _LOGGER = logging.getLogger(__name__)
 _CONFIG_API_RESOURCES = {"automation", "scene", "script"}
 
 
+def _slugify(text: str) -> str:
+    """Convert text to a URL-safe slug for script IDs."""
+    import re
+    slug = text.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s-]+", "_", slug)
+    return slug[:40] or str(int(time.time() * 1000))
+
+
 # ---------------------------------------------------------------------------
 # Auth — internal Long-Lived Access Token
 # ---------------------------------------------------------------------------
@@ -102,13 +111,32 @@ async def ha_config_request(
 async def resolve_config_id(
     hass: HomeAssistant, resource: str, identifier: str
 ) -> str:
-    """Convert entity_id to unique_id if needed.
+    """Convert entity_id to unique_id/storage_key if needed.
 
-    If identifier starts with the resource domain (e.g. 'automation.'),
-    fetch state and extract the 'id' attribute (Config Store unique_id).
-    Otherwise assume it's already a unique_id.
+    Automations: entity_id → state.attributes['id'] (numeric unique_id)
+    Scripts: entity_id → entity registry unique_id (slug)
     """
-    if identifier.startswith(f"{resource}."):
+    if not identifier.startswith(f"{resource}."):
+        return identifier
+
+    if resource == "script":
+        # Scripts use entity registry unique_id, not state attributes
+        # Try entity registry first, fall back to entity_id suffix
+        try:
+            from homeassistant.helpers import entity_registry as er
+            ent_reg = er.async_get(hass)
+            entry = ent_reg.async_get(identifier)
+            if entry and entry.unique_id:
+                _LOGGER.debug("Resolved %s → storage key %s", identifier, entry.unique_id)
+                return str(entry.unique_id)
+        except Exception:
+            pass
+        # Fallback: strip prefix (script.morning_routine → morning_routine)
+        bare_id = identifier.removeprefix("script.")
+        _LOGGER.debug("Resolved %s → bare id %s", identifier, bare_id)
+        return bare_id
+    else:
+        # Automations and scenes: use state attributes['id']
         state = hass.states.get(identifier)
         if state is None:
             raise RuntimeError(f"Entity {identifier} not found")
@@ -117,7 +145,6 @@ async def resolve_config_id(
             raise RuntimeError(f"Entity {identifier} has no unique_id attribute")
         _LOGGER.debug("Resolved %s → unique_id %s", identifier, unique_id)
         return str(unique_id)
-    return identifier
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +244,7 @@ async def set_config(
     """
     config = normalize_config_keys(config)
 
+    # Resource-specific validation
     if resource == "automation":
         if "use_blueprint" in config:
             config = strip_empty_config_fields(config)
@@ -226,18 +254,31 @@ async def set_config(
             missing = [f for f in ("alias", "trigger", "action") if f not in config]
             if missing:
                 raise ValueError(f"Missing required fields: {', '.join(missing)}")
+    elif resource == "script":
+        if "sequence" not in config and "use_blueprint" not in config:
+            raise ValueError("Scripts require 'sequence' or 'use_blueprint'.")
 
     if identifier is None:
         # Create new
-        unique_id = str(int(time.time() * 1000))
+        if resource == "script":
+            # Scripts use a slug as key (like MCP), not a numeric id
+            alias = config.get("alias", "")
+            unique_id = _slugify(alias) if alias else str(int(time.time() * 1000))
+        else:
+            # Automations and scenes use numeric timestamp
+            unique_id = str(int(time.time() * 1000))
         operation = "created"
     else:
         # Update existing
         unique_id = await resolve_config_id(hass, resource, identifier)
         operation = "updated"
 
-    if "id" not in config:
-        config["id"] = unique_id
+    # Automations need 'id' in config body; scripts do NOT (HA rejects it)
+    if resource != "script":
+        if "id" not in config:
+            config["id"] = unique_id
+    else:
+        config.pop("id", None)  # Remove if present — scripts reject it
 
     await ha_config_request(
         hass, "POST",
