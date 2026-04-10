@@ -202,11 +202,43 @@ Now uses the same REST API as HA's MCP server (`POST /api/config/automation/conf
 - Removed: `_read_yaml_file`, `_write_yaml_file`, `_normalize_for_yaml`, YAML imports
 - 98 tests passing
 
+### 36. Dedicated Config Tools ✅ (v3.4.0)
+Replaced generic `ha_config_api` with dedicated tools matching MCP's pattern:
+- `set_automation` / `remove_automation`
+- `set_script` / `remove_script`
+- `set_scene` / `remove_scene`
+- `list_config`
+- entity_id → unique_id resolution, trigger key normalization, blueprint support
+- 38 tools total (was 33)
+
+### 37. Smart Routines ✅ (v3.5.0)
+Jane builds her own tool library — caches multi-step commands as scripts/scenes.
+- First time "יוצא מהבית" → 6+ tool calls → creates `script.jane_leaving_home`
+- Second time → 1 tool call (runs cached script)
+- Routines context injected in system prompt for zero-cost cache hits
+- English alias with "Jane" prefix → predictable ASCII slug
+- Saves to memory for instant lookup
+
+### 38. Gemini TTS ✅ (v1.0.0, separate repo)
+Custom TTS component: `ha-gemini-tts` — natural Hebrew voice via Gemini 2.5 Flash TTS.
+- 30 voices (callirrhoe for Hebrew)
+- 2 models (Flash + Pro)
+- Style prompt support ("warm and friendly", etc.)
+- Config flow with dropdowns
+- Cache toggle
+- Separate repo: github.com/yairpi165/ha-gemini-tts
+
+### 39. Local CLI Testing ✅ (v3.5.0)
+`jane_cli.py` — run Jane locally against real HA via REST API.
+- FakeHass wraps HA REST API
+- Test code changes before deploying
+- Interactive mode or single command
+
 ---
 
-## Planned — v3.5.0
+## Planned — v3.6.0
 
-### 36. Per-User Behavior
+### 40. Per-User Behavior
 Jane adapts personality per family member:
 - **Yair (admin)**: direct, tech-aware, brief confirmations
 - **Kids**: gentler, explains more, restricted late-night access
@@ -214,15 +246,7 @@ Jane adapts personality per family member:
 
 Implementation: user_name-based prompt injection + permission matrix in memory.
 
-### 37. Routine Execution
-Named multi-step routines stored in routines.md:
-- "לילה טוב" → turn off lights, close shutters, set AC to 24, lock door
-- "יוצא מהבית" → turn off everything, lock up
-- "בוקר טוב" → open shutters, report weather, turn on heating
-
-Jane chains multiple tool calls automatically from routine definitions.
-
-### 38. Proactive Behavior (Background Loop)
+### 41. Proactive Behavior (Background Loop)
 Jane monitors the home and speaks up when relevant:
 - "המזגן דולק כבר 5 שעות, לכבות?"
 - "אפרת עזבה את הבית"
@@ -236,22 +260,19 @@ AlertManager with cooldowns (15min door, 1h AC, 1d suggestions) to avoid spam.
 
 ## Future — v4.0.0
 
-### 39. Voice Recognition (Speaker ID)
+### 43. Voice Recognition (Speaker ID)
 Identify who is speaking from voice alone — no "who is this?" needed.
 Azure Speaker Recognition API or local model.
 
-### 40. Face Recognition
+### 44. Face Recognition
 Identify who is in the room via camera + Frigate.
 Presence-based context for proactive behavior.
 
-### 41. ElevenLabs TTS
-More natural Hebrew voice. Multilingual v2 model with Hebrew support.
-
-### 42. Multi-Room Satellites
+### 45. Multi-Room Satellites
 Wyoming Protocol + ESP32 devices — independent audio per room.
 Jane knows which room you're in and responds on the right speaker.
 
-### 43. Learning & Suggestions
+### 46. Learning & Suggestions
 Jane notices patterns and suggests automations:
 - "שמתי לב שכל ערב אתה מעמעם אור — רוצה שאיצור אוטומציה?"
 - "כל בוקר אתה מדליק חימום ב-7, רוצה שזה יהיה אוטומטי?"
@@ -272,6 +293,8 @@ Jane notices patterns and suggests automations:
 | v3.3.0 | Switched to Gemini 2.5 Pro + Flash. Google Search built-in (replaces Tavily). YAML safe_dump + normalize | 33 |
 | v3.3.4 | 107 tests added. YAML Python tags fix. History format fix. Routine trigger fix | 33 |
 | v3.4.0 | ha_config_api migrated to Config Store REST API. No more YAML writing. 98 tests | 33 |
+| v3.4.x | Dedicated config tools (set/remove automation/script/scene, list_config) | 38 |
+| v3.5.0 | Smart Routines — Jane caches multi-step commands as scripts/scenes | 38 |
 
 ## Intelligence Evolution
 
@@ -285,6 +308,7 @@ Jane notices patterns and suggests automations:
 | v3.2.0 | 33 tools, dual model (Haiku/Sonnet), smart memory, prompt caching, config safety |
 | v3.3.0 | Gemini 2.5 Pro + Flash, Google Search built-in, YAML safe_dump, 107 tests |
 | v3.4.0 | Config Store API replaces YAML writing — no more data corruption |
+| v3.5.0 | Smart Routines — Jane caches commands as scripts, reuses them. Gemini TTS (separate repo) |
 
 ## Model History
 

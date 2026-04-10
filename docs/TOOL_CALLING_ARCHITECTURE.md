@@ -2,7 +2,7 @@
 
 ## Overview
 
-Jane uses Gemini 2.5's function calling to autonomously decide what tools to use. Dual model: Gemini 2.5 Flash (fast commands) + Gemini 2.5 Pro (complex reasoning). 33 tools + Google Search built-in.
+Jane uses Gemini 2.5's function calling to autonomously decide what tools to use. Dual model: Gemini 2.5 Flash (fast commands) + Gemini 2.5 Pro (complex reasoning). 38 tools + Google Search built-in.
 
 Model history: GPT-5.4 Mini → Claude Sonnet 4 → **Gemini 2.5 Pro** (current).
 
@@ -72,7 +72,13 @@ User speaks → Whisper STT → text
 ### Creation & Management
 | Tool | What it does | Example |
 |------|-------------|---------|
-| `ha_config_api` | CRUD automations/scenes/scripts | "תיצרי אוטומציה לחימום כל בוקר ב-7" |
+| `set_automation` | Create/update automation | "תיצרי אוטומציה לחימום כל בוקר ב-7" |
+| `remove_automation` | Delete automation | "תמחקי את האוטומציה" |
+| `set_script` | Create/update script | "תיצרי סקריפט שמכבה טלוויזיה" |
+| `remove_script` | Delete script | "תמחקי את הסקריפט" |
+| `set_scene` | Create/update scene | "תיצרי סצנה של ערב סרט" |
+| `remove_scene` | Delete scene | "תמחקי את הסצנה" |
+| `list_config` | List all automations/scripts/scenes | "כמה אוטומציות יש לי?" |
 
 ### External
 | Tool | What it does | Example |
@@ -141,12 +147,21 @@ User speaks → Whisper STT → text
 - **Handler**: Finds TTS entity + media player dynamically → `tts.speak`
 - **Priority**: Prefers HomePod mini (`media_player.slvn_2`), falls back to any speaker
 
-### ha_config_api
-- **Handler**: HA Config Store REST API (`POST/GET/DELETE /api/config/{resource}/config/{id}`)
-- **Resources**: automation, scene, script
-- **Operations**: list, create, update, delete
+### set_automation / set_script / set_scene
+- **Handler**: `config_api.set_config()` → HA Config Store REST API (`POST /api/config/{resource}/config/{id}`)
 - **Auth**: Internal LLAT created on first use via `hass.auth`
-- **Safety**: Same API as HA UI and MCP — writes to `.storage/`, no YAML file manipulation
+- **Validation**: Required fields (alias, trigger, action), blueprint support, duplicate guard
+- **Normalization**: triggers→trigger, actions→action, trigger→platform (round-trip safe)
+- **Polling**: Verifies entity was created after POST (3 attempts)
+- **Scripts**: slug from English alias, no `id` in body (HA rejects it)
+
+### remove_automation / remove_script / remove_scene
+- **Handler**: `config_api.remove_config()` → `DELETE /api/config/{resource}/config/{id}`
+- **Resolution**: entity_id → unique_id via state attributes (automations) or entity registry (scripts)
+
+### list_config
+- **Handler**: `config_api.list_config()` → `hass.states.async_all(resource)`
+- **Returns**: id + alias for each item
 
 ### search_web
 - **Handler**: Tavily REST API (`search_web.py`)

@@ -102,7 +102,7 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for details.
 ```
 jane/
 ├── custom_components/
-│   └── jane_conversation/      # HA custom integration (v3.4.0)
+│   └── jane_conversation/      # HA custom integration (v3.5.0)
 │       ├── __init__.py         # Setup, Firebase init, restore
 │       ├── manifest.json       # Integration metadata
 │       ├── config_flow.py      # UI config (OpenAI + Tavily + Firebase keys)
@@ -163,9 +163,9 @@ jane/
 
 | Layer | Technology |
 |-------|-----------|
-| LLM | Gemini 2.5 Pro (complex) + 2.5 Flash (fast) — dual model, 33 tools |
+| LLM | Gemini 2.5 Pro (complex) + 2.5 Flash (fast) — dual model, 38 tools |
 | STT | gpt-4o-mini-transcribe (Hebrew prompt hints) |
-| TTS | OpenAI TTS, voice nova (via HACS) |
+| TTS | Gemini TTS, voice callirrhoe ([ha-gemini-tts](https://github.com/yairpi165/ha-gemini-tts)) |
 | Smart Home | Home Assistant (native Python API) |
 | Web Search | Tavily API (optional) |
 | Memory Backup | Firebase Firestore (optional) |
@@ -176,13 +176,12 @@ jane/
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap.
 
-v3.4.0 highlights:
-- **Config Store API** — automation CRUD via HA REST API, no more YAML file corruption
-- **Gemini 2.5 Pro + Flash** — dual model, ~$5-6/month
-- **Google Search built-in** — replaces Tavily, no extra API key
-- **33 tools** — discovery, calendar, memory, device management, config reading
-- **98 tests** — brain, tools, handlers, memory, E2E, Gemini API
-- **Routine triggers** — "לילה טוב" runs scripts, not just greetings
+v3.5.0 highlights:
+- **Smart Routines** — Jane caches multi-step commands as scripts/scenes (1 call instead of 6+)
+- **Config Store API** — automation CRUD via HA REST API, no more YAML corruption
+- **Dedicated config tools** — set/remove automation/script/scene (38 tools total)
+- **Gemini TTS** — natural Hebrew voice via callirrhoe ([separate repo](https://github.com/yairpi165/ha-gemini-tts))
+- **Local CLI** — `jane_cli.py` for testing against real HA without deploying
 
 Next up:
 - **Proactive behavior** — Jane speaks up when she notices something
