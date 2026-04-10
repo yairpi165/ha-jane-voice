@@ -2126,8 +2126,25 @@ def _read_yaml_file(path: Path, is_list: bool) -> list | dict:
     return data
 
 
+def _normalize_for_yaml(obj):
+    """Deep-convert all values to basic Python types (no HA NodeStrClass etc)."""
+    if isinstance(obj, dict):
+        return {str(k): _normalize_for_yaml(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize_for_yaml(v) for v in obj]
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, int):
+        return obj
+    if isinstance(obj, float):
+        return obj
+    if obj is None:
+        return None
+    return str(obj)
+
+
 def _write_yaml_file(path: Path, data) -> None:
-    """Write YAML config file with backup. Never overwrites without backup."""
+    """Write YAML config file with backup. Uses safe_dump to avoid Python tags."""
     # Always create backup before writing
     if path.exists():
         bak = path.with_suffix(".bak")
@@ -2135,9 +2152,12 @@ def _write_yaml_file(path: Path, data) -> None:
         shutil.copy2(str(path), str(bak))
         _LOGGER.info("Backed up %s → %s", path.name, bak.name)
 
+    # Normalize to basic Python types — prevents yaml writing HA-specific object tags
+    clean_data = _normalize_for_yaml(data)
+
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.safe_dump(clean_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     tmp.replace(path)
     _LOGGER.info("Wrote config file: %s (%d bytes)", path, path.stat().st_size)
 
