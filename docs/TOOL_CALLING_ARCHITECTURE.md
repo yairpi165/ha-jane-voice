@@ -2,9 +2,9 @@
 
 ## Overview
 
-Jane uses OpenAI's function calling to autonomously decide what tools to use. GPT-5.4 Mini receives tool definitions and decides on its own what to call, when, and in what order.
+Jane uses Gemini 2.5's function calling to autonomously decide what tools to use. Dual model: Gemini 2.5 Flash (fast commands) + Gemini 2.5 Pro (complex reasoning). 33 tools + Google Search built-in.
 
-This is the same pattern as Claude with MCP tools — the LLM has capabilities and uses them as needed.
+Model history: GPT-5.4 Mini → Claude Sonnet 4 → **Gemini 2.5 Pro** (current).
 
 ---
 
@@ -239,32 +239,46 @@ User: "בוקר טוב ג'יין"
 
 ## Configuration
 
-### GPT Settings
-- **Model**: gpt-5.4-mini
-- **max_completion_tokens**: 2000
+### Gemini Settings
+- **Models**: gemini-2.5-flash (chat/commands) + gemini-2.5-pro (complex)
+- **max_output_tokens**: 500 (Flash) / 2000 (Pro)
 - **MAX_TOOL_ITERATIONS**: 10
-- **Temperature**: Dynamic based on request type:
-  - Commands ("הדלק", "כבה"): 0.4 — precise tool calls
-  - Conversation ("מה שלומך", "ספרי"): 0.9, frequency_penalty=1.5, presence_penalty=0.6
-  - Default: 0.7, frequency_penalty=0.5
+- **Temperature**: Dynamic:
+  - Commands ("הדלק", "כבה"): 0.4
+  - Conversation ("מה שלומך"): 0.8
+  - Default: 0.7
+- **Google Search**: Built-in via `types.Tool(google_search=types.GoogleSearch())`
+  - Can't combine with function_declarations in same request
+  - search_web handler calls Gemini separately with GoogleSearch
 
-### Context Injection (v3.0.0)
-Every GPT call receives a "Home status" system message with:
+### Context Injection
+Every Gemini call receives home awareness via `system_instruction`:
 - Weather (state + temperature from `weather.forecast_home`)
 - People (home/away from `person.*` entities)
-- Active devices (lights/climate/media that are ON)
+- Active devices (lights/climate/media that are ON, cameras filtered)
 
-~50-100 tokens. Gives Jane ambient awareness without tool calls.
+### Anti-Repetition
+Last 10 response openings tracked in memory. Injected in system_instruction.
 
-### Anti-Repetition (v3.0.0)
-Last 10 response openings tracked in memory. Injected as:
-"Your recent response openings (don't repeat these): ..."
-Forces GPT to vary greetings and confirmations.
+### YAML Safety
+- `_normalize_for_yaml()` converts HA objects (NodeStrClass) to plain Python types
+- `yaml.safe_dump` prevents Python-specific tags
+- Backup (.bak) before every write, refuses to write if read fails
 
 ### API Keys
-- **OpenAI**: Required (config flow)
-- **Tavily**: Optional (options flow, enables search_web)
+- **Gemini**: Required (config flow)
 - **Firebase**: Optional (options flow, enables memory backup)
+- **Tavily**: No longer needed (Google Search replaces it)
+
+### Tests
+107 tests in 7 files, run with `pytest tests/ -v`:
+- Brain: classification, context, text extraction
+- Tools: YAML safety, format validation, routing
+- HA Handlers: all 33 tool handlers
+- Memory: tracking, file I/O, logs
+- Gemini API: history conversion, model selection, tool loop
+- E2E: full conversation flows
+- Conversation: hallucination filter
 
 ---
 

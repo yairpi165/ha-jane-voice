@@ -161,19 +161,46 @@ Jane decides what memory she needs — like Claude with its memory files.
 - Refuses to write if read fails (prevents data loss from overwriting)
 - Detailed logging at every step
 
+### 31. Switch to Gemini 2.5 Pro + Flash ✅ (v3.3.0)
+Brain switched from Claude (Anthropic) to Gemini (Google AI).
+- Dual model: Gemini 2.5 Flash (fast/cheap) + 2.5 Pro (smart)
+- Google Search built-in — replaces Tavily, no extra API key needed
+- search_web handler calls Gemini with GoogleSearch() in separate request
+  (can't combine GoogleSearch + function_declarations in same request)
+- frequency_penalty + presence_penalty re-enabled (Gemini supports them)
+- Cost: ~$5-6/month (vs $19 Claude, $1 GPT Mini)
+
+### 32. YAML Safe Write ✅ (v3.3.4)
+- `_normalize_for_yaml()` deep-converts HA objects (NodeStrClass) to plain Python types
+- `yaml.safe_dump` instead of `yaml.dump` — prevents Python-specific tags
+- Fixed corrupted automations.yaml caused by previous `yaml.dump` writing `!!python/object/new:` tags
+
+### 33. Test Suite ✅ (v3.3.4)
+107 tests in 7 files, all pass in 0.43s:
+- test_brain.py (28): classification, context, text extraction
+- test_tools.py (25): YAML safety, tool format, routing
+- test_ha_handlers.py (20): all HA tool handlers
+- test_memory.py (14): anti-repetition, file I/O, logs
+- test_gemini_api.py (8): history conversion, model selection, tool loop
+- test_e2e.py (6): full conversation flows (light, weather, goodnight, automation, chat, search)
+- test_conversation.py (6): hallucination filter
+
+### 34. Routine Triggers ✅ (v3.3.4)
+- "לילה טוב", "בוקר טוב", "ערב טוב" classified as commands (not chat)
+- System prompt teaches Jane to search for matching script/scene and run it
+- These get all 33 tools, not just save_memory/read_memory
+
 ---
 
-## Planned — v3.3.0
+## Planned — v3.4.0
 
-### 31. ha_config_api → HA Config Store API
+### 35. ha_config_api → HA Config Store API
 **Critical upgrade:** Replace direct YAML file writing with HA's internal Config Store API.
 Currently ha_config_api writes to `automations.yaml` directly — this is fragile and caused
 data loss (overwriting existing automations). HA's Config Store API (used by the UI and MCP)
 writes to `.storage/` which is safer, supports undo, and doesn't conflict with UI-created automations.
 
-This is the same API the MCP tools (ha_config_set_automation) use — proven reliable.
-
-### 32. Per-User Behavior
+### 36. Per-User Behavior
 Jane adapts personality per family member:
 - **Yair (admin)**: direct, tech-aware, brief confirmations
 - **Kids**: gentler, explains more, restricted late-night access
@@ -181,7 +208,7 @@ Jane adapts personality per family member:
 
 Implementation: user_name-based prompt injection + permission matrix in memory.
 
-### 33. Routine Execution
+### 37. Routine Execution
 Named multi-step routines stored in routines.md:
 - "לילה טוב" → turn off lights, close shutters, set AC to 24, lock door
 - "יוצא מהבית" → turn off everything, lock up
@@ -189,7 +216,7 @@ Named multi-step routines stored in routines.md:
 
 Jane chains multiple tool calls automatically from routine definitions.
 
-### 34. Proactive Behavior (Background Loop)
+### 38. Proactive Behavior (Background Loop)
 Jane monitors the home and speaks up when relevant:
 - "המזגן דולק כבר 5 שעות, לכבות?"
 - "אפרת עזבה את הבית"
@@ -203,22 +230,22 @@ AlertManager with cooldowns (15min door, 1h AC, 1d suggestions) to avoid spam.
 
 ## Future — v4.0.0
 
-### 35. Voice Recognition (Speaker ID)
+### 39. Voice Recognition (Speaker ID)
 Identify who is speaking from voice alone — no "who is this?" needed.
 Azure Speaker Recognition API or local model.
 
-### 36. Face Recognition
+### 40. Face Recognition
 Identify who is in the room via camera + Frigate.
 Presence-based context for proactive behavior.
 
-### 37. ElevenLabs TTS
+### 41. ElevenLabs TTS
 More natural Hebrew voice. Multilingual v2 model with Hebrew support.
 
-### 38. Multi-Room Satellites
+### 42. Multi-Room Satellites
 Wyoming Protocol + ESP32 devices — independent audio per room.
 Jane knows which room you're in and responds on the right speaker.
 
-### 39. Learning & Suggestions
+### 43. Learning & Suggestions
 Jane notices patterns and suggests automations:
 - "שמתי לב שכל ערב אתה מעמעם אור — רוצה שאיצור אוטומציה?"
 - "כל בוקר אתה מדליק חימום ב-7, רוצה שזה יהיה אוטומטי?"
@@ -236,6 +263,8 @@ Jane notices patterns and suggests automations:
 | v3.0.0 | Context injection, dynamic temperature, anti-repetition (no new tools) | 14 |
 | v3.1.0 | Switched to Claude Sonnet 4 (Anthropic API) | 14 |
 | v3.2.0 | + 19 tools (eval_template, bulk_control, save_memory, read_memory, get_device, calendars, helpers, config readers, etc.) + dual model Haiku/Sonnet + smart memory + prompt caching + config safety | 33 |
+| v3.3.0 | Switched to Gemini 2.5 Pro + Flash. Google Search built-in (replaces Tavily). YAML safe_dump + normalize | 33 |
+| v3.3.4 | 107 tests added. YAML Python tags fix. History format fix. Routine trigger fix | 33 |
 
 ## Intelligence Evolution
 
@@ -246,5 +275,13 @@ Jane notices patterns and suggests automations:
 | v2.8.0 | Family tools — notifications, timers, lists, TTS |
 | v3.0.0 | Context injection, dynamic temperature, anti-repetition, autonomous thinking, emotional awareness |
 | v3.1.0 | Claude Sonnet 4 replaces GPT-5.4 Mini — reliable tool calling, better Hebrew |
-| v3.2.0 | 33 tools, dual model (Haiku fast / Sonnet smart), smart memory (read_memory on demand), prompt caching, config API safety (backup + read validation) |
-| v3.3.0 | ha_config_api → HA Config Store API (planned) |
+| v3.2.0 | 33 tools, dual model (Haiku/Sonnet), smart memory, prompt caching, config safety |
+| v3.3.0 | Gemini 2.5 Pro + Flash, Google Search built-in, YAML safe_dump, 107 tests |
+
+## Model History
+
+| Version | Model | Cost/month | Why changed |
+|---------|-------|------------|-------------|
+| v1-v2 | GPT-4o Mini → GPT-5.4 Mini | ~$1 | Cheap but poor tool calling, invented excuses |
+| v3.1 | Claude Sonnet 4 + Haiku 4.5 | ~$19 | Reliable but expensive, no frequency_penalty |
+| v3.3 | Gemini 2.5 Pro + Flash | ~$5-6 | Fast, cheap, Google Search built-in |

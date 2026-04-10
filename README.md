@@ -102,7 +102,7 @@ See [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md) for details.
 ```
 jane/
 ├── custom_components/
-│   └── jane_conversation/      # HA custom integration (v3.2.0)
+│   └── jane_conversation/      # HA custom integration (v3.3.4)
 │       ├── __init__.py         # Setup, Firebase init, restore
 │       ├── manifest.json       # Integration metadata
 │       ├── config_flow.py      # UI config (OpenAI + Tavily + Firebase keys)
@@ -119,6 +119,16 @@ jane/
 │   ├── MEMORY_ARCHITECTURE.md
 │   ├── TOOL_CALLING_ARCHITECTURE.md
 │   └── ROADMAP.md
+│
+├── tests/
+│   ├── conftest.py              # Shared fixtures (mock hass, mock Gemini)
+│   ├── test_brain.py            # Classification, context, text extraction
+│   ├── test_tools.py            # YAML safety, tool format, routing
+│   ├── test_ha_handlers.py      # All HA tool handlers
+│   ├── test_memory.py           # Anti-repetition, file I/O, logs
+│   ├── test_gemini_api.py       # History conversion, model selection, tool loop
+│   ├── test_e2e.py              # Full conversation flows
+│   └── test_conversation.py     # Hallucination filter
 │
 ├── hacs.json
 ├── README.md
@@ -153,7 +163,7 @@ jane/
 
 | Layer | Technology |
 |-------|-----------|
-| LLM | Claude Sonnet 4 (complex) + Haiku 4.5 (fast) — dual model, 33 tools |
+| LLM | Gemini 2.5 Pro (complex) + 2.5 Flash (fast) — dual model, 33 tools |
 | STT | gpt-4o-mini-transcribe (Hebrew prompt hints) |
 | TTS | OpenAI TTS, voice nova (via HACS) |
 | Smart Home | Home Assistant (native Python API) |
@@ -166,13 +176,13 @@ jane/
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap.
 
-v3.2.0 highlights:
-- **Claude Sonnet 4** — replaced GPT-5.4 Mini, reliable tool calling
-- **Dual model** — Haiku 4.5 for fast commands, Sonnet 4 for complex tasks
+v3.3.4 highlights:
+- **Gemini 2.5 Pro + Flash** — dual model, ~$5-6/month
+- **Google Search built-in** — replaces Tavily, no extra API key
 - **33 tools** — discovery, calendar, memory, device management, config reading
-- **Smart memory** — only home.md loaded by default, read_memory tool for on-demand access
-- **Prompt caching** — system prompt cached 5 min, chat gets 2 tools instead of 33
-- **Config safety** — backup before YAML write, refuses to write if read fails
+- **107 tests** — brain, tools, handlers, memory, E2E, Gemini API
+- **YAML safe_dump** — prevents Python tags that corrupted automations.yaml
+- **Routine triggers** — "לילה טוב" runs scripts, not just greetings
 
 Next up:
 - **ha_config_api → HA Config Store API** — safer automation creation (no more YAML)
