@@ -156,7 +156,7 @@ async def think(
             _call_gemini, client, model, messages, config
         )
 
-        if not response.candidates or not response.candidates[0].content.parts:
+        if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
             _LOGGER.warning("Empty response from Gemini")
             return ""
 
