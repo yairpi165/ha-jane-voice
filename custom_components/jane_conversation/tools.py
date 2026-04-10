@@ -827,26 +827,20 @@ _ALL_FUNCTION_DECLARATIONS = [
 
 
 def get_tools(tavily_api_key: str | None = None) -> list[dict]:
-    """Return tools in Gemini format: list of Tool dicts with function_declarations + google_search."""
+    """Return tools in Gemini format."""
     from google.genai import types
 
-    tools = [
-        # All function declarations in one Tool
-        types.Tool(function_declarations=_ALL_FUNCTION_DECLARATIONS),
-        # Built-in Google Search (replaces Tavily)
-        types.Tool(google_search=types.GoogleSearch()),
-    ]
-    return tools
+    declarations = list(_ALL_FUNCTION_DECLARATIONS)
+    # search_web is always available (uses Google Search internally)
+    declarations.append(TOOL_SEARCH_WEB)
+    return [types.Tool(function_declarations=declarations)]
 
 
 def get_tools_minimal() -> list[dict]:
-    """Return minimal tools for chat mode (save_memory + read_memory + search)."""
+    """Return minimal tools for chat mode."""
     from google.genai import types
 
-    return [
-        types.Tool(function_declarations=[TOOL_SAVE_MEMORY, TOOL_READ_MEMORY]),
-        types.Tool(google_search=types.GoogleSearch()),
-    ]
+    return [types.Tool(function_declarations=[TOOL_SAVE_MEMORY, TOOL_READ_MEMORY, TOOL_SEARCH_WEB])]
 
 
 # ---------------------------------------------------------------------------
@@ -991,16 +985,38 @@ async def _handle_call_ha_service(hass: HomeAssistant, args: dict) -> str:
 
 
 async def _handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: str | None) -> str:
-    """Search the web via Tavily."""
-    if not tavily_api_key:
-        return "Web search is not configured. No Tavily API key."
-
+    """Search the web using Gemini + Google Search grounding."""
     query = args.get("query", "")
     if not query:
         return "No search query provided."
 
-    from .web_search import search_web
-    return await hass.async_add_executor_job(search_web, tavily_api_key, query)
+    try:
+        from google import genai
+        from google.genai import types
+        from .const import CONF_GEMINI_API_KEY
+
+        # Get Gemini client from hass data
+        from .const import DOMAIN
+        entry = list(hass.data.get(DOMAIN, {}).values())[0]
+        client = genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY])
+
+        response = await hass.async_add_executor_job(
+            lambda: client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=query,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    max_output_tokens=500,
+                ),
+            )
+        )
+
+        if response.candidates and response.candidates[0].content.parts:
+            return response.candidates[0].content.parts[0].text
+        return "No search results found."
+    except Exception as e:
+        _LOGGER.error("Google Search failed: %s", e)
+        return f"Search failed: {e}"
 
 
 # ---------------------------------------------------------------------------
