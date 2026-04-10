@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from anthropic import Anthropic
+from google import genai
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import ConversationEntity, ConversationResult
@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_ANTHROPIC_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
+from .const import DOMAIN, CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .brain import think
 from .memory import append_action, append_history, process_memory, track_response
 
@@ -45,7 +45,7 @@ class JaneConversationEntity(ConversationEntity):
         """Get or create OpenAI client (thread-safe)."""
         if self._client is None:
             self._client = await self.hass.async_add_executor_job(
-                lambda: Anthropic(api_key=self._config_entry.data[CONF_ANTHROPIC_API_KEY])
+                lambda: genai.Client(api_key=self._config_entry.data[CONF_GEMINI_API_KEY])
             )
         return self._client
 

@@ -1,14 +1,15 @@
-"""Jane brain — LLM integration with autonomous tool calling (Claude Sonnet 4 + Haiku 4.5)."""
+"""Jane brain — LLM integration with autonomous tool calling (Gemini 2.5 Pro + Flash)."""
 
 import logging
 from datetime import datetime
-from anthropic import Anthropic
+from google import genai
+from google.genai import types
 
 from homeassistant.core import HomeAssistant
 
-from .const import SYSTEM_PROMPT, CLAUDE_MODEL_FAST, CLAUDE_MODEL_SMART
+from .const import SYSTEM_PROMPT, GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
 from .memory import load_home, get_recent_responses
-from .tools import get_tools, execute_tool, TOOL_SAVE_MEMORY, TOOL_READ_MEMORY
+from .tools import get_tools, get_tools_minimal, execute_tool
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,7 +23,6 @@ _COMMAND_KEYWORDS = {"הדלק", "כבה", "פתח", "סגור", "הפעל", "כ
 _CHAT_PATTERNS = {"מה שלומך", "שלום", "היי",
                   "ספרי", "ספר לי", "בדיחה", "תודה", "יופי", "סבבה", "מה קורה",
                   "מה נשמע", "אני בסדר", "מה העניינים", "איך את"}
-# NOTE: "בוקר טוב", "ערב טוב", "לילה טוב" are NOT chat — they may trigger routines
 _COMPLEX_KEYWORDS = {"אוטומציה", "סצנה", "סקריפט", "automation", "תיצרי", "תמחקי",
                      "תשנה", "למה", "תסביר", "מתי", "כמה זמן", "היסטוריה",
                      "רשימה", "קניות", "יומן", "תזכורת", "הודעה"}
@@ -63,183 +63,162 @@ def _classify_request(user_text: str) -> str:
     """Classify request as 'chat', 'command', or 'complex'."""
     text = user_text.lower().strip().rstrip("?!.,")
 
-    # Chat — short, no action words
     if len(text) < 40 and not any(kw in text for kw in _COMMAND_KEYWORDS):
         if any(kw in text for kw in _CHAT_PATTERNS):
             return "chat"
 
-    # Complex — needs thinking
     if any(kw in text for kw in _COMPLEX_KEYWORDS):
         return "complex"
 
-    # Command — action words
     if any(kw in text for kw in _COMMAND_KEYWORDS):
         return "command"
 
-    # Default — treat as complex (safer)
     return "complex"
 
 
 async def think(
-    client: Anthropic,
+    client: genai.Client,
     user_text: str,
     user_name: str,
     hass: HomeAssistant,
-    history: list[dict] | None = None,
+    history: list | None = None,
     tavily_api_key: str | None = None,
 ) -> str:
-    """Send text to Claude with tools. Claude decides what to call. Returns final response."""
+    """Send text to Gemini with tools. Gemini decides what to call. Returns final response."""
 
-    # Classify request
     request_type = _classify_request(user_text)
 
-    # Choose model based on complexity
+    # Choose model
     if request_type == "complex":
-        model = CLAUDE_MODEL_SMART
+        model = GEMINI_MODEL_SMART
         temperature = 0.7
     elif request_type == "command":
-        model = CLAUDE_MODEL_FAST
+        model = GEMINI_MODEL_FAST
         temperature = 0.4
-    else:  # chat
-        model = CLAUDE_MODEL_FAST
+    else:
+        model = GEMINI_MODEL_FAST
         temperature = 0.8
 
-    _LOGGER.info("Request type: %s → model: %s", request_type, model.split("-")[1])
+    _LOGGER.info("Request type: %s → model: %s", request_type, model)
 
-    # Build home context (always fast — reads HA state directly)
+    # Build context
     home_context = await _build_context(hass)
-
-    # Smart memory loading:
-    # - Always: home.md (device map, essential for commands)
-    # - Chat/command: nothing else (use read_memory tool if needed)
-    # - Complex: nothing else (use read_memory tool if needed)
-    # Jane has read_memory tool to load specific memory on demand.
     home_layout = await hass.async_add_executor_job(load_home)
 
-    # Build system prompt with caching
+    # Build system instruction
     now = datetime.now().strftime("%A %H:%M")
-    dynamic_parts = [f"Current time: {now}"]
+    system_parts = [SYSTEM_PROMPT, f"\nCurrent time: {now}"]
     if home_context:
-        dynamic_parts.append(f"Home status:\n{home_context}")
+        system_parts.append(f"\nHome status:\n{home_context}")
     if home_layout:
-        dynamic_parts.append(f"Home layout:\n{home_layout}")
+        system_parts.append(f"\nHome layout:\n{home_layout}")
 
-    # Anti-repetition
     recent = get_recent_responses()
     if recent:
-        dynamic_parts.append(recent)
+        system_parts.append(f"\n{recent}")
 
-    system = [
-        {
-            "type": "text",
-            "text": SYSTEM_PROMPT,
-            "cache_control": {"type": "ephemeral"},
-        },
-        {
-            "type": "text",
-            "text": "\n".join(dynamic_parts),
-        },
-    ]
+    system_instruction = "\n".join(system_parts)
 
     # Build messages
     messages = []
     if history:
         messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+    messages.append(types.Content(
+        role="user",
+        parts=[types.Part.from_text(user_text)],
+    ))
 
-    # Smart tool filtering
-    if request_type == "chat":
-        tools = [TOOL_SAVE_MEMORY, TOOL_READ_MEMORY]
-    else:
-        tools = get_tools(tavily_api_key)
+    # Tools
+    tools = get_tools_minimal() if request_type == "chat" else get_tools()
 
-    _LOGGER.info("Tools: %d, Memory: home.md only (read_memory available)", len(tools))
+    _LOGGER.info("Tools: %s, model: %s", "minimal" if request_type == "chat" else "full", model)
+
+    # Build config
+    max_output = 500 if model == GEMINI_MODEL_FAST else 2000
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        tools=tools,
+        max_output_tokens=max_output,
+        temperature=temperature,
+    )
 
     # Tool calling loop
     for iteration in range(MAX_TOOL_ITERATIONS):
         response = await hass.async_add_executor_job(
-            _call_claude, client, model, system, messages, tools, temperature
+            _call_gemini, client, model, messages, config
         )
 
-        if response.stop_reason == "end_turn":
-            return _extract_text(response)
+        if not response.candidates or not response.candidates[0].content.parts:
+            _LOGGER.warning("Empty response from Gemini")
+            return ""
 
-        if response.stop_reason == "tool_use":
-            tool_names = [b.name for b in response.content if b.type == "tool_use"]
-            _LOGGER.info("Jane tool call #%d: %s", iteration + 1, ", ".join(tool_names))
+        parts = response.candidates[0].content.parts
 
-            messages.append({"role": "assistant", "content": _serialize_content(response.content)})
+        # Check for function calls
+        function_calls = [p for p in parts if hasattr(p, "function_call") and p.function_call]
 
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    result = await execute_tool(
-                        hass, block.name, block.input, tavily_api_key
-                    )
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
-
-            messages.append({"role": "user", "content": tool_results})
-            continue
-
-        text = _extract_text(response)
-        if text:
+        if not function_calls:
+            # No tool calls — extract text response
+            text = _extract_text(parts)
             return text
 
+        # Execute tools
+        tool_names = [fc.function_call.name for fc in function_calls]
+        _LOGGER.info("Jane tool call #%d: %s", iteration + 1, ", ".join(tool_names))
+
+        # Append model response to messages
+        messages.append(response.candidates[0].content)
+
+        # Execute each tool and send results back
+        function_response_parts = []
+        for fc_part in function_calls:
+            fc = fc_part.function_call
+            args = dict(fc.args) if fc.args else {}
+
+            result = await execute_tool(hass, fc.name, args, tavily_api_key)
+
+            function_response_parts.append(
+                types.Part.from_function_response(
+                    name=fc.name,
+                    response={"result": result},
+                )
+            )
+
+        messages.append(types.Content(
+            role="user",
+            parts=function_response_parts,
+        ))
+
+    # Max iterations
     _LOGGER.warning("Max tool iterations reached, forcing final response")
-    response = await hass.async_add_executor_job(
-        _call_claude, client, model, system, messages, None, temperature
+    config_no_tools = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        max_output_tokens=max_output,
+        temperature=temperature,
     )
-    return _extract_text(response)
+    response = await hass.async_add_executor_job(
+        _call_gemini, client, model, messages, config_no_tools
+    )
+    return _extract_text(response.candidates[0].content.parts) if response.candidates else ""
 
 
-def _call_claude(
-    client: Anthropic,
+def _call_gemini(
+    client: genai.Client,
     model: str,
-    system: list[dict] | str,
-    messages: list[dict],
-    tools: list[dict] | None,
-    temperature: float = 0.7,
+    messages: list,
+    config: types.GenerateContentConfig,
 ) -> object:
-    """Synchronous Claude call (runs in executor)."""
-    # Dynamic max_tokens based on model
-    max_tokens = 500 if model == CLAUDE_MODEL_FAST else 2000
-
-    kwargs = {
-        "model": model,
-        "system": system,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    if tools:
-        kwargs["tools"] = tools
-
-    return client.messages.create(**kwargs)
+    """Synchronous Gemini call (runs in executor)."""
+    return client.models.generate_content(
+        model=model,
+        contents=messages,
+        config=config,
+    )
 
 
-def _extract_text(response) -> str:
-    """Extract text from Claude response content blocks."""
-    for block in response.content:
-        if hasattr(block, "text"):
-            return block.text
+def _extract_text(parts) -> str:
+    """Extract text from Gemini response parts."""
+    for part in parts:
+        if hasattr(part, "text") and part.text:
+            return part.text
     return ""
-
-
-def _serialize_content(content) -> list[dict]:
-    """Serialize Anthropic content blocks to dicts for message history."""
-    result = []
-    for block in content:
-        if block.type == "text":
-            result.append({"type": "text", "text": block.text})
-        elif block.type == "tool_use":
-            result.append({
-                "type": "tool_use",
-                "id": block.id,
-                "name": block.name,
-                "input": block.input,
-            })
-    return result

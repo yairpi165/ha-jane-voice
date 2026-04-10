@@ -1,11 +1,11 @@
 DOMAIN = "jane_conversation"
 
-CONF_ANTHROPIC_API_KEY = "anthropic_api_key"
+CONF_GEMINI_API_KEY = "gemini_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"
 CONF_FIREBASE_KEY_PATH = "firebase_key_path"
 
-CLAUDE_MODEL_FAST = "claude-haiku-4-5-20251001"
-CLAUDE_MODEL_SMART = "claude-sonnet-4-20250514"
+GEMINI_MODEL_FAST = "gemini-2.5-flash"
+GEMINI_MODEL_SMART = "gemini-2.5-pro"
 
 # Common Whisper hallucinations — phantom phrases generated from silence/noise.
 # These are phrases Whisper invents when it gets silence or background noise.

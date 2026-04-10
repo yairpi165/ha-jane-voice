@@ -15,7 +15,7 @@ from homeassistant.util.yaml import load_yaml
 _LOGGER = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Tool Definitions (Anthropic tool use format)
+# Tool Definitions (Gemini function calling format)
 # ---------------------------------------------------------------------------
 
 TOOL_GET_ENTITY_STATE = {
@@ -25,7 +25,7 @@ TOOL_GET_ENTITY_STATE = {
         "Use to check device status, temperature, weather, sensor readings, "
         "whether a light is on/off, vacuum status, etc."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "entity_id": {
@@ -44,7 +44,7 @@ TOOL_CALL_HA_SERVICE = {
         "set temperature, open/close covers, set brightness), get weather forecasts, "
         "trigger scripts, or any other HA service."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "domain": {
@@ -83,7 +83,7 @@ TOOL_SEARCH_WEB = {
         "Good for: news, exchange rates, traffic, business hours, sports scores, "
         "recipes, general knowledge questions."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "query": {
@@ -127,7 +127,7 @@ TOOL_HA_CONFIG_API = {
         '"light.living_room": {"state": "on", "brightness": 50}, '
         '"climate.ac": {"state": "cool", "temperature": 24}}}'
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "resource": {
@@ -162,7 +162,7 @@ TOOL_SEARCH_ENTITIES = {
         "Examples: search for 'bedroom' to find bedroom devices, "
         "'tami' to find the water bar, 'temperature' to find temp sensors."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "query": {
@@ -185,7 +185,7 @@ TOOL_GET_HISTORY = {
         "Use to answer: 'when did X last turn on?', 'how long was the AC running?', "
         "'what was the temperature this morning?', 'did someone open the door today?'"
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "entity_id": {
@@ -208,7 +208,7 @@ TOOL_LIST_AREAS = {
         "Use to discover what's available, find which room a device is in, "
         "or get an overview of the smart home."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {},
     },
@@ -220,7 +220,7 @@ TOOL_SEND_NOTIFICATION = {
         "Send a push notification to a family member's phone or the home tablet. "
         "Use for reminders, alerts, or messages between family members."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "target": {
@@ -246,7 +246,7 @@ TOOL_CHECK_PEOPLE = {
         "Check who is home and where family members are. "
         "Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {},
     },
@@ -259,7 +259,7 @@ TOOL_SET_TIMER = {
         "Use for 'set a timer for 5 minutes', 'remind me in 10 minutes', etc. "
         "Max 120 minutes. For longer delays use ha_config_api to create an automation."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "minutes": {
@@ -281,7 +281,7 @@ TOOL_MANAGE_LIST = {
         "Manage shopping and todo lists — add, remove, or view items. "
         "Available lists: shopping (רשימת קניות), personal lists per family member, family list."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "list_name": {
@@ -308,7 +308,7 @@ TOOL_GET_STATISTICS = {
         "Get min/max/average statistics for a numeric sensor over a time period. "
         "Use for 'what was the average temperature?', 'how much energy today?', etc."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "entity_id": {
@@ -331,7 +331,7 @@ TOOL_GET_LOGBOOK = {
         "Use for 'what happened today?', 'what changed in the last hour?', "
         "'show me recent activity'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "hours": {
@@ -353,7 +353,7 @@ TOOL_TTS_ANNOUNCE = {
         "Use for broadcasting: 'tell the kids dinner is ready', "
         "'announce that we are leaving in 5 minutes'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "message": {
@@ -374,7 +374,7 @@ TOOL_EVAL_TEMPLATE = {
         "date math ('{{ now().strftime(\"%A %d/%m\") }}'), "
         "check conditions ('{{ states(\"sensor.temperature\") | float > 30 }}')."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "template": {
@@ -393,7 +393,7 @@ TOOL_BULK_CONTROL = {
         "Use for 'turn off all lights', 'close all shutters', etc. "
         "Much faster than calling call_ha_service multiple times."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "entity_ids": {
@@ -425,7 +425,7 @@ TOOL_SAVE_MEMORY = {
         "family members, preferences, corrections, or routines. "
         "Write content in English. This is saved immediately."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "category": {
@@ -456,7 +456,7 @@ TOOL_READ_MEMORY = {
         "'habits' (behavioral patterns), 'corrections' (past mistakes), "
         "'routines' (goodnight, leaving home, etc.), 'actions' (recent 24h activity)."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "category": {
@@ -479,7 +479,7 @@ TOOL_GET_DEVICE = {
         "Get detailed information about a device and all its entities. "
         "Use to understand what a device can do or find all entities belonging to it."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "query": {
@@ -497,7 +497,7 @@ TOOL_GET_CALENDAR_EVENTS = {
         "Get upcoming calendar events. Use for 'what's on today?', "
         "'do I have anything tomorrow?', 'what's this week?'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "days": {
@@ -514,7 +514,7 @@ TOOL_CREATE_CALENDAR_EVENT = {
         "Create a new calendar event. Use for 'add to calendar', "
         "'remind me about the meeting', 'schedule dinner'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "summary": {
@@ -544,7 +544,7 @@ TOOL_CREATE_HELPER = {
         "Create a Home Assistant helper entity (input_boolean, input_number, timer, counter, input_text). "
         "Use for toggles, counters, timers, or text inputs that persist across restarts."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "helper_type": {
@@ -575,7 +575,7 @@ TOOL_LIST_HELPERS = {
         "List all helper entities (input_boolean, input_number, timer, counter, input_text). "
         "Use to discover what helpers exist."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {},
     },
@@ -587,7 +587,7 @@ TOOL_LIST_SERVICES = {
         "List available services for a domain. Use when you're not sure what services "
         "a device type supports (e.g. what can I do with vacuum? with climate?)."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "domain": {
@@ -606,7 +606,7 @@ TOOL_DEEP_SEARCH = {
         "Use for 'is there an automation that uses sensor X?', "
         "'which automations control the living room?'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "query": {
@@ -624,7 +624,7 @@ TOOL_RENAME_ENTITY = {
         "Rename an entity's friendly name. Use when the user wants to rename a device "
         "('call the bedroom light Night Light')."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "entity_id": {
@@ -646,7 +646,7 @@ TOOL_GET_AUTOMATION_CONFIG = {
         "Read the full configuration of an automation by its id. "
         "Use for 'what does this automation do?', 'show me the automation config'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "item_id": {
@@ -664,7 +664,7 @@ TOOL_GET_SCRIPT_CONFIG = {
         "Read the full configuration of a script by its id. "
         "Use for 'what does this script do?', 'show me the script'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "item_id": {
@@ -682,7 +682,7 @@ TOOL_GET_AUTOMATION_TRACES = {
         "Get recent execution traces of an automation. Use for debugging: "
         "'why didn't the automation run?', 'did the automation trigger today?'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "automation_id": {
@@ -701,7 +701,7 @@ TOOL_GET_OVERVIEW = {
         "areas, and entity counts per domain. Use for 'how big is my smart home?', "
         "'how many lights do I have?'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {},
     },
@@ -712,7 +712,7 @@ TOOL_LIST_FLOORS = {
     "description": (
         "List all floors in the home and which areas belong to each floor."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {},
     },
@@ -724,7 +724,7 @@ TOOL_GET_ZONE = {
         "Get information about a zone (home, work, school, etc.) including "
         "GPS coordinates and radius. Use with check_people to understand locations."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "zone_name": {
@@ -742,7 +742,7 @@ TOOL_UPDATE_DEVICE = {
         "Update a device's name or area assignment. "
         "Use for 'move the heater to the bedroom', 'rename the vacuum'."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "device_query": {
@@ -790,45 +790,63 @@ def _get_lock(resource: str) -> asyncio.Lock:
     return _CONFIG_LOCKS[resource]
 
 
+_ALL_FUNCTION_DECLARATIONS = [
+    TOOL_GET_ENTITY_STATE,
+    TOOL_CALL_HA_SERVICE,
+    TOOL_SEARCH_ENTITIES,
+    TOOL_GET_HISTORY,
+    TOOL_LIST_AREAS,
+    TOOL_SEND_NOTIFICATION,
+    TOOL_CHECK_PEOPLE,
+    TOOL_SET_TIMER,
+    TOOL_MANAGE_LIST,
+    TOOL_GET_STATISTICS,
+    TOOL_GET_LOGBOOK,
+    TOOL_TTS_ANNOUNCE,
+    TOOL_EVAL_TEMPLATE,
+    TOOL_BULK_CONTROL,
+    TOOL_SAVE_MEMORY,
+    TOOL_READ_MEMORY,
+    TOOL_GET_DEVICE,
+    TOOL_GET_CALENDAR_EVENTS,
+    TOOL_CREATE_CALENDAR_EVENT,
+    TOOL_CREATE_HELPER,
+    TOOL_LIST_HELPERS,
+    TOOL_LIST_SERVICES,
+    TOOL_DEEP_SEARCH,
+    TOOL_RENAME_ENTITY,
+    TOOL_GET_AUTOMATION_CONFIG,
+    TOOL_GET_SCRIPT_CONFIG,
+    TOOL_GET_AUTOMATION_TRACES,
+    TOOL_GET_OVERVIEW,
+    TOOL_LIST_FLOORS,
+    TOOL_GET_ZONE,
+    TOOL_UPDATE_DEVICE,
+    TOOL_HA_CONFIG_API,
+]
+
+
 def get_tools(tavily_api_key: str | None = None) -> list[dict]:
-    """Return available tools based on configuration."""
+    """Return tools in Gemini format: list of Tool dicts with function_declarations + google_search."""
+    from google.genai import types
+
     tools = [
-        TOOL_GET_ENTITY_STATE,
-        TOOL_CALL_HA_SERVICE,
-        TOOL_SEARCH_ENTITIES,
-        TOOL_GET_HISTORY,
-        TOOL_LIST_AREAS,
-        TOOL_SEND_NOTIFICATION,
-        TOOL_CHECK_PEOPLE,
-        TOOL_SET_TIMER,
-        TOOL_MANAGE_LIST,
-        TOOL_GET_STATISTICS,
-        TOOL_GET_LOGBOOK,
-        TOOL_TTS_ANNOUNCE,
-        TOOL_EVAL_TEMPLATE,
-        TOOL_BULK_CONTROL,
-        TOOL_SAVE_MEMORY,
-        TOOL_READ_MEMORY,
-        TOOL_GET_DEVICE,
-        TOOL_GET_CALENDAR_EVENTS,
-        TOOL_CREATE_CALENDAR_EVENT,
-        TOOL_CREATE_HELPER,
-        TOOL_LIST_HELPERS,
-        TOOL_LIST_SERVICES,
-        TOOL_DEEP_SEARCH,
-        TOOL_RENAME_ENTITY,
-        TOOL_GET_AUTOMATION_CONFIG,
-        TOOL_GET_SCRIPT_CONFIG,
-        TOOL_GET_AUTOMATION_TRACES,
-        TOOL_GET_OVERVIEW,
-        TOOL_LIST_FLOORS,
-        TOOL_GET_ZONE,
-        TOOL_UPDATE_DEVICE,
-        TOOL_HA_CONFIG_API,
+        # All function declarations in one Tool
+        types.Tool(function_declarations=_ALL_FUNCTION_DECLARATIONS),
+        # Built-in Google Search (replaces Tavily)
+        types.Tool(google_search=types.GoogleSearch()),
     ]
-    if tavily_api_key:
-        tools.append(TOOL_SEARCH_WEB)
     return tools
+
+
+def get_tools_minimal() -> list[dict]:
+    """Return minimal tools for chat mode (save_memory + read_memory + search)."""
+    from google.genai import types
+
+    return [
+        types.Tool(function_declarations=[TOOL_SAVE_MEMORY, TOOL_READ_MEMORY]),
+        types.Tool(google_search=types.GoogleSearch()),
+    ]
 
 
 # ---------------------------------------------------------------------------

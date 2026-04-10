@@ -6,7 +6,8 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from anthropic import Anthropic
+from google import genai
+from google.genai import types
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ Write a concise home layout document in English, organized by ROOM (not by devic
 - Keep it concise — one line per device, max 50 lines total"""
 
 
-def rebuild_home_map(client: Anthropic, hass):
+def rebuild_home_map(client: genai.Client, hass):
     """Generate home.md by asking Claude to organize HA entities by room."""
     home_path = get_memory_dir() / "home.md"
     if home_path.exists() and _read(home_path):
@@ -224,19 +225,20 @@ def rebuild_home_map(client: Anthropic, hass):
     prompt = HOME_SETUP_PROMPT.replace("{entity_list}", "\n".join(entities))
 
     try:
-        from .const import CLAUDE_MODEL_FAST
-        response = client.messages.create(
-            model=CLAUDE_MODEL_FAST,
-            system=prompt,
-            messages=[{"role": "user", "content": "Generate the home layout now."}],
-            max_tokens=1500,
-            temperature=0.3,
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_FAST,
+            contents="Generate the home layout now.",
+            config=types.GenerateContentConfig(
+                system_instruction=prompt,
+                max_output_tokens=1500,
+                temperature=0.3,
+            ),
         )
-        content = response.content[0].text.strip()
+        content = response.candidates[0].content.parts[0].text.strip()
         if not content.startswith("#"):
             content = "# Home Layout\n\n" + content
         _write(home_path, content)
-        _LOGGER.info("Home map created by Claude")
+        _LOGGER.info("Home map created by Gemini")
     except Exception as e:
         _LOGGER.error("Home map generation failed: %s", e)
 
@@ -288,7 +290,7 @@ Respond in JSON only:
 }"""
 
 
-def process_memory(client: Anthropic, user_name: str, user_text: str, jane_response: str, action: str):
+def process_memory(client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str):
     """Analyze conversation and update memory if needed."""
     if action == "ha_service" and len(jane_response) < 30:
         return
@@ -304,16 +306,17 @@ def process_memory(client: Anthropic, user_name: str, user_text: str, jane_respo
     )
 
     try:
-        from .const import CLAUDE_MODEL_FAST
-        response = client.messages.create(
-            model=CLAUDE_MODEL_FAST,
-            system=prompt,
-            messages=[{"role": "user", "content": "Analyze and respond with JSON."}],
-            max_tokens=2000,
-            temperature=0.3,
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_FAST,
+            contents="Analyze and respond with JSON.",
+            config=types.GenerateContentConfig(
+                system_instruction=prompt,
+                max_output_tokens=2000,
+                temperature=0.3,
+            ),
         )
 
-        raw = response.content[0].text.strip()
+        raw = response.candidates[0].content.parts[0].text.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):

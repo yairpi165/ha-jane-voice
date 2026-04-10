@@ -1,7 +1,7 @@
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .const import DOMAIN, CONF_ANTHROPIC_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
+from .const import DOMAIN, CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -11,16 +11,15 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Validate Anthropic API key
-            from anthropic import Anthropic
+            # Validate Gemini API key
+            from google import genai
 
             try:
-                client = Anthropic(api_key=user_input[CONF_ANTHROPIC_API_KEY])
+                client = genai.Client(api_key=user_input[CONF_GEMINI_API_KEY])
                 await self.hass.async_add_executor_job(
-                    lambda: client.messages.create(
-                        model="claude-sonnet-4-20250514",
-                        max_tokens=10,
-                        messages=[{"role": "user", "content": "test"}],
+                    lambda: client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents="test",
                     )
                 )
             except Exception:
@@ -34,8 +33,7 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_ANTHROPIC_API_KEY): str,
-                vol.Optional(CONF_TAVILY_API_KEY): str,
+                vol.Required(CONF_GEMINI_API_KEY): str,
             }),
             errors=errors,
         )
@@ -53,22 +51,18 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
-            # Merge into config entry data
             new_data = {**self._config_entry.data, **user_input}
-            # Remove empty keys
             new_data = {k: v for k, v in new_data.items() if v}
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data
             )
             return self.async_create_entry(title="", data={})
 
-        current_tavily = self._config_entry.data.get(CONF_TAVILY_API_KEY, "")
         current_firebase = self._config_entry.data.get(CONF_FIREBASE_KEY_PATH, "")
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                vol.Optional(CONF_TAVILY_API_KEY, default=current_tavily): str,
                 vol.Optional(CONF_FIREBASE_KEY_PATH, default=current_firebase): str,
             }),
         )

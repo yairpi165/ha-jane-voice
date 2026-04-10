@@ -5,7 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
 
-from .const import DOMAIN, CONF_ANTHROPIC_API_KEY, CONF_FIREBASE_KEY_PATH
+from .const import DOMAIN, CONF_GEMINI_API_KEY, CONF_FIREBASE_KEY_PATH
 from .memory import init_memory, rebuild_home_map
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,11 +30,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await sync_existing_memory(get_memory_dir())
             _LOGGER.info("Firebase memory backup enabled")
 
-    # Build home map on first setup (Anthropic client init may be blocking)
-    from anthropic import Anthropic
+    # Build home map on first setup
+    from google import genai
 
     client = await hass.async_add_executor_job(
-        lambda: Anthropic(api_key=entry.data[CONF_ANTHROPIC_API_KEY])
+        lambda: genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY])
     )
     await hass.async_add_executor_job(rebuild_home_map, client, hass)
 
