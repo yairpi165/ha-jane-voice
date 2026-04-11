@@ -1,7 +1,10 @@
 """Jane memory module — persistence, extraction, backup."""
 
+from .extraction import process_memory, rebuild_home_map
 from .manager import (
-    _recent_responses,
+    _recent_responses as _recent_responses,
+)
+from .manager import (
     append_action,
     append_history,
     get_memory_dir,
@@ -17,7 +20,6 @@ from .manager import (
     save_user_memory,
     track_response,
 )
-from .extraction import process_memory, rebuild_home_map
 
 __all__ = [
     "init_memory",

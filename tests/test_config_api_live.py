@@ -8,11 +8,12 @@ Requires .env with:
 """
 
 import os
+import re
 import sys
 import time
-import re
-import requests
 from pathlib import Path
+
+import requests
 
 # Load .env
 env_path = Path(__file__).parent.parent / ".env"

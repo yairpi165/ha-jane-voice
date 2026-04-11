@@ -1,9 +1,10 @@
 """Shared test fixtures for Jane Voice Assistant."""
 
-import pytest
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
+
+import pytest
 
 # Add custom_components to path so we can import jane_conversation
 sys.path.insert(0, str(Path(__file__).parent.parent / "custom_components"))
@@ -110,7 +111,6 @@ def tmp_memory_dir(tmp_path):
 @pytest.fixture
 def gemini_client_mock():
     """Mock Gemini client."""
-    from google.genai import types
 
     client = MagicMock()
 

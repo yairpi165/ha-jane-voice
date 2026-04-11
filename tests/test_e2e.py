@@ -1,11 +1,10 @@
 """End-to-end tests — full conversation simulation with mocked Gemini + HA."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from google.genai import types
+from unittest.mock import AsyncMock, patch
 
-from jane_conversation.brain import think, classify_request
-from jane_conversation.const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
+import pytest
+
+from jane_conversation.brain import classify_request, think
 
 
 class TestE2ETurnOnLight:

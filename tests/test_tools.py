@@ -1,19 +1,15 @@
 """Tests for tools.py — Config Store API, tool format, routing."""
 
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from jane_conversation.config import normalize_config_keys
 from jane_conversation.tools import (
     _ALL_FUNCTION_DECLARATIONS,
+    execute_tool,
     get_tools,
     get_tools_minimal,
-    execute_tool,
-    TOOL_SAVE_MEMORY,
-    TOOL_READ_MEMORY,
-    TOOL_SEARCH_WEB,
 )
-
 
 # ---------------------------------------------------------------------------
 # Config Key Normalization (plural → singular)

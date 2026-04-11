@@ -1,13 +1,12 @@
 """Tests for brain.py — request classification, context building, history conversion."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from google.genai import types
 
 from jane_conversation.brain import classify_request
 from jane_conversation.brain.context import build_context
 from jane_conversation.brain.engine import _extract_text
-
 
 # ---------------------------------------------------------------------------
 # Request Classification

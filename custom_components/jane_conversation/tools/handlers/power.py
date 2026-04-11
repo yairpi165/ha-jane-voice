@@ -54,10 +54,9 @@ async def handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: str
     try:
         from google import genai
         from google.genai import types
-        from ...const import CONF_GEMINI_API_KEY
 
         # Get Gemini client from hass data
-        from ...const import DOMAIN
+        from ...const import CONF_GEMINI_API_KEY, DOMAIN
         entry = list(hass.data.get(DOMAIN, {}).values())[0]
         client = genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY])
 

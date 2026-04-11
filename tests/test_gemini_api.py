@@ -1,12 +1,11 @@
 """Tests for Gemini API integration — tool calling loop, model selection, history conversion."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from google.genai import types
 
-from jane_conversation.brain import think, classify_request
+from jane_conversation.brain import think
 from jane_conversation.const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
-
 
 # ---------------------------------------------------------------------------
 # History Conversion (dict → Gemini Content)
@@ -23,7 +22,7 @@ class TestHistoryConversion:
 
         with patch("jane_conversation.brain.engine.load_home", return_value=""), \
              patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
-            result = await think(
+            await think(
                 gemini_client_mock, "מה שלומך", "yair", hass_mock,
                 history=[{"role": "user", "content": "היי"}],
             )

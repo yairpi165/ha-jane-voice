@@ -1,6 +1,7 @@
 """Tavily web search wrapper for Jane."""
 
 import logging
+
 import requests
 
 _LOGGER = logging.getLogger(__name__)

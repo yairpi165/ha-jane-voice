@@ -42,8 +42,8 @@ async def handle_get_history(hass: HomeAssistant, args: dict) -> str:
     hours = min(args.get("hours", 24), 72)
 
     try:
-        from homeassistant.components.recorder.history import get_significant_states
         from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.history import get_significant_states
     except ImportError:
         return "History not available (recorder component not loaded)."
 
@@ -150,8 +150,8 @@ async def handle_get_statistics(hass: HomeAssistant, args: dict) -> str:
     hours = min(args.get("hours", 24), 168)
 
     try:
-        from homeassistant.components.recorder.history import get_significant_states
         from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.history import get_significant_states
     except ImportError:
         return "Statistics not available (recorder not loaded)."
 
@@ -198,8 +198,8 @@ async def handle_get_logbook(hass: HomeAssistant, args: dict) -> str:
     entity_id = args.get("entity_id")
 
     try:
-        from homeassistant.components.recorder.history import get_significant_states
         from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.history import get_significant_states
     except ImportError:
         return "Logbook not available (recorder not loaded)."
 
@@ -278,8 +278,8 @@ async def handle_get_overview(hass: HomeAssistant, args: dict) -> str:
 
 async def handle_list_floors(hass: HomeAssistant, args: dict) -> str:
     """List all floors and their areas."""
-    from homeassistant.helpers import floor_registry as fr
     from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import floor_registry as fr
 
     floor_reg = fr.async_get(hass)
     area_reg = ar.async_get(hass)

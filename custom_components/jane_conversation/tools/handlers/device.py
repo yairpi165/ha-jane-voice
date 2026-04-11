@@ -69,8 +69,8 @@ async def handle_rename_entity(hass: HomeAssistant, args: dict) -> str:
 
 async def handle_update_device(hass: HomeAssistant, args: dict) -> str:
     """Update a device's name or area."""
-    from homeassistant.helpers import device_registry as dr
     from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import device_registry as dr
 
     query = args.get("device_query", "").lower()
     new_name = args.get("new_name")

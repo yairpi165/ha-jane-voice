@@ -1,20 +1,16 @@
 """Tests for memory.py — file I/O, anti-repetition tracking, action log."""
 
-import pytest
-from pathlib import Path
-from datetime import datetime, timedelta
 
 from jane_conversation.memory import (
-    get_recent_responses,
-    track_response,
     _recent_responses,
-    load_home,
-    load_all_memory,
-    init_memory,
     append_action,
     append_history,
+    get_recent_responses,
+    init_memory,
+    load_all_memory,
+    load_home,
+    track_response,
 )
-
 
 # ---------------------------------------------------------------------------
 # Anti-Repetition Tracking

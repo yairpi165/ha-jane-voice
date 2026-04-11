@@ -6,12 +6,12 @@ import logging
 from homeassistant.core import HomeAssistant
 
 from ...config import (
-    set_config,
-    get_config,
-    remove_config,
-    list_config,
-    ha_config_request,
     _CONFIG_API_RESOURCES,
+    get_config,
+    ha_config_request,
+    list_config,
+    remove_config,
+    set_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ async def handle_remove_config(hass: HomeAssistant, args: dict, resource: str) -
     _LOGGER.info("remove_%s called: identifier=%s", resource, identifier)
 
     try:
-        result = await remove_config(hass, resource, identifier)
+        await remove_config(hass, resource, identifier)
         return f"Deleted {resource} '{identifier}'."
     except RuntimeError as e:
         if "404" in str(e):
@@ -131,13 +131,8 @@ async def handle_get_automation_traces(hass: HomeAssistant, args: dict) -> str:
         f"Last triggered: {last_triggered}",
     ]
 
-    # Try to get traces via websocket API
-    try:
-        from homeassistant.components.trace import async_get_trace
-        # Traces might not be accessible this way in all versions
-        lines.append("(Detailed traces available in HA UI → Automations → Traces)")
-    except ImportError:
-        pass
+    # Traces are available in HA UI
+    lines.append("(Detailed traces available in HA UI → Automations → Traces)")
 
     return "\n".join(lines)
 

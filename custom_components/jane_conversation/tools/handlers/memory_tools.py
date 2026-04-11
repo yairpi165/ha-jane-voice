@@ -10,12 +10,18 @@ _LOGGER = logging.getLogger(__name__)
 async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
     """Explicitly save to Jane's memory."""
     from ...memory import (
-        save_user_memory, save_family_memory, save_habits_memory,
-        save_corrections, save_routines,
+        save_corrections,
+        save_family_memory,
+        save_habits_memory,
+        save_routines,
+        save_user_memory,
     )
     from ...memory.manager import (
-        load_user_memory, load_family_memory, load_habits_memory,
-        load_corrections, load_routines,
+        load_corrections,
+        load_family_memory,
+        load_habits_memory,
+        load_routines,
+        load_user_memory,
     )
 
     category = args.get("category", "")
@@ -58,8 +64,12 @@ async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
 async def handle_read_memory(hass: HomeAssistant, args: dict) -> str:
     """Read a specific memory file on demand."""
     from ...memory.manager import (
-        load_user_memory, load_family_memory, load_habits_memory,
-        load_corrections, load_routines, load_actions,
+        load_actions,
+        load_corrections,
+        load_family_memory,
+        load_habits_memory,
+        load_routines,
+        load_user_memory,
     )
 
     category = args.get("category", "")
