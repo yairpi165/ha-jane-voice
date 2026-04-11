@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    name: Version Bump & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine bump type from PR title
+        id: bump
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          if echo "$TITLE" | grep -qiE '^feat(\(.+\))?:'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$TITLE" | grep -qiE '^fix(\(.+\))?:'; then
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version in manifest.json
+        if: steps.bump.outputs.type != 'none'
+        id: version
+        run: |
+          MANIFEST="custom_components/jane_conversation/manifest.json"
+          CURRENT=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['version'])")
+
+          IFS='.' read -r major minor patch <<< "$CURRENT"
+
+          if [ "${{ steps.bump.outputs.type }}" = "minor" ]; then
+            minor=$((minor + 1))
+            patch=0
+          elif [ "${{ steps.bump.outputs.type }}" = "patch" ]; then
+            patch=$((patch + 1))
+          fi
+
+          NEW="${major}.${minor}.${patch}"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+
+          python3 -c "
+          import json
+          with open('$MANIFEST') as f:
+              data = json.load(f)
+          data['version'] = '$NEW'
+          with open('$MANIFEST', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          "
+          echo "Bumped version: $CURRENT → $NEW"
+
+      - name: Commit version bump
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add custom_components/jane_conversation/manifest.json
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new }} [skip ci]"
+          git push
+
+      - name: Create GitHub Release
+        if: steps.bump.outputs.type != 'none'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.new }}
+          name: v${{ steps.version.outputs.new }}
+          body: |
+            ## ${{ github.event.pull_request.title }}
+
+            ${{ github.event.pull_request.body }}
+
+            **Full Changelog:** ${{ github.event.pull_request.html_url }}
+          generate_release_notes: false
