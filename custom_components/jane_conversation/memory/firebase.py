@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiohttp
@@ -84,27 +84,26 @@ async def backup_memory(doc_name: str, content: str) -> bool:
     body = {
         "fields": {
             "content": {"stringValue": content},
-            "updated": {"stringValue": datetime.now(timezone.utc).isoformat()},
+            "updated": {"stringValue": datetime.now(UTC).isoformat()},
         }
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.patch(
-                url,
-                json=body,
-                headers={"Authorization": f"Bearer {token}"},
-            ) as resp:
-                if resp.status in (200, 201):
-                    _LOGGER.debug("Backed up %s to Firestore", doc_name)
-                    return True
-                else:
-                    text = await resp.text()
-                    _LOGGER.warning(
-                        "Firestore backup failed for %s: %s %s",
-                        doc_name, resp.status, text,
-                    )
-                    return False
+        async with aiohttp.ClientSession() as session, session.patch(
+            url,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+        ) as resp:
+            if resp.status in (200, 201):
+                _LOGGER.debug("Backed up %s to Firestore", doc_name)
+                return True
+            else:
+                text = await resp.text()
+                _LOGGER.warning(
+                    "Firestore backup failed for %s: %s %s",
+                    doc_name, resp.status, text,
+                )
+                return False
     except Exception as e:
         _LOGGER.warning("Firestore backup error for %s: %s", doc_name, e)
         return False
@@ -122,27 +121,26 @@ async def restore_memory(doc_name: str) -> str | None:
     url = f"{_get_base_url()}/{COLLECTION}/{doc_name}"
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url,
-                headers={"Authorization": f"Bearer {token}"},
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    content = (
-                        data.get("fields", {})
-                        .get("content", {})
-                        .get("stringValue")
-                    )
-                    if content:
-                        _LOGGER.info("Restored %s from Firestore", doc_name)
-                        return content
-                elif resp.status == 404:
-                    return None
-                else:
-                    _LOGGER.warning(
-                        "Firestore restore failed for %s: %s", doc_name, resp.status
-                    )
+        async with aiohttp.ClientSession() as session, session.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                content = (
+                    data.get("fields", {})
+                    .get("content", {})
+                    .get("stringValue")
+                )
+                if content:
+                    _LOGGER.info("Restored %s from Firestore", doc_name)
+                    return content
+            elif resp.status == 404:
+                return None
+            else:
+                _LOGGER.warning(
+                    "Firestore restore failed for %s: %s", doc_name, resp.status
+                )
     except Exception as e:
         _LOGGER.warning("Firestore restore error for %s: %s", doc_name, e)
 

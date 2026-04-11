@@ -1,15 +1,14 @@
 """Config Store API — HA REST API client for automations, scripts, scenes.
 
 Uses the same REST API as HA's MCP server and UI:
-  POST   /api/config/{resource}/config/{id}  → create/update
-  GET    /api/config/{resource}/config/{id}  → read
-  DELETE /api/config/{resource}/config/{id}  → delete
+  POST   /api/config/{resource}/config/{id}  -> create/update
+  GET    /api/config/{resource}/config/{id}  -> read
+  DELETE /api/config/{resource}/config/{id}  -> delete
 
 No direct YAML file manipulation — HA handles all serialization via .storage/.
 """
 
 import asyncio
-import json
 import logging
 import time
 from datetime import timedelta
@@ -17,24 +16,21 @@ from datetime import timedelta
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from ..const import DOMAIN
+from .normalize import (
+    normalize_config_for_roundtrip,
+    normalize_config_keys,
+    strip_empty_config_fields,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-_CONFIG_API_RESOURCES = {"automation", "scene", "script"}
-
 
 def _slugify(text: str) -> str:
-    """Convert text to an ASCII-only slug for script IDs. HA rejects non-ASCII."""
-    import re
-    slug = text.lower().strip()
-    # Keep only ASCII letters, digits, spaces, hyphens
-    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
-    slug = re.sub(r"[\s-]+", "_", slug).strip("_")
-    # Must have at least 3 chars and start with a letter — otherwise use timestamp
-    if len(slug) < 3 or not slug[0].isalpha():
-        return f"jane_{int(time.time() * 1000)}"
-    return slug[:40]
+    """Convert text to an ASCII-only slug for script IDs."""
+    from .normalize import _slugify as _do_slugify
+
+    return _do_slugify(text)
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +41,10 @@ async def _get_api_token(hass: HomeAssistant) -> str:
     """Get or create an internal API access token for Config Store calls."""
     domain_data = hass.data.get(DOMAIN, {})
 
-    # Reuse cached refresh token
     refresh_token = domain_data.get("_api_refresh_token")
     if refresh_token is not None:
         return hass.auth.async_create_access_token(refresh_token)
 
-    # Find existing or create new refresh token
     owner = await hass.auth.async_get_owner()
     if owner is None:
         raise RuntimeError("No owner user found in Home Assistant")
@@ -60,7 +54,6 @@ async def _get_api_token(hass: HomeAssistant) -> str:
             domain_data["_api_refresh_token"] = rt
             return hass.auth.async_create_access_token(rt)
 
-    # Create new long-lived refresh token
     refresh_token = await hass.auth.async_create_refresh_token(
         owner,
         client_name="Jane Internal API",
@@ -109,110 +102,43 @@ async def ha_config_request(
 
 
 # ---------------------------------------------------------------------------
-# Resolve — entity_id → unique_id (like MCP's _resolve_automation_id)
+# Resolve — entity_id -> unique_id
 # ---------------------------------------------------------------------------
 
 async def resolve_config_id(
     hass: HomeAssistant, resource: str, identifier: str
 ) -> str:
-    """Convert entity_id to unique_id/storage_key if needed.
-
-    Automations: entity_id → state.attributes['id'] (numeric unique_id)
-    Scripts: entity_id → entity registry unique_id (slug)
-    """
+    """Convert entity_id to unique_id/storage_key if needed."""
     if not identifier.startswith(f"{resource}."):
         return identifier
 
     if resource == "script":
-        # Scripts use entity registry unique_id, not state attributes
-        # Try entity registry first, fall back to entity_id suffix
         try:
             from homeassistant.helpers import entity_registry as er
+
             ent_reg = er.async_get(hass)
             entry = ent_reg.async_get(identifier)
             if entry and entry.unique_id and isinstance(entry.unique_id, str):
-                _LOGGER.debug("Resolved %s → storage key %s", identifier, entry.unique_id)
+                _LOGGER.debug("Resolved %s -> storage key %s", identifier, entry.unique_id)
                 return entry.unique_id
         except Exception:
             pass
-        # Fallback: strip prefix (script.morning_routine → morning_routine)
         bare_id = identifier.removeprefix("script.")
-        _LOGGER.debug("Resolved %s → bare id %s", identifier, bare_id)
+        _LOGGER.debug("Resolved %s -> bare id %s", identifier, bare_id)
         return bare_id
     else:
-        # Automations and scenes: use state attributes['id']
         state = hass.states.get(identifier)
         if state is None:
             raise RuntimeError(f"Entity {identifier} not found")
         unique_id = state.attributes.get("id")
         if not unique_id:
             raise RuntimeError(f"Entity {identifier} has no unique_id attribute")
-        _LOGGER.debug("Resolved %s → unique_id %s", identifier, unique_id)
+        _LOGGER.debug("Resolved %s -> unique_id %s", identifier, unique_id)
         return str(unique_id)
 
 
 # ---------------------------------------------------------------------------
-# Normalize — match MCP's normalization pipeline
-# ---------------------------------------------------------------------------
-
-def normalize_config_keys(config: dict) -> dict:
-    """Normalize root-level plural keys to singular (triggers→trigger, etc.).
-
-    Only normalizes at root level — deeper keys like 'conditions' inside
-    choose/if blocks must stay plural (HA requires it).
-    """
-    normalized = config.copy()
-    for plural, singular in [
-        ("triggers", "trigger"),
-        ("actions", "action"),
-        ("conditions", "condition"),
-    ]:
-        if plural in normalized and singular not in normalized:
-            normalized[singular] = normalized.pop(plural)
-    return normalized
-
-
-def normalize_trigger_keys(triggers: list) -> list:
-    """Normalize trigger objects: 'trigger' key → 'platform' key.
-
-    HA GET API returns triggers with 'trigger' key for platform type,
-    but SET API expects 'platform'. Needed for round-trip compatibility.
-    """
-    result = []
-    for trigger in triggers:
-        if not isinstance(trigger, dict):
-            result.append(trigger)
-            continue
-        t = trigger.copy()
-        if "trigger" in t and "platform" not in t:
-            t["platform"] = t.pop("trigger")
-        result.append(t)
-    return result
-
-
-def normalize_config_for_roundtrip(config: dict) -> dict:
-    """Normalize config from GET response so it can be used in SET directly."""
-    normalized = normalize_config_keys(config)
-    if "trigger" in normalized and isinstance(normalized["trigger"], list):
-        normalized["trigger"] = normalize_trigger_keys(normalized["trigger"])
-    return normalized
-
-
-def strip_empty_config_fields(config: dict) -> dict:
-    """Remove empty trigger/action/condition arrays.
-
-    Blueprint automations should not have these fields — empty arrays
-    override the blueprint's own config and break the automation.
-    """
-    cleaned = config.copy()
-    for field in ("trigger", "action", "condition"):
-        if field in cleaned and cleaned[field] == []:
-            del cleaned[field]
-    return cleaned
-
-
-# ---------------------------------------------------------------------------
-# Poll — verify entity was created/removed (like MCP's _poll_for_automation_entity)
+# Poll — verify entity was created
 # ---------------------------------------------------------------------------
 
 async def poll_for_entity(
@@ -224,16 +150,14 @@ async def poll_for_entity(
         states = hass.states.async_all(resource)
         for state in states:
             if state.attributes.get("id") == unique_id:
-                _LOGGER.debug(
-                    "Found entity %s for unique_id %s", state.entity_id, unique_id
-                )
+                _LOGGER.debug("Found entity %s for unique_id %s", state.entity_id, unique_id)
                 return state.entity_id
     _LOGGER.warning("Entity for unique_id %s not found after polling", unique_id)
     return None
 
 
 # ---------------------------------------------------------------------------
-# High-level operations (called by tool handlers)
+# High-level operations
 # ---------------------------------------------------------------------------
 
 async def set_config(
@@ -242,13 +166,9 @@ async def set_config(
     config: dict,
     identifier: str | None = None,
 ) -> dict:
-    """Create or update an automation/script/scene via Config Store API.
-
-    Returns dict with keys: unique_id, entity_id, operation.
-    """
+    """Create or update an automation/script/scene via Config Store API."""
     config = normalize_config_keys(config)
 
-    # Resource-specific validation
     if resource == "automation":
         if "use_blueprint" in config:
             config = strip_empty_config_fields(config)
@@ -263,26 +183,21 @@ async def set_config(
             raise ValueError("Scripts require 'sequence' or 'use_blueprint'.")
 
     if identifier is None:
-        # Create new
         if resource == "script":
-            # Scripts use a slug as key (like MCP), not a numeric id
             alias = config.get("alias", "")
             unique_id = _slugify(alias) if alias else str(int(time.time() * 1000))
         else:
-            # Automations and scenes use numeric timestamp
             unique_id = str(int(time.time() * 1000))
         operation = "created"
     else:
-        # Update existing
         unique_id = await resolve_config_id(hass, resource, identifier)
         operation = "updated"
 
-    # Automations need 'id' in config body; scripts do NOT (HA rejects it)
     if resource != "script":
         if "id" not in config:
             config["id"] = unique_id
     else:
-        config.pop("id", None)  # Remove if present — scripts reject it
+        config.pop("id", None)
 
     await ha_config_request(
         hass, "POST",
@@ -291,7 +206,6 @@ async def set_config(
     )
     _LOGGER.info("%s %s '%s' via Config Store API", operation.title(), resource, unique_id)
 
-    # Poll for entity on create
     entity_id = None
     if operation == "created":
         entity_id = await poll_for_entity(hass, resource, unique_id)

@@ -1,11 +1,10 @@
 """End-to-end tests — full conversation simulation with mocked Gemini + HA."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from google.genai import types
+from unittest.mock import AsyncMock, patch
 
-from jane_conversation.brain import think, _classify_request
-from jane_conversation.const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
+import pytest
+
+from jane_conversation.brain import classify_request, think
 
 
 class TestE2ETurnOnLight:
@@ -22,14 +21,14 @@ class TestE2ETurnOnLight:
         text_resp = gemini_client_mock._make_text_response("הדלקתי את האור בסלון")
         gemini_client_mock.models.generate_content.side_effect = [tool_resp, text_resp]
 
-        with patch("jane_conversation.brain.load_home", return_value="- אור סלון (light.living_room)"), \
-             patch("jane_conversation.brain.get_recent_responses", return_value=""), \
-             patch("jane_conversation.brain.execute_tool", new_callable=AsyncMock, return_value="Success."):
+        with patch("jane_conversation.brain.engine.load_home", return_value="- אור סלון (light.living_room)"), \
+             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""), \
+             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="Success."):
             result = await think(gemini_client_mock, "תדליק אור בסלון", "yair", hass_mock)
 
         assert "הדלקתי" in result
         # Verify it was classified as command → Flash model
-        assert _classify_request("תדליק אור בסלון") == "command"
+        assert classify_request("תדליק אור בסלון") == "command"
 
 
 class TestE2EWeatherQuery:
@@ -43,9 +42,9 @@ class TestE2EWeatherQuery:
         text_resp = gemini_client_mock._make_text_response("היום שמשי, 25 מעלות")
         gemini_client_mock.models.generate_content.side_effect = [tool_resp, text_resp]
 
-        with patch("jane_conversation.brain.load_home", return_value=""), \
-             patch("jane_conversation.brain.get_recent_responses", return_value=""), \
-             patch("jane_conversation.brain.execute_tool", new_callable=AsyncMock, return_value="Forecast Home: sunny, 25°C"):
+        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
+             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""), \
+             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="Forecast Home: sunny, 25°C"):
             result = await think(gemini_client_mock, "מה מזג האוויר?", "yair", hass_mock)
 
         assert "25" in result
@@ -68,16 +67,16 @@ class TestE2EGoodnightRoutine:
         text_resp = gemini_client_mock._make_text_response("הפעלתי את שגרת לילה טוב. לילה טוב!")
         gemini_client_mock.models.generate_content.side_effect = [search_resp, run_resp, text_resp]
 
-        with patch("jane_conversation.brain.load_home", return_value=""), \
-             patch("jane_conversation.brain.get_recent_responses", return_value=""), \
-             patch("jane_conversation.brain.execute_tool", new_callable=AsyncMock, side_effect=[
+        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
+             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""), \
+             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, side_effect=[
                  '[{"entity_id": "script.layla_tov", "name": "לילה טוב", "state": "off"}]',
                  "Success.",
              ]):
             result = await think(gemini_client_mock, "לילה טוב", "yair", hass_mock)
 
         assert "לילה טוב" in result
-        assert _classify_request("לילה טוב") == "command"
+        assert classify_request("לילה טוב") == "command"
 
 
 class TestE2ECreateAutomation:
@@ -101,9 +100,9 @@ class TestE2ECreateAutomation:
         text_resp = gemini_client_mock._make_text_response("יצרתי אוטומציה שמדליקה אור בסלון כל יום ב-18:00")
         gemini_client_mock.models.generate_content.side_effect = [tool_resp, text_resp]
 
-        with patch("jane_conversation.brain.load_home", return_value="- אור סלון (light.living_room)"), \
-             patch("jane_conversation.brain.get_recent_responses", return_value=""), \
-             patch("jane_conversation.brain.execute_tool", new_callable=AsyncMock, return_value="Created automation with id 'abc123'."):
+        with patch("jane_conversation.brain.engine.load_home", return_value="- אור סלון (light.living_room)"), \
+             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""), \
+             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="Created automation with id 'abc123'."):
             result = await think(
                 gemini_client_mock,
                 "תיצרי אוטומציה שמדליקה את האור בסלון כל יום ב-18:00",
@@ -111,7 +110,7 @@ class TestE2ECreateAutomation:
             )
 
         assert "אוטומציה" in result or "18:00" in result
-        assert _classify_request("תיצרי אוטומציה שמדליקה את האור בסלון כל יום ב-18:00") == "complex"
+        assert classify_request("תיצרי אוטומציה שמדליקה את האור בסלון כל יום ב-18:00") == "complex"
 
 
 class TestE2EChatNoTools:
@@ -122,14 +121,14 @@ class TestE2EChatNoTools:
         text_resp = gemini_client_mock._make_text_response("אני בסדר, תודה ששאלת! מה איתך?")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.load_home", return_value=""), \
-             patch("jane_conversation.brain.get_recent_responses", return_value=""):
+        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
+             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
             result = await think(gemini_client_mock, "מה שלומך", "yair", hass_mock)
 
         assert len(result) > 0
         # Should be only 1 API call (no tools)
         assert gemini_client_mock.models.generate_content.call_count == 1
-        assert _classify_request("מה שלומך") == "chat"
+        assert classify_request("מה שלומך") == "chat"
 
 
 class TestE2EWebSearch:
@@ -143,9 +142,9 @@ class TestE2EWebSearch:
         text_resp = gemini_client_mock._make_text_response("שער הדולר היום הוא 3.06 שקלים")
         gemini_client_mock.models.generate_content.side_effect = [tool_resp, text_resp]
 
-        with patch("jane_conversation.brain.load_home", return_value=""), \
-             patch("jane_conversation.brain.get_recent_responses", return_value=""), \
-             patch("jane_conversation.brain.execute_tool", new_callable=AsyncMock, return_value="USD to ILS: 3.06"):
+        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
+             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""), \
+             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="USD to ILS: 3.06"):
             result = await think(gemini_client_mock, "מה שער הדולר?", "yair", hass_mock)
 
         assert "3.06" in result or "שקל" in result

@@ -21,6 +21,8 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
+    "SIM102", # nested if — sometimes more readable than combined
+    "SIM105", # contextlib.suppress — try/except is clearer for us
     "SIM108", # use ternary operator (readability preference)
 ]
 

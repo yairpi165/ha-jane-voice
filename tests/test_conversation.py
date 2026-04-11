@@ -1,8 +1,6 @@
 """Tests for conversation.py — hallucination filter, session management."""
 
-import pytest
 from jane_conversation.const import WHISPER_HALLUCINATIONS
-
 
 # ---------------------------------------------------------------------------
 # Hallucination Filter

@@ -1,7 +1,7 @@
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .const import DOMAIN, CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, CONF_FIREBASE_KEY_PATH
+from .const import CONF_FIREBASE_KEY_PATH, CONF_GEMINI_API_KEY, DOMAIN
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

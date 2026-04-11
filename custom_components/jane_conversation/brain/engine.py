@@ -1,94 +1,21 @@
-"""Jane brain — LLM integration with autonomous tool calling (Gemini 2.5 Pro + Flash)."""
+"""Brain engine — main think() loop, LLM calls, tool execution."""
 
 import logging
 from datetime import datetime
+
 from google import genai
 from google.genai import types
-
 from homeassistant.core import HomeAssistant
 
-from .const import SYSTEM_PROMPT, GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
-from pathlib import Path
-
-from .memory import load_home, get_recent_responses, get_memory_dir
-from .tools import get_tools, get_tools_minimal, execute_tool
+from ..const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART, SYSTEM_PROMPT
+from ..memory import get_recent_responses, load_home
+from ..tools import execute_tool, get_tools, get_tools_minimal
+from .classifier import classify_request
+from .context import build_context, load_routines_index
 
 _LOGGER = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 10
-
-
-def _load_routines_index() -> str:
-    """Load routines memory for context injection — zero-cost cache hits."""
-    mem_dir = get_memory_dir()
-    if not mem_dir:
-        return ""
-    routines_path = Path(mem_dir) / "routines.md"
-    if routines_path.exists():
-        content = routines_path.read_text(encoding="utf-8").strip()
-        if content:
-            return content
-    return ""
-
-# Hebrew keywords for request classification
-_COMMAND_KEYWORDS = {"הדלק", "כבה", "פתח", "סגור", "הפעל", "כבי", "הדליק", "תדליק", "תכבה",
-                     "תפתח", "תסגור", "תפעיל", "תכבי", "תדליקי", "הנמיך", "הגביר", "הגבר",
-                     "תעלה", "תוריד", "שנה", "שני", "הרתיח", "תרתיח", "תרתיחי",
-                     "לילה טוב", "בוקר טוב", "ערב טוב"}
-_CHAT_PATTERNS = {"מה שלומך", "שלום", "היי",
-                  "ספרי", "ספר לי", "בדיחה", "תודה", "יופי", "סבבה", "מה קורה",
-                  "מה נשמע", "אני בסדר", "מה העניינים", "איך את"}
-_COMPLEX_KEYWORDS = {"אוטומציה", "סצנה", "סקריפט", "automation", "תיצרי", "תמחקי",
-                     "תשנה", "למה", "תסביר", "מתי", "כמה זמן", "היסטוריה",
-                     "רשימה", "קניות", "יומן", "תזכורת", "הודעה"}
-
-
-async def _build_context(hass: HomeAssistant) -> str:
-    """Build concise home awareness context (~50-100 tokens)."""
-    parts = []
-
-    weather = hass.states.get("weather.forecast_home")
-    if weather:
-        temp = weather.attributes.get("temperature", "?")
-        parts.append(f"Weather: {weather.state}, {temp}°C")
-
-    people_lines = []
-    for state in hass.states.async_all("person"):
-        name = state.attributes.get("friendly_name", "?")
-        status = "home" if state.state == "home" else "away"
-        people_lines.append(f"{name}: {status}")
-    if people_lines:
-        parts.append("People: " + ", ".join(people_lines))
-
-    skip_keywords = {"camera", "motion", "microphone", "speaker", "rtsp", "recording", "detection"}
-    active = []
-    for state in hass.states.async_all():
-        if state.domain in ("light", "climate", "media_player", "fan") and state.state not in ("off", "unavailable", "idle", "unknown", "standby"):
-            eid = state.entity_id.lower()
-            if any(kw in eid for kw in skip_keywords):
-                continue
-            active.append(state.attributes.get("friendly_name", state.entity_id))
-    if active:
-        parts.append(f"Active: {', '.join(active[:10])}")
-
-    return "\n".join(parts) if parts else ""
-
-
-def _classify_request(user_text: str) -> str:
-    """Classify request as 'chat', 'command', or 'complex'."""
-    text = user_text.lower().strip().rstrip("?!.,")
-
-    if len(text) < 40 and not any(kw in text for kw in _COMMAND_KEYWORDS):
-        if any(kw in text for kw in _CHAT_PATTERNS):
-            return "chat"
-
-    if any(kw in text for kw in _COMPLEX_KEYWORDS):
-        return "complex"
-
-    if any(kw in text for kw in _COMMAND_KEYWORDS):
-        return "command"
-
-    return "complex"
 
 
 async def think(
@@ -101,7 +28,7 @@ async def think(
 ) -> str:
     """Send text to Gemini with tools. Gemini decides what to call. Returns final response."""
 
-    request_type = _classify_request(user_text)
+    request_type = classify_request(user_text)
 
     # Choose model
     if request_type == "complex":
@@ -114,12 +41,12 @@ async def think(
         model = GEMINI_MODEL_FAST
         temperature = 0.8
 
-    _LOGGER.info("Request type: %s → model: %s", request_type, model)
+    _LOGGER.info("Request type: %s -> model: %s", request_type, model)
 
     # Build context
-    home_context = await _build_context(hass)
+    home_context = await build_context(hass)
     home_layout = await hass.async_add_executor_job(load_home)
-    routines_context = await hass.async_add_executor_job(_load_routines_index)
+    routines_context = await hass.async_add_executor_job(load_routines_index)
 
     # Build system instruction
     now = datetime.now().strftime("%A %H:%M")
@@ -137,7 +64,7 @@ async def think(
 
     system_instruction = "\n".join(system_parts)
 
-    # Build messages — convert history from dict format to Gemini Content objects
+    # Build messages
     messages = []
     if history:
         for msg in history:
@@ -148,7 +75,7 @@ async def think(
                     parts=[types.Part(text=msg.get("content", ""))],
                 ))
             else:
-                messages.append(msg)  # Already a Content object
+                messages.append(msg)
     messages.append(types.Content(
         role="user",
         parts=[types.Part(text=user_text)],
@@ -156,7 +83,6 @@ async def think(
 
     # Tools
     tools = get_tools_minimal() if request_type == "chat" else get_tools()
-
     _LOGGER.info("Tools: %s, model: %s", "minimal" if request_type == "chat" else "full", model)
 
     # Build config
@@ -179,30 +105,22 @@ async def think(
             return ""
 
         parts = response.candidates[0].content.parts
-
-        # Check for function calls
         function_calls = [p for p in parts if hasattr(p, "function_call") and p.function_call]
 
         if not function_calls:
-            # No tool calls — extract text response
-            text = _extract_text(parts)
-            return text
+            return _extract_text(parts)
 
         # Execute tools
         tool_names = [fc.function_call.name for fc in function_calls]
         _LOGGER.info("Jane tool call #%d: %s", iteration + 1, ", ".join(tool_names))
 
-        # Append model response to messages
         messages.append(response.candidates[0].content)
 
-        # Execute each tool and send results back
         function_response_parts = []
         for fc_part in function_calls:
             fc = fc_part.function_call
             args = dict(fc.args) if fc.args else {}
-
             result = await execute_tool(hass, fc.name, args, tavily_api_key)
-
             function_response_parts.append(
                 types.Part(function_response=types.FunctionResponse(
                     name=fc.name,

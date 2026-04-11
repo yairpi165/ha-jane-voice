@@ -2,8 +2,8 @@
 
 import logging
 import uuid
-from google import genai
 
+from google import genai
 from homeassistant.components import conversation
 from homeassistant.components.conversation import ConversationEntity, ConversationResult
 from homeassistant.config_entries import ConfigEntry
@@ -11,8 +11,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .brain import think
+from .const import CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
 from .memory import append_action, append_history, process_memory, track_response
 
 _LOGGER = logging.getLogger(__name__)

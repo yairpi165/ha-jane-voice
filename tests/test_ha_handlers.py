@@ -1,9 +1,9 @@
 """Tests for HA tool handlers — mock hass object."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from jane_conversation.tools import execute_tool
 
+import pytest
+
+from jane_conversation.tools import execute_tool
 
 # ---------------------------------------------------------------------------
 # Entity State

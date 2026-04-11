@@ -1,11 +1,12 @@
 """Jane Voice Assistant — Custom conversation agent for Home Assistant."""
 
 import logging
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.const import Platform
 
-from .const import DOMAIN, CONF_GEMINI_API_KEY, CONF_FIREBASE_KEY_PATH
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+
+from .const import CONF_FIREBASE_KEY_PATH, CONF_GEMINI_API_KEY, DOMAIN
 from .memory import init_memory, rebuild_home_map
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,8 +22,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize Firebase backup if configured
     firebase_key = entry.data.get(CONF_FIREBASE_KEY_PATH)
     if firebase_key:
-        from .firebase import init_firebase, restore_all_memory, sync_existing_memory
         from .memory import get_memory_dir
+        from .memory.firebase import init_firebase, restore_all_memory, sync_existing_memory
 
         ok = await hass.async_add_executor_job(init_firebase, firebase_key)
         if ok:
