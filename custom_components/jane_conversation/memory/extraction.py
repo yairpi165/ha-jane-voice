@@ -1,0 +1,186 @@
+"""Memory extraction — LLM-based memory processing and home map generation."""
+
+import json
+import logging
+
+from google import genai
+from google.genai import types
+
+from ..const import GEMINI_MODEL_FAST
+from .manager import (
+    _read,
+    _write,
+    get_memory_dir,
+    load_all_memory,
+    save_corrections,
+    save_family_memory,
+    save_habits_memory,
+    save_routines,
+    save_user_memory,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Home map (Gemini-generated on first run)
+# ---------------------------------------------------------------------------
+
+HOME_SETUP_PROMPT = """You are setting up the memory for Jane, a smart home assistant.
+Below is a raw list of smart home devices from Home Assistant.
+
+Devices:
+{entity_list}
+
+Write a concise home layout document in English, organized by ROOM (not by device type).
+- Group devices by their likely room based on their name
+- Include the entity_id in parentheses for each device
+- Skip internal/config entities (timers, notifications, camera settings, robot vacuum sub-settings, child locks, dishwasher settings)
+- Only include devices a user would actually ask to control: lights, AC, heater, fan, shutters, TV, water heater, robot vacuum (main entity only)
+- Keep it concise — one line per device, max 50 lines total"""
+
+
+def rebuild_home_map(client: genai.Client, hass):
+    """Generate home.md by asking Gemini to organize HA entities by room."""
+    home_path = get_memory_dir() / "home.md"
+    if home_path.exists() and _read(home_path):
+        return
+
+    relevant_domains = {"light", "climate", "cover", "media_player", "fan", "vacuum", "water_heater"}
+    skip_keywords = {
+        "camera", "motion_detection", "microphone", "speaker", "audio_recording",
+        "pet_detection", "rtsp", "extra_dry", "child_lock", "notification",
+        "backup_map", "wetness_level", "suction_level", "mop_pad", "cleaning_mode",
+        "cleaning_times", "cleaning_route", "floor_material", "visibility",
+    }
+    entities = []
+    for state in hass.states.async_all():
+        if state.domain in relevant_domains:
+            eid = state.entity_id.lower()
+            if any(kw in eid for kw in skip_keywords):
+                continue
+            name = state.attributes.get("friendly_name", state.entity_id)
+            entities.append(f"- {name} ({state.entity_id}) [domain: {state.domain}, state: {state.state}]")
+
+    if not entities:
+        return
+
+    prompt = HOME_SETUP_PROMPT.replace("{entity_list}", "\n".join(entities))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_FAST,
+            contents="Generate the home layout now.",
+            config=types.GenerateContentConfig(
+                system_instruction=prompt,
+                max_output_tokens=1500,
+                temperature=0.3,
+            ),
+        )
+        content = response.candidates[0].content.parts[0].text.strip()
+        if not content.startswith("#"):
+            content = "# Home Layout\n\n" + content
+        _write(home_path, content)
+        _LOGGER.info("Home map created by Gemini")
+    except Exception as e:
+        _LOGGER.error("Home map generation failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Memory extraction (Gemini-managed, runs in background)
+# ---------------------------------------------------------------------------
+
+MEMORY_EXTRACTION_PROMPT = """You are the memory manager for Jane, a Hebrew smart home assistant.
+Analyze the conversation and decide what to remember.
+
+Current memory:
+{memory_context}
+
+---
+
+Latest exchange:
+User ({user_name}): {user_text}
+Jane: {jane_response}
+
+---
+
+Rules:
+1. If a memory file needs updating — rewrite its ENTIRE content, merging new info with existing.
+2. New information wins over old when they conflict.
+3. Keep each file concise (max ~50 lines).
+4. Write ALL memory in English, even though conversations are in Hebrew.
+5. If nothing worth remembering — return null.
+
+BE AGGRESSIVE about saving these:
+- Family members: names, ages, relationships, preferences, hobbies — ALWAYS save
+- Personal details: what they like/dislike, their routine, their job, their personality
+- Corrections: if the user corrected Jane about anything, save the learning
+- Patterns: recurring requests, time-based habits
+- Routines: multi-step sequences ("goodnight" means lights off + shutters down + AC 24)
+
+DO NOT save:
+- One-time commands: "turn on the light" -> skip
+- General questions: "what time is it?" -> skip
+- Pleasantries with no new info: "thank you" -> skip
+
+Respond in JSON only:
+{
+  "user": "Full updated user memory, or null",
+  "family": "Full updated family memory, or null",
+  "habits": "Full updated habits, or null",
+  "corrections": "Full updated corrections, or null",
+  "routines": "Full updated routines, or null"
+}"""
+
+
+def process_memory(client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str):
+    """Analyze conversation and update memory if needed."""
+    if action == "ha_service" and len(jane_response) < 30:
+        return
+
+    memory_context = load_all_memory(user_name)
+
+    prompt = (
+        MEMORY_EXTRACTION_PROMPT
+        .replace("{memory_context}", memory_context)
+        .replace("{user_name}", user_name)
+        .replace("{user_text}", user_text)
+        .replace("{jane_response}", jane_response)
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_FAST,
+            contents="Analyze and respond with JSON.",
+            config=types.GenerateContentConfig(
+                system_instruction=prompt,
+                max_output_tokens=2000,
+                temperature=0.3,
+            ),
+        )
+
+        raw = response.candidates[0].content.parts[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+
+        result = json.loads(raw.strip())
+
+        if result.get("user"):
+            save_user_memory(user_name, result["user"])
+        if result.get("family"):
+            save_family_memory(result["family"])
+        if result.get("habits"):
+            save_habits_memory(result["habits"])
+        if result.get("corrections"):
+            save_corrections(result["corrections"])
+        if result.get("routines"):
+            save_routines(result["routines"])
+
+        _LOGGER.info("Memory updated for %s", user_name)
+
+    except Exception as e:
+        _LOGGER.warning("Memory extraction failed: %s", e)
