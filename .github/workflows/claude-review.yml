@@ -28,7 +28,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 5"
+          claude_args: "--max-turns 10"
           prompt: |
             You are reviewing a PR for Jane — a Hebrew AI voice assistant for Home Assistant.
 
