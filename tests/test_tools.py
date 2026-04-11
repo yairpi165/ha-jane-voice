@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from jane_conversation.config_api import normalize_config_keys
+from jane_conversation.config import normalize_config_keys
 from jane_conversation.tools import (
     _ALL_FUNCTION_DECLARATIONS,
     get_tools,

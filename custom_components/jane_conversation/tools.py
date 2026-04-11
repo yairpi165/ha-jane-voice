@@ -877,8 +877,8 @@ TOOL_UPDATE_DEVICE = {
 _ACTIVE_TIMERS: dict[str, asyncio.Task] = {}
 
 
-# Config Store API functions imported from config_api.py
-from .config_api import (  # noqa: E402
+# Config Store API functions
+from .config import (  # noqa: E402
     set_config,
     get_config,
     remove_config,
