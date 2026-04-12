@@ -15,7 +15,8 @@
   },
   "options": {
     "error": {
-      "pg_connection_failed": "Cannot connect to PostgreSQL. Check host, port, and credentials."
+      "pg_connection_failed": "Cannot connect to PostgreSQL. Check host, port, and credentials.",
+      "redis_connection_failed": "Cannot connect to Redis. Check port and password."
     },
     "step": {
       "init": {
@@ -26,7 +27,9 @@
           "pg_port": "PostgreSQL Port",
           "pg_database": "PostgreSQL Database",
           "pg_user": "PostgreSQL User",
-          "pg_password": "PostgreSQL Password"
+          "pg_password": "PostgreSQL Password",
+          "redis_port": "Redis Port (default 6379, same host as PG)",
+          "redis_password": "Redis Password (optional)"
         }
       }
     }

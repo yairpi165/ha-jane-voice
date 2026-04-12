@@ -12,7 +12,7 @@ from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .brain import think
-from .const import CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, WHISPER_HALLUCINATIONS
+from .const import CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, DOMAIN, WHISPER_HALLUCINATIONS
 from .memory import append_action, append_history, process_memory, track_response
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,9 +66,7 @@ class JaneConversationEntity(ConversationEntity):
             self._sessions[conversation_id] = []
         return conversation_id, self._sessions[conversation_id]
 
-    async def async_process(
-        self, user_input: conversation.ConversationInput
-    ) -> ConversationResult:
+    async def async_process(self, user_input: conversation.ConversationInput) -> ConversationResult:
         """Process a voice/text command through Jane's brain."""
         user_text = user_input.text
         user_name = user_input.context.user_id or "default"
@@ -96,6 +94,7 @@ class JaneConversationEntity(ConversationEntity):
 
         # Think with tool calling
         client = await self._get_client()
+        working_memory = self.hass.data.get(DOMAIN, {}).get("_working_memory")
         response_text = await think(
             client,
             user_text,
@@ -103,6 +102,7 @@ class JaneConversationEntity(ConversationEntity):
             self.hass,
             history,
             self.tavily_api_key,
+            working_memory,
         )
 
         # Update conversation history (only user text + final response, not tool calls)
@@ -115,25 +115,23 @@ class JaneConversationEntity(ConversationEntity):
 
         _LOGGER.info("Jane responds: %s", response_text)
 
+        # Record interaction in working memory
+        if working_memory:
+            await working_memory.record_interaction(user_name, user_text, response_text)
+
         # Track response for anti-repetition
         track_response(response_text)
 
         # Log action in background
-        await self.hass.async_add_executor_job(
-            append_action, user_name, response_text
-        )
+        await self.hass.async_add_executor_job(append_action, user_name, response_text)
 
         # Permanent history log
-        await self.hass.async_add_executor_job(
-            append_history, user_name, user_text, response_text
-        )
+        await self.hass.async_add_executor_job(append_history, user_name, user_text, response_text)
 
         # Memory extraction in background
         silent = any(p in user_text for p in ["אל תזכרי", "אל תזכור", "מצב שקט"])
         if not silent:
-            self.hass.async_add_executor_job(
-                process_memory, client, user_name, user_text, response_text, "tool"
-            )
+            self.hass.async_add_executor_job(process_memory, client, user_name, user_text, response_text, "tool")
 
         # Return response for TTS
         response = intent.IntentResponse(language=user_input.language or "he")
