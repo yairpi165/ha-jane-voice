@@ -269,11 +269,11 @@ class TestGetContext:
         assert cached is None
 
     @pytest.mark.asyncio
-    async def test_empty_redis_returns_none(self, working_memory, redis_mock):
+    async def test_empty_redis_returns_none(self, working_memory):
+        """When Redis has no data and hass has no weather, context is None."""
+        working_memory._hass.states.get = MagicMock(return_value=None)
         context = await working_memory.get_context()
-        # Weather comes from hass_mock, so context won't be None
-        # but if no weather either, it would be None
-        assert context is not None or context is None  # Depends on hass_mock weather
+        assert context is None
 
 
 # --- Initial Snapshot ---
@@ -282,9 +282,9 @@ class TestGetContext:
 class TestSnapshot:
     @pytest.mark.asyncio
     async def test_snapshot_populates_presence(self, working_memory, redis_mock):
+        """Keys match conftest.py hass_mock: person.yair friendly_name='יאיר', person.efrat='אפרת'."""
         await working_memory._snapshot_current_state()
 
-        # hass_mock has person.yair (home) and person.efrat (not_home)
         yair = await redis_mock.hget("jane:presence", "יאיר")
         assert yair == "home"
 

@@ -90,6 +90,23 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                     errors["pg_host"] = "pg_connection_failed"
                     _LOGGER.warning("PG connection test failed: %s", e)
 
+                # Validate Redis connection (same host as PG)
+                if not errors:
+                    try:
+                        import redis.asyncio as aioredis
+
+                        redis_client = aioredis.Redis(
+                            host=pg_host,
+                            port=int(user_input.get(CONF_REDIS_PORT, DEFAULT_REDIS_PORT)),
+                            password=user_input.get(CONF_REDIS_PASSWORD) or None,
+                            socket_connect_timeout=5,
+                        )
+                        await redis_client.ping()
+                        await redis_client.aclose()
+                    except Exception as e:
+                        errors["redis_port"] = "redis_connection_failed"
+                        _LOGGER.warning("Redis connection test failed: %s", e)
+
             if not errors:
                 new_data = {**self._config_entry.data, **user_input}
                 new_data = {k: v for k, v in new_data.items() if v}
