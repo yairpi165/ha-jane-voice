@@ -128,11 +128,13 @@ async def migrate(memory_dir: Path, pg_host: str, pg_port: int, pg_db: str, pg_u
                             response = next_line[next_line.index("Jane: ") + 6 :]
                             i += 1
 
+                    import json as _json
+
                     await conn.execute(
                         """INSERT INTO events (timestamp, event_type, user_name, description, metadata)
                            VALUES ($1, 'conversation', $2, $3, $4::jsonb)""",
                         ts, user_name, text,
-                        f'{{"response": "{response[:500]}"}}'
+                        _json.dumps({"response": response[:500]}),
                     )
                     history_count += 1
                 except (ValueError, IndexError) as e:

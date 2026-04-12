@@ -95,6 +95,7 @@ class FileBackend(StorageBackend):
         return self._read(self._category_path(category, user_name))
 
     async def save(self, category: str, content: str, user_name: str | None = None) -> None:
+        """Save to MD file. Note: sync I/O — call from executor thread, not event loop."""
         path = self._category_path(category, user_name)
         doc = self._firebase_doc(category, user_name)
         self._write(path, content, doc)
@@ -297,7 +298,7 @@ class DualWriteBackend(StorageBackend):
     async def load_all(self, user_name: str) -> str:
         try:
             content = await self._pg.load_all(user_name)
-            if content and "No data yet." not in content[:100]:
+            if content:
                 return content
         except Exception as e:
             _LOGGER.warning("PG load_all failed, falling back to file: %s", e)
