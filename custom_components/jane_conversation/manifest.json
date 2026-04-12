@@ -8,5 +8,6 @@
   "codeowners": ["@yairpi165"],
   "config_flow": true,
   "integration_type": "service",
-  "iot_class": "cloud_polling"
+  "iot_class": "cloud_polling",
+  "requirements": ["asyncpg>=0.30.0", "redis>=5.0.0"]
 }

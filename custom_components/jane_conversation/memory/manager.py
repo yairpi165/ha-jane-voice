@@ -1,45 +1,39 @@
-"""Memory manager — init, load, save, append, tracking."""
+"""Memory manager — load, save, append via StorageBackend."""
 
-import asyncio
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
+
+from .storage import FileBackend, StorageBackend
 
 _LOGGER = logging.getLogger(__name__)
 
-# Firebase backup handle (set by __init__.py if configured)
-_hass = None
+# Active storage backend (set by init_memory)
+_backend: StorageBackend | None = None
 
-# Memory stored in HA config directory
+# Memory directory (kept for extraction.py and legacy access)
 _memory_dir: Path | None = None
 
-# Anti-repetition: track recent response openings (in-memory only)
+# For test compatibility
 _recent_responses: list[str] = []
 
 
-def get_recent_responses() -> str:
-    """Return recent response openings for anti-repetition injection."""
-    if not _recent_responses:
-        return ""
-    return "Your recent response openings (don't repeat these): " + " | ".join(_recent_responses[-10:])
+def get_backend() -> StorageBackend:
+    """Get the active storage backend."""
+    if _backend is None:
+        raise RuntimeError("Memory not initialized. Call init_memory() first.")
+    return _backend
 
 
-def track_response(response: str):
-    """Track a response opening to avoid repetition."""
-    if not response:
-        return
-    opening = response.strip()[:60]
-    _recent_responses.append(opening)
-    if len(_recent_responses) > 20:
-        _recent_responses.pop(0)
-
-
-def init_memory(config_dir: str, hass=None):
-    """Initialize memory directory under HA config."""
-    global _memory_dir, _hass
+def init_memory(config_dir: str, hass=None, backend: StorageBackend | None = None):
+    """Initialize memory system."""
+    global _memory_dir, _backend
     _memory_dir = Path(config_dir) / "jane_memory"
     (_memory_dir / "users").mkdir(parents=True, exist_ok=True)
-    _hass = hass
+
+    if backend is not None:
+        _backend = backend
+    else:
+        _backend = FileBackend(_memory_dir, hass)
 
 
 def get_memory_dir() -> Path | None:
@@ -47,15 +41,37 @@ def get_memory_dir() -> Path | None:
 
 
 # ---------------------------------------------------------------------------
-# Load
+# Sync wrappers (called from executor by brain/conversation)
+# These call the async backend via the backend's sync-compatible methods
+# For FileBackend, the async methods are actually sync under the hood
 # ---------------------------------------------------------------------------
 
 def _read(path: Path) -> str:
+    """Legacy sync read — used by extraction.py for home map."""
     try:
         return path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return ""
 
+
+def _write(path: Path, content: str, firebase_doc: str | None = None):
+    """Legacy sync write — used by extraction.py for home map."""
+    import asyncio
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+    if firebase_doc and _backend and isinstance(_backend, FileBackend) and _backend._hass:
+        asyncio.run_coroutine_threadsafe(
+            _backend._firebase_backup(firebase_doc, content), _backend._hass.loop
+        )
+
+
+# ---------------------------------------------------------------------------
+# Sync load functions (called from executor threads)
+# ---------------------------------------------------------------------------
 
 def load_user_memory(user_name: str) -> str:
     return _read(get_memory_dir() / "users" / f"{user_name.lower().strip()}.md")
@@ -104,31 +120,8 @@ def load_all_memory(user_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Save
+# Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
-
-def _write(path: Path, content: str, firebase_doc: str | None = None):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
-
-    # Background Firebase backup (thread-safe)
-    if firebase_doc and _hass:
-        asyncio.run_coroutine_threadsafe(
-            _firebase_backup(firebase_doc, content), _hass.loop
-        )
-
-
-async def _firebase_backup(doc_name: str, content: str):
-    """Push memory to Firestore in background. Never blocks or raises."""
-    try:
-        from .firebase import backup_memory
-
-        await backup_memory(doc_name, content)
-    except Exception as e:
-        _LOGGER.warning("Firebase backup failed for %s: %s", doc_name, e)
-
 
 def save_user_memory(user_name: str, content: str):
     name = user_name.lower().strip()
@@ -152,10 +145,69 @@ def save_routines(content: str):
 
 
 # ---------------------------------------------------------------------------
-# Action log
+# Async functions (called from conversation.py on event loop)
+# ---------------------------------------------------------------------------
+
+async def async_append_action(user_name: str, description: str):
+    """Append action via storage backend (async)."""
+    await get_backend().append_event("action", user_name, description)
+
+
+async def async_append_history(user_name: str, user_text: str, response_text: str):
+    """Append conversation history via storage backend (async)."""
+    await get_backend().append_event(
+        "conversation", user_name, f"{user_name}: {user_text}",
+        metadata={"user_text": user_text, "response_text": response_text},
+    )
+
+
+async def async_track_response(opening: str):
+    """Track response opening via storage backend (async)."""
+    await get_backend().track_response(opening)
+    # Also update local list for sync access
+    if opening:
+        _recent_responses.append(opening.strip()[:60])
+        if len(_recent_responses) > 20:
+            _recent_responses.pop(0)
+
+
+async def async_get_recent_responses() -> str:
+    """Get recent responses via storage backend (async)."""
+    responses = await get_backend().get_recent_responses(10)
+    if not responses:
+        return ""
+    return "Your recent response openings (don't repeat these): " + " | ".join(responses)
+
+
+# ---------------------------------------------------------------------------
+# Sync compatibility (for brain/engine.py which runs in executor)
+# ---------------------------------------------------------------------------
+
+def get_recent_responses() -> str:
+    """Sync version — uses local in-memory list."""
+    if not _recent_responses:
+        return ""
+    return "Your recent response openings (don't repeat these): " + " | ".join(_recent_responses[-10:])
+
+
+def track_response(response: str):
+    """Sync version — updates local in-memory list."""
+    if not response:
+        return
+    opening = response.strip()[:60]
+    _recent_responses.append(opening)
+    if len(_recent_responses) > 20:
+        _recent_responses.pop(0)
+
+
+# ---------------------------------------------------------------------------
+# Legacy sync append (kept for backward compat, delegates to file directly)
 # ---------------------------------------------------------------------------
 
 def append_action(user_name: str, description: str):
+    """Sync append action — legacy, used by conversation.py in executor."""
+    from datetime import datetime, timedelta
+
     path = get_memory_dir() / "actions.md"
     now = datetime.now()
     new_line = f"- {now.strftime('%Y-%m-%d %H:%M')} — {description} ({user_name})"
@@ -180,7 +232,9 @@ def append_action(user_name: str, description: str):
 
 
 def append_history(user_name: str, user_text: str, response_text: str):
-    """Append to permanent command history log (never pruned)."""
+    """Sync append history — legacy."""
+    from datetime import datetime
+
     path = get_memory_dir() / "history.log"
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     entry = f"[{now}] {user_name}: {user_text}\n[{now}] Jane: {response_text}\n\n"

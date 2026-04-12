@@ -4,6 +4,13 @@ CONF_GEMINI_API_KEY = "gemini_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"
 CONF_FIREBASE_KEY_PATH = "firebase_key_path"
 
+# PostgreSQL configuration
+CONF_PG_HOST = "pg_host"
+CONF_PG_PORT = "pg_port"
+CONF_PG_DATABASE = "pg_database"
+CONF_PG_USER = "pg_user"
+CONF_PG_PASSWORD = "pg_password"
+
 GEMINI_MODEL_FAST = "gemini-2.5-flash"
 GEMINI_MODEL_SMART = "gemini-2.5-pro"
 
