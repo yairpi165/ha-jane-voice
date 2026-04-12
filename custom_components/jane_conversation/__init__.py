@@ -1,5 +1,6 @@
 """Jane Voice Assistant — Custom conversation agent for Home Assistant."""
 
+import importlib
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -72,7 +73,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
     """Create Redis client and start Working Memory listener."""
     try:
-        import redis.asyncio as aioredis
+        aioredis = await hass.async_add_executor_job(importlib.import_module, "redis.asyncio")
 
         data = {**entry.data, **entry.options}
         redis_port = int(data.get(CONF_REDIS_PORT, DEFAULT_REDIS_PORT))
@@ -83,6 +84,7 @@ async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_hos
             port=redis_port,
             password=redis_password,
             decode_responses=True,
+            socket_connect_timeout=5,
         )
         await client.ping()
 
