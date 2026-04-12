@@ -2,6 +2,7 @@
 
 import logging
 
+import redis.asyncio as aioredis
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -72,11 +73,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
     """Create Redis client and start Working Memory listener."""
     try:
-        # Import in executor to avoid blocking I/O from package metadata reads
-        aioredis = await hass.async_add_executor_job(
-            lambda: __import__("redis.asyncio", fromlist=["asyncio"])
-        )
-
         data = {**entry.data, **entry.options}
         redis_port = int(data.get(CONF_REDIS_PORT, DEFAULT_REDIS_PORT))
         redis_password = data.get(CONF_REDIS_PASSWORD, "") or None
