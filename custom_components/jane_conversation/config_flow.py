@@ -11,6 +11,9 @@ from .const import (
     CONF_PG_PASSWORD,
     CONF_PG_PORT,
     CONF_PG_USER,
+    CONF_REDIS_PASSWORD,
+    CONF_REDIS_PORT,
+    DEFAULT_REDIS_PORT,
     DOMAIN,
 )
 
@@ -44,9 +47,11 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_GEMINI_API_KEY): str,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_GEMINI_API_KEY): str,
+                }
+            ),
             errors=errors,
         )
 
@@ -88,40 +93,48 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 new_data = {**self._config_entry.data, **user_input}
                 new_data = {k: v for k, v in new_data.items() if v}
-                self.hass.config_entries.async_update_entry(
-                    self._config_entry, data=new_data
-                )
+                self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
                 return self.async_create_entry(title="", data={})
 
         data = self._config_entry.data
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Optional(
-                    CONF_FIREBASE_KEY_PATH,
-                    default=data.get(CONF_FIREBASE_KEY_PATH, ""),
-                ): str,
-                vol.Optional(
-                    CONF_PG_HOST,
-                    default=data.get(CONF_PG_HOST, ""),
-                ): str,
-                vol.Optional(
-                    CONF_PG_PORT,
-                    default=int(data.get(CONF_PG_PORT, 5432)),
-                ): vol.Coerce(int),
-                vol.Optional(
-                    CONF_PG_DATABASE,
-                    default=data.get(CONF_PG_DATABASE, "jane"),
-                ): str,
-                vol.Optional(
-                    CONF_PG_USER,
-                    default=data.get(CONF_PG_USER, "postgres"),
-                ): str,
-                vol.Optional(
-                    CONF_PG_PASSWORD,
-                    default=data.get(CONF_PG_PASSWORD, ""),
-                ): str,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_FIREBASE_KEY_PATH,
+                        default=data.get(CONF_FIREBASE_KEY_PATH, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_PG_HOST,
+                        default=data.get(CONF_PG_HOST, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_PG_PORT,
+                        default=int(data.get(CONF_PG_PORT, 5432)),
+                    ): vol.Coerce(int),
+                    vol.Optional(
+                        CONF_PG_DATABASE,
+                        default=data.get(CONF_PG_DATABASE, "jane"),
+                    ): str,
+                    vol.Optional(
+                        CONF_PG_USER,
+                        default=data.get(CONF_PG_USER, "postgres"),
+                    ): str,
+                    vol.Optional(
+                        CONF_PG_PASSWORD,
+                        default=data.get(CONF_PG_PASSWORD, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_REDIS_PORT,
+                        default=int(data.get(CONF_REDIS_PORT, DEFAULT_REDIS_PORT)),
+                    ): vol.Coerce(int),
+                    vol.Optional(
+                        CONF_REDIS_PASSWORD,
+                        default=data.get(CONF_REDIS_PASSWORD, ""),
+                    ): str,
+                }
+            ),
             errors=errors,
         )

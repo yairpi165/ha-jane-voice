@@ -23,8 +23,25 @@ def load_routines_index() -> str:
     return ""
 
 
-async def build_context(hass: HomeAssistant) -> str:
-    """Build concise home awareness context (~50-100 tokens)."""
+async def build_context(hass: HomeAssistant, working_memory=None) -> str:
+    """Build concise home awareness context (~100-200 tokens).
+
+    If working_memory is available, reads from Redis (richer, includes temporal data).
+    Falls back to live hass.states queries if Redis is unavailable.
+    """
+    if working_memory is not None:
+        try:
+            context = await working_memory.get_context()
+            if context:
+                return context
+        except Exception:
+            _LOGGER.warning("Working memory unavailable, falling back to live query")
+
+    return _build_context_live(hass)
+
+
+def _build_context_live(hass: HomeAssistant) -> str:
+    """Build context from live hass.states (original logic, used as fallback)."""
     parts = []
 
     weather = hass.states.get("weather.forecast_home")
@@ -43,7 +60,13 @@ async def build_context(hass: HomeAssistant) -> str:
     skip_keywords = {"camera", "motion", "microphone", "speaker", "rtsp", "recording", "detection"}
     active = []
     for state in hass.states.async_all():
-        if state.domain in ("light", "climate", "media_player", "fan") and state.state not in ("off", "unavailable", "idle", "unknown", "standby"):
+        if state.domain in ("light", "climate", "media_player", "fan") and state.state not in (
+            "off",
+            "unavailable",
+            "idle",
+            "unknown",
+            "standby",
+        ):
             eid = state.entity_id.lower()
             if any(kw in eid for kw in skip_keywords):
                 continue

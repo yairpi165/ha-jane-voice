@@ -25,6 +25,7 @@ async def think(
     hass: HomeAssistant,
     history: list | None = None,
     tavily_api_key: str | None = None,
+    working_memory=None,
 ) -> str:
     """Send text to Gemini with tools. Gemini decides what to call. Returns final response."""
 
@@ -44,7 +45,7 @@ async def think(
     _LOGGER.info("Request type: %s -> model: %s", request_type, model)
 
     # Build context
-    home_context = await build_context(hass)
+    home_context = await build_context(hass, working_memory)
     home_layout = await hass.async_add_executor_job(load_home)
     routines_context = await hass.async_add_executor_job(load_routines_index)
 
@@ -70,16 +71,20 @@ async def think(
         for msg in history:
             if isinstance(msg, dict):
                 role = "model" if msg.get("role") == "assistant" else msg.get("role", "user")
-                messages.append(types.Content(
-                    role=role,
-                    parts=[types.Part(text=msg.get("content", ""))],
-                ))
+                messages.append(
+                    types.Content(
+                        role=role,
+                        parts=[types.Part(text=msg.get("content", ""))],
+                    )
+                )
             else:
                 messages.append(msg)
-    messages.append(types.Content(
-        role="user",
-        parts=[types.Part(text=user_text)],
-    ))
+    messages.append(
+        types.Content(
+            role="user",
+            parts=[types.Part(text=user_text)],
+        )
+    )
 
     # Tools
     tools = get_tools_minimal() if request_type == "chat" else get_tools()
@@ -96,9 +101,7 @@ async def think(
 
     # Tool calling loop
     for iteration in range(MAX_TOOL_ITERATIONS):
-        response = await hass.async_add_executor_job(
-            _call_gemini, client, model, messages, config
-        )
+        response = await hass.async_add_executor_job(_call_gemini, client, model, messages, config)
 
         if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
             # Check if blocked by safety filter
@@ -116,9 +119,7 @@ async def think(
                     max_output_tokens=max_output,
                     temperature=temperature,
                 )
-                response = await hass.async_add_executor_job(
-                    _call_gemini, client, model, messages, retry_config
-                )
+                response = await hass.async_add_executor_job(_call_gemini, client, model, messages, retry_config)
                 if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
                     return _extract_text(response.candidates[0].content.parts)
 
@@ -142,16 +143,20 @@ async def think(
             args = dict(fc.args) if fc.args else {}
             result = await execute_tool(hass, fc.name, args, tavily_api_key)
             function_response_parts.append(
-                types.Part(function_response=types.FunctionResponse(
-                    name=fc.name,
-                    response={"result": result},
-                ))
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        name=fc.name,
+                        response={"result": result},
+                    )
+                )
             )
 
-        messages.append(types.Content(
-            role="user",
-            parts=function_response_parts,
-        ))
+        messages.append(
+            types.Content(
+                role="user",
+                parts=function_response_parts,
+            )
+        )
 
     # Max iterations
     _LOGGER.warning("Max tool iterations reached, forcing final response")
@@ -160,9 +165,7 @@ async def think(
         max_output_tokens=max_output,
         temperature=temperature,
     )
-    response = await hass.async_add_executor_job(
-        _call_gemini, client, model, messages, config_no_tools
-    )
+    response = await hass.async_add_executor_job(_call_gemini, client, model, messages, config_no_tools)
     return _extract_text(response.candidates[0].content.parts) if response.candidates else ""
 
 

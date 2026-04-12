@@ -11,6 +11,11 @@ CONF_PG_DATABASE = "pg_database"
 CONF_PG_USER = "pg_user"
 CONF_PG_PASSWORD = "pg_password"
 
+# Redis configuration (same host as PG, different port)
+CONF_REDIS_PORT = "redis_port"
+CONF_REDIS_PASSWORD = "redis_password"
+DEFAULT_REDIS_PORT = 6379
+
 GEMINI_MODEL_FAST = "gemini-2.5-flash"
 GEMINI_MODEL_SMART = "gemini-2.5-pro"
 
