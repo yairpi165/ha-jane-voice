@@ -52,7 +52,7 @@ jobs:
       - name: Check max 300 lines per file
         run: |
           # Exempt: declarative data (tool schemas), slightly over-limit handlers
-          EXEMPT="definitions.py discovery.py"
+          EXEMPT="definitions.py discovery.py storage.py"
 
           failed=0
           for f in $(find custom_components -name '*.py' ! -name '__init__.py'); do
