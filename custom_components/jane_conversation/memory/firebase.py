@@ -180,10 +180,9 @@ async def restore_all_memory(memory_dir: Path) -> None:
     # so user files are restored on first access if missing.
 
 
-async def sync_existing_memory(memory_dir: Path) -> None:
-    """Push all existing local memory files to Firestore (initial sync)."""
-    if _credentials is None:
-        return
+def _collect_memory_files(memory_dir: Path) -> list[tuple[str, str]]:
+    """Collect all memory files and their content (sync, safe for executor)."""
+    results = []
 
     files = {
         "family.md": "family",
@@ -197,13 +196,28 @@ async def sync_existing_memory(memory_dir: Path) -> None:
         if filepath.exists() and filepath.stat().st_size > 0:
             content = filepath.read_text(encoding="utf-8").strip()
             if content:
-                await backup_memory(doc_name, content)
+                results.append((doc_name, content))
 
-    # Sync user files
     users_dir = memory_dir / "users"
     if users_dir.exists():
         for user_file in users_dir.glob("*.md"):
             content = user_file.read_text(encoding="utf-8").strip()
             if content:
-                doc_name = f"users_{user_file.stem}"
-                await backup_memory(doc_name, content)
+                results.append((f"users_{user_file.stem}", content))
+
+    return results
+
+
+async def sync_existing_memory(memory_dir: Path, hass=None) -> None:
+    """Push all existing local memory files to Firestore (initial sync)."""
+    if _credentials is None:
+        return
+
+    # Read files in executor to avoid blocking event loop
+    if hass:
+        file_data = await hass.async_add_executor_job(_collect_memory_files, memory_dir)
+    else:
+        file_data = _collect_memory_files(memory_dir)
+
+    for doc_name, content in file_data:
+        await backup_memory(doc_name, content)

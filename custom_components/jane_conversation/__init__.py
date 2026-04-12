@@ -28,7 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ok = await hass.async_add_executor_job(init_firebase, firebase_key)
         if ok:
             await restore_all_memory(get_memory_dir())
-            await sync_existing_memory(get_memory_dir())
+            await sync_existing_memory(get_memory_dir(), hass)
             _LOGGER.info("Firebase memory backup enabled")
 
     # Build home map on first setup

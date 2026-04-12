@@ -101,7 +101,27 @@ async def think(
         )
 
         if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
-            _LOGGER.warning("Empty response from Gemini")
+            # Check if blocked by safety filter
+            if response.candidates and hasattr(response.candidates[0], "finish_reason"):
+                reason = response.candidates[0].finish_reason
+                _LOGGER.warning("Empty response from Gemini, finish_reason=%s", reason)
+            else:
+                _LOGGER.warning("Empty response from Gemini (no candidates)")
+
+            # Retry once without tools (safety filters sometimes block tool responses)
+            if iteration == 0:
+                _LOGGER.info("Retrying without tools...")
+                retry_config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    max_output_tokens=max_output,
+                    temperature=temperature,
+                )
+                response = await hass.async_add_executor_job(
+                    _call_gemini, client, model, messages, retry_config
+                )
+                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    return _extract_text(response.candidates[0].content.parts)
+
             return ""
 
         parts = response.candidates[0].content.parts
