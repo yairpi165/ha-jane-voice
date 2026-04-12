@@ -71,6 +71,7 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             database=data.get(CONF_PG_DATABASE, "jane"),
             user=data.get(CONF_PG_USER, "postgres"),
             password=data.get(CONF_PG_PASSWORD, ""),
+            ssl="disable",
             min_size=2,
             max_size=5,
         )
@@ -151,7 +152,10 @@ async def _auto_migrate(pool, hass: HomeAssistant) -> None:
             # Migrate user files
             users_dir = memory_dir / "users"
             if users_dir.exists():
-                for user_file in users_dir.glob("*.md"):
+                user_files = await hass.async_add_executor_job(
+                    lambda: list(users_dir.glob("*.md"))
+                )
+                for user_file in user_files:
                     content = await hass.async_add_executor_job(
                         lambda p: p.read_text(encoding="utf-8").strip(), user_file
                     )
