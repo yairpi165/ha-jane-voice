@@ -154,7 +154,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
             contents="Analyze and respond with JSON.",
             config=types.GenerateContentConfig(
                 system_instruction=prompt,
-                max_output_tokens=2000,
+                max_output_tokens=4000,
                 temperature=0.3,
             ),
         )
@@ -167,7 +167,24 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
         if raw.endswith("```"):
             raw = raw[:-3]
 
-        result = json.loads(raw.strip())
+        raw = raw.strip()
+
+        # Fix truncated JSON — try to close it gracefully
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            _LOGGER.warning("Memory extraction JSON truncated, attempting repair")
+            # Try closing open strings and braces
+            repaired = raw
+            if repaired.count('"') % 2 != 0:
+                repaired += '"'
+            # Close any open value with null
+            if repaired.rstrip().endswith(","):
+                repaired = repaired.rstrip().rstrip(",")
+            # Count open/close braces
+            open_braces = repaired.count("{") - repaired.count("}")
+            repaired += "}" * open_braces
+            result = json.loads(repaired)
 
         if result.get("user"):
             save_user_memory(user_name, result["user"])
