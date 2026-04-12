@@ -89,11 +89,86 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
 
         _LOGGER.info("PostgreSQL connected: %s:%s/%s",
                       data.get(CONF_PG_HOST), data.get(CONF_PG_PORT), data.get(CONF_PG_DATABASE))
+
+        # Auto-migrate MD files on first PG connect
+        await _auto_migrate(pool, hass)
+
         return backend
 
     except Exception as e:
         _LOGGER.error("Failed to connect to PostgreSQL, falling back to files: %s", e)
         return None
+
+
+async def _auto_migrate(pool, hass: HomeAssistant) -> None:
+    """Auto-migrate permanent MD memory files to PostgreSQL on first connect.
+
+    Migrates: family, habits, corrections, routines, home, user/* files.
+    Does NOT migrate: actions.md (rolling 24h) or history.log (append-only).
+    For full historical migration, use scripts/migrate_md_to_pg.py.
+    """
+    from pathlib import Path
+
+    try:
+        async with pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM memory_entries WHERE content != ''"
+            )
+            if count > 0:
+                _LOGGER.info("PG already has %d memory entries, skipping migration", count)
+                return
+
+        memory_dir = Path(hass.config.config_dir) / "jane_memory"
+        if not memory_dir.exists():
+            _LOGGER.info("No jane_memory directory found, skipping migration")
+            return
+
+        migrated = 0
+        categories = {
+            "family": memory_dir / "family.md",
+            "habits": memory_dir / "habits.md",
+            "corrections": memory_dir / "corrections.md",
+            "routines": memory_dir / "routines.md",
+            "home": memory_dir / "home.md",
+        }
+
+        async with pool.acquire() as conn:
+            for category, path in categories.items():
+                if path.exists():
+                    content = await hass.async_add_executor_job(
+                        lambda p: p.read_text(encoding="utf-8").strip(), path
+                    )
+                    if content:
+                        await conn.execute(
+                            """INSERT INTO memory_entries (category, user_name, content, updated_at)
+                               VALUES ($1, NULL, $2, NOW())
+                               ON CONFLICT (category, user_name)
+                               DO UPDATE SET content = $2, updated_at = NOW()""",
+                            category, content,
+                        )
+                        migrated += 1
+
+            # Migrate user files
+            users_dir = memory_dir / "users"
+            if users_dir.exists():
+                for user_file in users_dir.glob("*.md"):
+                    content = await hass.async_add_executor_job(
+                        lambda p: p.read_text(encoding="utf-8").strip(), user_file
+                    )
+                    if content:
+                        await conn.execute(
+                            """INSERT INTO memory_entries (category, user_name, content, updated_at)
+                               VALUES ('user', $1, $2, NOW())
+                               ON CONFLICT (category, user_name)
+                               DO UPDATE SET content = $2, updated_at = NOW()""",
+                            user_file.stem, content,
+                        )
+                        migrated += 1
+
+        _LOGGER.info("Auto-migrated %d memory entries from MD files to PostgreSQL", migrated)
+
+    except Exception as e:
+        _LOGGER.warning("Auto-migration failed (non-fatal, files still work): %s", e)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
