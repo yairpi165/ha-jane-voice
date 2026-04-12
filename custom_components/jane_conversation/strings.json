@@ -14,6 +14,9 @@
     }
   },
   "options": {
+    "error": {
+      "pg_connection_failed": "Cannot connect to PostgreSQL. Check host, port, and credentials."
+    },
     "step": {
       "init": {
         "title": "Jane Settings",

@@ -101,7 +101,12 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def _auto_migrate(pool, hass: HomeAssistant) -> None:
-    """Auto-migrate MD files to PostgreSQL on first connect."""
+    """Auto-migrate permanent MD memory files to PostgreSQL on first connect.
+
+    Migrates: family, habits, corrections, routines, home, user/* files.
+    Does NOT migrate: actions.md (rolling 24h) or history.log (append-only).
+    For full historical migration, use scripts/migrate_md_to_pg.py.
+    """
     from pathlib import Path
 
     try:

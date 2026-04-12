@@ -1,3 +1,5 @@
+import logging
+
 import voluptuous as vol
 from homeassistant import config_entries
 
@@ -11,6 +13,8 @@ from .const import (
     CONF_PG_USER,
     DOMAIN,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -58,14 +62,35 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
         self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
+        errors = {}
+
         if user_input is not None:
-            new_data = {**self._config_entry.data, **user_input}
-            # Remove empty strings (means "not configured")
-            new_data = {k: v for k, v in new_data.items() if v}
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=new_data
-            )
-            return self.async_create_entry(title="", data={})
+            # Validate PG connection if host is provided
+            pg_host = user_input.get(CONF_PG_HOST, "")
+            if pg_host:
+                try:
+                    import asyncpg
+
+                    conn = await asyncpg.connect(
+                        host=pg_host,
+                        port=int(user_input.get(CONF_PG_PORT, 5432)),
+                        database=user_input.get(CONF_PG_DATABASE, "jane"),
+                        user=user_input.get(CONF_PG_USER, "postgres"),
+                        password=user_input.get(CONF_PG_PASSWORD, ""),
+                        timeout=5,
+                    )
+                    await conn.close()
+                except Exception as e:
+                    errors["pg_host"] = "pg_connection_failed"
+                    _LOGGER.warning("PG connection test failed: %s", e)
+
+            if not errors:
+                new_data = {**self._config_entry.data, **user_input}
+                new_data = {k: v for k, v in new_data.items() if v}
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, data=new_data
+                )
+                return self.async_create_entry(title="", data={})
 
         data = self._config_entry.data
 
@@ -82,8 +107,8 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                 ): str,
                 vol.Optional(
                     CONF_PG_PORT,
-                    default=data.get(CONF_PG_PORT, "5432"),
-                ): str,
+                    default=int(data.get(CONF_PG_PORT, 5432)),
+                ): vol.Coerce(int),
                 vol.Optional(
                     CONF_PG_DATABASE,
                     default=data.get(CONF_PG_DATABASE, "jane"),
@@ -97,4 +122,5 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                     default=data.get(CONF_PG_PASSWORD, ""),
                 ): str,
             }),
+            errors=errors,
         )
