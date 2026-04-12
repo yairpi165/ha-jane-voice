@@ -18,7 +18,12 @@
       "init": {
         "title": "Jane Settings",
         "data": {
-          "firebase_key_path": "Firebase Key Path (optional — e.g. /config/jane_firebase_key.json)"
+          "firebase_key_path": "Firebase Key Path (optional)",
+          "pg_host": "PostgreSQL Host (empty = use files)",
+          "pg_port": "PostgreSQL Port",
+          "pg_database": "PostgreSQL Database",
+          "pg_user": "PostgreSQL User",
+          "pg_password": "PostgreSQL Password"
         }
       }
     }

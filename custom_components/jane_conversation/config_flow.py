@@ -1,7 +1,16 @@
 import voluptuous as vol
 from homeassistant import config_entries
 
-from .const import CONF_FIREBASE_KEY_PATH, CONF_GEMINI_API_KEY, DOMAIN
+from .const import (
+    CONF_FIREBASE_KEY_PATH,
+    CONF_GEMINI_API_KEY,
+    CONF_PG_DATABASE,
+    CONF_PG_HOST,
+    CONF_PG_PASSWORD,
+    CONF_PG_PORT,
+    CONF_PG_USER,
+    DOMAIN,
+)
 
 
 class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -11,7 +20,6 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Validate Gemini API key
             from google import genai
 
             try:
@@ -44,7 +52,7 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class JaneOptionsFlow(config_entries.OptionsFlow):
-    """Options flow for adding/changing keys after setup."""
+    """Options flow for configuring Firebase backup and PostgreSQL."""
 
     def __init__(self, config_entry):
         self._config_entry = config_entry
@@ -52,17 +60,41 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             new_data = {**self._config_entry.data, **user_input}
+            # Remove empty strings (means "not configured")
             new_data = {k: v for k, v in new_data.items() if v}
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=new_data
             )
             return self.async_create_entry(title="", data={})
 
-        current_firebase = self._config_entry.data.get(CONF_FIREBASE_KEY_PATH, "")
+        data = self._config_entry.data
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                vol.Optional(CONF_FIREBASE_KEY_PATH, default=current_firebase): str,
+                vol.Optional(
+                    CONF_FIREBASE_KEY_PATH,
+                    default=data.get(CONF_FIREBASE_KEY_PATH, ""),
+                ): str,
+                vol.Optional(
+                    CONF_PG_HOST,
+                    default=data.get(CONF_PG_HOST, ""),
+                ): str,
+                vol.Optional(
+                    CONF_PG_PORT,
+                    default=data.get(CONF_PG_PORT, "5432"),
+                ): str,
+                vol.Optional(
+                    CONF_PG_DATABASE,
+                    default=data.get(CONF_PG_DATABASE, "jane"),
+                ): str,
+                vol.Optional(
+                    CONF_PG_USER,
+                    default=data.get(CONF_PG_USER, "postgres"),
+                ): str,
+                vol.Optional(
+                    CONF_PG_PASSWORD,
+                    default=data.get(CONF_PG_PASSWORD, ""),
+                ): str,
             }),
         )
