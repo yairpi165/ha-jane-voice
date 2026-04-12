@@ -71,6 +71,7 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             database=data.get(CONF_PG_DATABASE, "jane"),
             user=data.get(CONF_PG_USER, "postgres"),
             password=data.get(CONF_PG_PASSWORD, ""),
+            ssl="disable",
             min_size=2,
             max_size=5,
         )
@@ -134,36 +135,37 @@ async def _auto_migrate(pool, hass: HomeAssistant) -> None:
 
         async with pool.acquire() as conn:
             for category, path in categories.items():
-                if path.exists():
-                    content = await hass.async_add_executor_job(
-                        lambda p: p.read_text(encoding="utf-8").strip(), path
+                content = await hass.async_add_executor_job(
+                    lambda p: p.read_text(encoding="utf-8").strip() if p.exists() else "", path
+                )
+                if content:
+                    await conn.execute(
+                        """INSERT INTO memory_entries (category, user_name, content, updated_at)
+                           VALUES ($1, NULL, $2, NOW())
+                           ON CONFLICT (category, user_name)
+                           DO UPDATE SET content = $2, updated_at = NOW()""",
+                        category, content,
                     )
-                    if content:
-                        await conn.execute(
-                            """INSERT INTO memory_entries (category, user_name, content, updated_at)
-                               VALUES ($1, NULL, $2, NOW())
-                               ON CONFLICT (category, user_name)
-                               DO UPDATE SET content = $2, updated_at = NOW()""",
-                            category, content,
-                        )
-                        migrated += 1
+                    migrated += 1
 
             # Migrate user files
             users_dir = memory_dir / "users"
-            if users_dir.exists():
-                for user_file in users_dir.glob("*.md"):
-                    content = await hass.async_add_executor_job(
-                        lambda p: p.read_text(encoding="utf-8").strip(), user_file
+            user_files = await hass.async_add_executor_job(
+                lambda: list(users_dir.glob("*.md")) if users_dir.exists() else []
+            )
+            for user_file in user_files:
+                content = await hass.async_add_executor_job(
+                    lambda p: p.read_text(encoding="utf-8").strip(), user_file
+                )
+                if content:
+                    await conn.execute(
+                        """INSERT INTO memory_entries (category, user_name, content, updated_at)
+                           VALUES ('user', $1, $2, NOW())
+                           ON CONFLICT (category, user_name)
+                           DO UPDATE SET content = $2, updated_at = NOW()""",
+                        user_file.stem, content,
                     )
-                    if content:
-                        await conn.execute(
-                            """INSERT INTO memory_entries (category, user_name, content, updated_at)
-                               VALUES ('user', $1, $2, NOW())
-                               ON CONFLICT (category, user_name)
-                               DO UPDATE SET content = $2, updated_at = NOW()""",
-                            user_file.stem, content,
-                        )
-                        migrated += 1
+                    migrated += 1
 
         _LOGGER.info("Auto-migrated %d memory entries from MD files to PostgreSQL", migrated)
 

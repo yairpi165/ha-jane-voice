@@ -78,6 +78,7 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                         user=user_input.get(CONF_PG_USER, "postgres"),
                         password=user_input.get(CONF_PG_PASSWORD, ""),
                         timeout=5,
+                        ssl="disable",
                     )
                     await conn.close()
                 except Exception as e:
