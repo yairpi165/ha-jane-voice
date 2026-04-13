@@ -123,32 +123,26 @@ def load_all_memory(user_name: str) -> str:
 # Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
 
-async def _safe_backend_save(category: str, content: str, user_name: str | None = None):
-    """Coroutine wrapper with logging — surfaces errors from fire-and-forget saves."""
-    try:
-        await _backend.save(category, content, user_name)
-        _LOGGER.debug("Backend save OK: %s/%s (%d chars)", category, user_name, len(content))
-    except Exception as e:
-        _LOGGER.warning("Backend save failed for %s/%s: %s", category, user_name, e)
-
-
 def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
-    """Schedule async backend save from executor thread. Fire-and-forget, non-fatal."""
+    """Schedule PG save from executor thread. File already written by caller."""
     import asyncio
 
-    if _backend is None:
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    hass = getattr(getattr(_backend, "_file", None), "_hass", None) if _backend else None
+    if not pg or not hass:
         return
-    # Get hass from backend (FileBackend._hass or DualWriteBackend._file._hass)
-    hass = getattr(_backend, "_hass", None) or getattr(getattr(_backend, "_file", None), "_hass", None)
-    if hass is None:
-        _LOGGER.debug("Backend save skipped — no hass reference for %s/%s", category, user_name)
-        return
+
+    async def _safe():
+        try:
+            await pg.save(category, content, user_name)
+            _LOGGER.debug("PG save OK: %s/%s (%d chars)", category, user_name, len(content))
+        except Exception as e:
+            _LOGGER.warning("PG save failed for %s/%s: %s", category, user_name, e)
+
     try:
-        asyncio.run_coroutine_threadsafe(
-            _safe_backend_save(category, content, user_name), hass.loop
-        )
-    except Exception as e:
-        _LOGGER.debug("Backend save scheduling failed for %s/%s: %s", category, user_name, e)
+        asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
+    except Exception:
+        pass
 
 
 def save_user_memory(user_name: str, content: str):
@@ -231,6 +225,28 @@ def track_response(response: str):
     _recent_responses.append(opening)
     if len(_recent_responses) > 20:
         _recent_responses.pop(0)
+
+
+def schedule_pg_append(event_type: str, user_name: str, description: str, metadata: dict | None = None):
+    """Schedule PG append_event from executor thread."""
+    import asyncio
+
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    hass = getattr(getattr(_backend, "_file", None), "_hass", None) if _backend else None
+    if not pg or not hass:
+        return
+
+    async def _safe():
+        try:
+            await pg.append_event(event_type, user_name, description, metadata)
+            _LOGGER.debug("PG append OK: %s/%s", event_type, user_name)
+        except Exception as e:
+            _LOGGER.warning("PG append failed for %s/%s: %s", event_type, user_name, e)
+
+    try:
+        asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

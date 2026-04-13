@@ -12,11 +12,11 @@ from .manager import (
     _write,
     get_memory_dir,
     load_all_memory,
-    save_corrections,
     save_family_memory,
     save_habits_memory,
     save_routines,
     save_user_memory,
+    schedule_pg_append,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -105,16 +105,18 @@ Jane: {jane_response}
 ---
 
 Rules:
-1. If a memory file needs updating — rewrite its ENTIRE content, merging new info with existing.
-2. New information wins over old when they conflict.
-3. Keep each file concise (max ~50 lines).
+1. REWRITE from scratch — do NOT carry over previous content verbatim.
+   Re-derive a clean, deduplicated list based on what is still relevant.
+2. DEDUPLICATE — before adding a preference, check if a semantically equivalent
+   one already exists. Keep the more specific version, discard duplicates.
+3. New information wins over old when they conflict.
 4. Write ALL memory in English, even though conversations are in Hebrew.
-5. If nothing worth remembering — return null.
+5. Keep each category CONCISE — max 30 lines. If growing, you are not deduplicating.
+6. If nothing worth remembering — return null for that category.
 
-BE AGGRESSIVE about saving these:
-- Family members: names, ages, relationships, preferences, hobbies — ALWAYS save
-- Personal details: what they like/dislike, their routine, their job, their personality
-- Corrections: if the user corrected Jane about anything, save the learning
+SAVE these aggressively:
+- Family members: names, ages, relationships, preferences, hobbies
+- Personal preferences: likes/dislikes, personality, communication style
 - Patterns: recurring requests, time-based habits
 - Routines: multi-step sequences ("goodnight" means lights off + shutters down + AC 24)
 
@@ -122,14 +124,29 @@ DO NOT save:
 - One-time commands: "turn on the light" -> skip
 - General questions: "what time is it?" -> skip
 - Pleasantries with no new info: "thank you" -> skip
+- Device inventories or entity IDs — these belong in home layout, not user memory
+- Automation lists — these are queried live from HA, not stored as static text
+- Corrections — return them separately, they are stored as events
+
+Format for "user" category:
+```
+Name: ...
+Location: ...
+
+Preferences:
+- one preference per line, no duplicates
+
+Interests:
+- one interest per line
+```
 
 Respond in JSON only:
 {
-  "user": "Full updated user memory, or null",
-  "family": "Full updated family memory, or null",
-  "habits": "Full updated habits, or null",
-  "corrections": "Full updated corrections, or null",
-  "routines": "Full updated routines, or null"
+  "user": "Full rewritten user memory, or null",
+  "family": "Full rewritten family memory, or null",
+  "habits": "Full rewritten habits, or null",
+  "corrections": "Correction text if user corrected Jane, or null",
+  "routines": "Full rewritten routines, or null"
 }"""
 
 
@@ -151,7 +168,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
     try:
         response = client.models.generate_content(
             model=GEMINI_MODEL_FAST,
-            contents="Analyze and respond with JSON.",
+            contents="Analyze and respond with compact JSON. Return null for unchanged categories.",
             config=types.GenerateContentConfig(
                 system_instruction=prompt,
                 max_output_tokens=4000,
@@ -193,7 +210,8 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
         if result.get("habits"):
             save_habits_memory(result["habits"])
         if result.get("corrections"):
-            save_corrections(result["corrections"])
+            # Route to events table, not memory_entries
+            schedule_pg_append("correction", user_name, result["corrections"], {"source": "extraction"})
         if result.get("routines"):
             save_routines(result["routines"])
 
