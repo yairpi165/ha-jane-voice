@@ -176,7 +176,7 @@ def _call_with_retry(client: genai.Client, prompt: str, max_retries: int = 1):
         except Exception as e:
             if attempt < max_retries and ("503" in str(e) or "429" in str(e) or "UNAVAILABLE" in str(e)):
                 _LOGGER.info("Extraction API error, retrying in 5s: %s", e)
-                time.sleep(5)
+                time.sleep(5)  # Blocking sleep OK — runs in executor thread, not event loop
             else:
                 raise
 
@@ -290,7 +290,7 @@ def _resolve_person_name(hass, gemini_name: str) -> str:
                 continue
             friendly = state.attributes.get("friendly_name", "")
             entity_slug = entity_id.split(".")[-1]  # e.g. "yair_pinchasi"
-            if gemini_lower == entity_slug or entity_slug.startswith(gemini_lower) or gemini_lower == friendly.lower():
+            if gemini_lower == entity_slug or entity_slug.startswith(gemini_lower + "_") or gemini_lower == friendly.lower():
                 _LOGGER.debug("Resolved person %s → %s", gemini_name, friendly)
                 return friendly
     except Exception as e:
