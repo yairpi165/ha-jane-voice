@@ -122,10 +122,10 @@ class JaneConversationEntity(ConversationEntity):
         # Track response for anti-repetition
         track_response(response_text)
 
-        # Log action in background
+        # Log action in background (file in executor + PG scheduled)
         await self.hass.async_add_executor_job(append_action, user_name, response_text)
 
-        # Permanent history log
+        # Permanent history log (file in executor + PG scheduled)
         await self.hass.async_add_executor_job(append_history, user_name, user_text, response_text)
 
         # Memory extraction in background

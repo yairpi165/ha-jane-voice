@@ -224,21 +224,67 @@ def get_recent_responses() -> str:
 
 
 def track_response(response: str):
-    """Sync version — updates local in-memory list."""
+    """Sync version — updates local in-memory list + schedules PG write."""
     if not response:
         return
     opening = response.strip()[:60]
     _recent_responses.append(opening)
     if len(_recent_responses) > 20:
         _recent_responses.pop(0)
+    # Schedule PG write
+    _schedule_backend_track_response(opening)
+
+
+def _schedule_backend_track_response(opening: str):
+    """Schedule async PG track_response from sync context."""
+    import asyncio
+
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    if pg is None:
+        return
+    hass = getattr(getattr(_backend, "_file", None), "_hass", None)
+    if hass is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(pg.track_response(opening), hass.loop)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
 # Legacy sync append (kept for backward compat, delegates to file directly)
 # ---------------------------------------------------------------------------
 
+def _schedule_backend_append(event_type: str, user_name: str, description: str, metadata: dict | None = None):
+    """Schedule async PG append_event from executor thread. Fire-and-forget, non-fatal.
+
+    Only writes to PG — file write already happened in the sync caller.
+    """
+    import asyncio
+
+    # Only schedule if we have a DualWriteBackend with a PG backend
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    if pg is None:
+        return
+    hass = getattr(getattr(_backend, "_file", None), "_hass", None)
+    if hass is None:
+        return
+
+    async def _safe():
+        try:
+            await pg.append_event(event_type, user_name, description, metadata)
+            _LOGGER.debug("PG append OK: %s/%s", event_type, user_name)
+        except Exception as e:
+            _LOGGER.warning("PG append failed for %s/%s: %s", event_type, user_name, e)
+
+    try:
+        asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
+    except Exception as e:
+        _LOGGER.debug("PG append scheduling failed: %s", e)
+
+
 def append_action(user_name: str, description: str):
-    """Sync append action — legacy, used by conversation.py in executor."""
+    """Sync append action — file in executor + PG scheduled on event loop."""
     from datetime import datetime, timedelta
 
     path = get_memory_dir() / "actions.md"
@@ -262,10 +308,11 @@ def append_action(user_name: str, description: str):
     lines.append(new_line)
     content = "# Recent Actions (rolling 24h)\n\n" + "\n".join(lines) + "\n"
     _write(path, content)
+    _schedule_backend_append("action", user_name, description)
 
 
 def append_history(user_name: str, user_text: str, response_text: str):
-    """Sync append history — legacy."""
+    """Sync append history — file in executor + PG scheduled on event loop."""
     from datetime import datetime
 
     path = get_memory_dir() / "history.log"
@@ -273,3 +320,7 @@ def append_history(user_name: str, user_text: str, response_text: str):
     entry = f"[{now}] {user_name}: {user_text}\n[{now}] Jane: {response_text}\n\n"
     with open(path, "a", encoding="utf-8") as f:
         f.write(entry)
+    _schedule_backend_append(
+        "conversation", user_name, f"{user_name}: {user_text}",
+        {"user_text": user_text, "response_text": response_text},
+    )
