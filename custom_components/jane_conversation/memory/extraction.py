@@ -6,7 +6,7 @@ import logging
 from google import genai
 from google.genai import types
 
-from ..const import GEMINI_MODEL_FAST
+from ..const import GEMINI_MODEL_FAST, PREFERENCE_KEY_TAXONOMY
 from .manager import (
     _read,
     _write,
@@ -140,17 +140,24 @@ Interests:
 - one interest per line
 ```
 
+Additionally, extract structured preferences using EXACTLY these known keys:
+{preference_keys}
+If no known key fits, use: note_<short_slug>
+
 Respond in JSON only:
-{
+{{
   "user": "Full rewritten user memory, or null",
   "family": "Full rewritten family memory, or null",
   "habits": "Full rewritten habits, or null",
   "corrections": "Correction text if user corrected Jane, or null",
-  "routines": "Full rewritten routines, or null"
-}"""
+  "routines": "Full rewritten routines, or null",
+  "preferences": [
+    {{"person": "name", "key": "known_key", "value": "the preference", "inferred": false}}
+  ] or null if no new preferences
+}}"""
 
 
-def process_memory(client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str):
+def process_memory(client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str, hass=None):
     """Analyze conversation and update memory if needed."""
     if action == "ha_service" and len(jane_response) < 30:
         return
@@ -163,6 +170,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
         .replace("{user_name}", user_name)
         .replace("{user_text}", user_text)
         .replace("{jane_response}", jane_response)
+        .replace("{preference_keys}", PREFERENCE_KEY_TAXONOMY)
     )
 
     try:
@@ -215,7 +223,39 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
         if result.get("routines"):
             save_routines(result["routines"])
 
+        # S1.3: Save structured preferences to PG
+        _save_structured_preferences(hass, user_name, result.get("preferences"))
+
         _LOGGER.info("Memory updated for %s", user_name)
 
     except Exception as e:
         _LOGGER.warning("Memory extraction failed: %s", e)
+
+
+def _save_structured_preferences(hass, user_name: str, preferences: list | None):
+    """Save structured preferences to PG via the existing StructuredMemoryStore. Non-fatal."""
+    if not preferences or hass is None:
+        return
+    try:
+        from ..const import DOMAIN
+        from .manager import _schedule_on_pg
+
+        store = hass.data.get(DOMAIN, {}).get("_structured")
+        if store is None:
+            return
+
+        for pref in preferences:
+            if not isinstance(pref, dict):
+                continue
+            person = pref.get("person", user_name)
+            key = pref.get("key", "")
+            value = pref.get("value", "")
+            inferred = pref.get("inferred", False)
+            if key and value:
+                _schedule_on_pg(
+                    lambda p=person, k=key, v=value, i=inferred: store.save_preference(p, k, v, inferred=i),
+                    f"pref {person}/{key}",
+                )
+        _LOGGER.debug("Scheduled %d structured preferences", len(preferences))
+    except Exception as e:
+        _LOGGER.debug("Structured preference save skipped: %s", e)
