@@ -2,7 +2,6 @@
 
 Parses family.md and users/*.md to populate persons, relationships,
 and preferences tables. Uses PREFERENCE_KEY_TAXONOMY for key mapping.
-Single-household migration — relationship parsing assumes Yair as anchor.
 """
 
 import logging
@@ -42,6 +41,7 @@ async def migrate_to_structured(store, file_data: dict) -> int:
     """Migrate pre-read MD content to structured tables. Returns count of items migrated.
 
     file_data: {"family": str, "users": {"name": str, ...}} — read in executor by caller.
+    Primary user inferred from first user in file_data["users"].
     """
     count = 0
 
@@ -51,12 +51,16 @@ async def migrate_to_structured(store, file_data: dict) -> int:
         _LOGGER.debug("Structured tables already populated, skipping migration")
         return 0
 
+    # Infer primary user from users directory
+    users = file_data.get("users", {})
+    primary_user = next(iter(users), "").capitalize() if users else ""
+
     # Migrate family content → persons + relationships
-    if file_data.get("family"):
-        count += await _migrate_family(store, file_data["family"])
+    if file_data.get("family") and primary_user:
+        count += await _migrate_family(store, file_data["family"], primary_user)
 
     # Migrate user content → preferences
-    for user_name, content in file_data.get("users", {}).items():
+    for user_name, content in users.items():
         count += await _migrate_user_preferences(store, user_name, content)
 
     if count:
@@ -64,10 +68,11 @@ async def migrate_to_structured(store, file_data: dict) -> int:
     return count
 
 
-async def _migrate_family(store, content: str) -> int:
+async def _migrate_family(store, content: str, primary_user: str) -> int:
     """Parse family.md and create persons + relationships."""
     count = 0
     lines = content.splitlines()
+    primary_lower = primary_user.lower()
 
     for line in lines:
         line = line.strip()
@@ -118,12 +123,12 @@ async def _migrate_family(store, content: str) -> int:
         await store.save_person(name, role=role, birth_date=birth_date, metadata=metadata or None)
         count += 1
 
-        # Create relationship to Yair if mentioned
-        if "yair" in desc:
-            if "wife" in desc:
-                await store.save_relationship("Yair", name, "spouse")
+        # Create relationship to primary user if mentioned
+        if primary_lower in desc:
+            if "wife" in desc or "husband" in desc:
+                await store.save_relationship(primary_user, name, "spouse")
             elif "son" in desc or "daughter" in desc:
-                await store.save_relationship("Yair", name, "parent_of")
+                await store.save_relationship(primary_user, name, "parent_of")
 
     return count
 
