@@ -123,32 +123,35 @@ def load_all_memory(user_name: str) -> str:
 # Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
 
-async def _safe_backend_save(category: str, content: str, user_name: str | None = None):
-    """Coroutine wrapper with logging — surfaces errors from fire-and-forget saves."""
+def _schedule_on_pg(coro, label: str = ""):
+    """Schedule a coroutine on the HA event loop. Fire-and-forget with logging."""
+    import asyncio
+
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    if pg is None:
+        return
+    hass = getattr(getattr(_backend, "_file", None), "_hass", None)
+    if hass is None:
+        return
+
+    async def _safe():
+        try:
+            await coro
+            _LOGGER.debug("PG OK: %s", label)
+        except Exception as e:
+            _LOGGER.warning("PG failed (%s): %s", label, e)
+
     try:
-        await _backend.save(category, content, user_name)
-        _LOGGER.debug("Backend save OK: %s/%s (%d chars)", category, user_name, len(content))
-    except Exception as e:
-        _LOGGER.warning("Backend save failed for %s/%s: %s", category, user_name, e)
+        asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
+    except Exception:
+        pass
 
 
 def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
-    """Schedule async backend save from executor thread. Fire-and-forget, non-fatal."""
-    import asyncio
-
-    if _backend is None:
-        return
-    # Get hass from backend (FileBackend._hass or DualWriteBackend._file._hass)
-    hass = getattr(_backend, "_hass", None) or getattr(getattr(_backend, "_file", None), "_hass", None)
-    if hass is None:
-        _LOGGER.debug("Backend save skipped — no hass reference for %s/%s", category, user_name)
-        return
-    try:
-        asyncio.run_coroutine_threadsafe(
-            _safe_backend_save(category, content, user_name), hass.loop
-        )
-    except Exception as e:
-        _LOGGER.debug("Backend save scheduling failed for %s/%s: %s", category, user_name, e)
+    """Schedule PG save from executor thread."""
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    if pg:
+        _schedule_on_pg(pg.save(category, content, user_name), f"save {category}/{user_name}")
 
 
 def save_user_memory(user_name: str, content: str):
@@ -236,51 +239,17 @@ def track_response(response: str):
 
 
 def _schedule_backend_track_response(opening: str):
-    """Schedule async PG track_response from sync context."""
-    import asyncio
-
+    """Schedule PG track_response from sync context."""
     pg = getattr(_backend, "_pg", None) if _backend else None
-    if pg is None:
-        return
-    hass = getattr(getattr(_backend, "_file", None), "_hass", None)
-    if hass is None:
-        return
-    try:
-        asyncio.run_coroutine_threadsafe(pg.track_response(opening), hass.loop)
-    except Exception:
-        pass
+    if pg:
+        _schedule_on_pg(pg.track_response(opening), "track_response")
 
-
-# ---------------------------------------------------------------------------
-# Legacy sync append (kept for backward compat, delegates to file directly)
-# ---------------------------------------------------------------------------
 
 def _schedule_backend_append(event_type: str, user_name: str, description: str, metadata: dict | None = None):
-    """Schedule async PG append_event from executor thread. Fire-and-forget, non-fatal.
-
-    Only writes to PG — file write already happened in the sync caller.
-    """
-    import asyncio
-
-    # Only schedule if we have a DualWriteBackend with a PG backend
+    """Schedule PG append_event from executor thread. File write already happened."""
     pg = getattr(_backend, "_pg", None) if _backend else None
-    if pg is None:
-        return
-    hass = getattr(getattr(_backend, "_file", None), "_hass", None)
-    if hass is None:
-        return
-
-    async def _safe():
-        try:
-            await pg.append_event(event_type, user_name, description, metadata)
-            _LOGGER.debug("PG append OK: %s/%s", event_type, user_name)
-        except Exception as e:
-            _LOGGER.warning("PG append failed for %s/%s: %s", event_type, user_name, e)
-
-    try:
-        asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
-    except Exception as e:
-        _LOGGER.debug("PG append scheduling failed: %s", e)
+    if pg:
+        _schedule_on_pg(pg.append_event(event_type, user_name, description, metadata), f"append {event_type}/{user_name}")
 
 
 def append_action(user_name: str, description: str):
