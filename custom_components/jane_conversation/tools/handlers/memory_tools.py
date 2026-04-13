@@ -10,15 +10,15 @@ _LOGGER = logging.getLogger(__name__)
 def _resolve_user_name(hass: HomeAssistant, gemini_name: str) -> str:
     """Resolve user_name to HA person friendly_name to avoid duplicates.
 
-    Gemini may pass 'yair' (English) but the person entity uses 'יאיר' (Hebrew).
-    Match against person entities by checking if the Gemini name appears in the
-    entity_id or friendly_name (case-insensitive).
+    Only needed for the save_memory tool path — Gemini passes names in English
+    (e.g., 'yair') but the person entity uses Hebrew ('יאיר'). The extraction
+    path in conversation.py already resolves via hass.auth.async_get_user().
     """
     gemini_lower = gemini_name.lower().strip()
     for state in hass.states.async_all("person"):
         friendly = state.attributes.get("friendly_name", "")
-        # Match by entity_id (person.yair) or friendly_name contains the name
-        if gemini_lower in state.entity_id.lower() or gemini_lower == friendly.lower():
+        entity_slug = state.entity_id.split(".")[-1]
+        if gemini_lower == entity_slug or gemini_lower == friendly.lower():
             return friendly
     return gemini_name
 
