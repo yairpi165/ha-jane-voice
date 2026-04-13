@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from ..const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART, SYSTEM_PROMPT
 from ..memory import get_recent_responses, load_home
+from ..memory.context_builder import build_memory_context
 from ..tools import execute_tool, get_tools, get_tools_minimal
 from .classifier import classify_request
 from .context import build_context, load_routines_index
@@ -58,6 +59,11 @@ async def think(
         system_parts.append(f"\nHome layout:\n{home_layout}")
     if routines_context:
         system_parts.append(f"\nKnown routines:\n{routines_context}")
+
+    # Inject user memory (preferences, family) from structured store
+    memory_context = await build_memory_context(hass, user_name)
+    if memory_context:
+        system_parts.append(f"\nMemory:\n{memory_context}")
 
     recent = get_recent_responses()
     if recent:
