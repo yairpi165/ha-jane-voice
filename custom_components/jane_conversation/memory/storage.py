@@ -47,8 +47,8 @@ class StorageBackend(ABC):
 class FileBackend(StorageBackend):
     """Current MD file implementation — always available as fallback."""
 
-    def __init__(self, memory_dir: Path, hass=None):
-        self._dir = memory_dir
+    def __init__(self, memory_dir: Path | str, hass=None):
+        self._dir = Path(memory_dir) if not isinstance(memory_dir, Path) else memory_dir
         self._hass = hass
         self._recent_responses: list[str] = []
 
