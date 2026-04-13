@@ -65,6 +65,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
+    # S1.3: Daily preference decay task
+    structured = hass.data.get(DOMAIN, {}).get("_structured")
+    if structured:
+        from datetime import timedelta
+
+        from homeassistant.helpers.event import async_track_time_interval
+
+        async def _decay_task(_now):
+            try:
+                count = await structured.decay_preferences()
+                if count:
+                    _LOGGER.info("Preference decay: %d preferences updated", count)
+            except Exception as e:
+                _LOGGER.debug("Preference decay failed: %s", e)
+
+        unsub_decay = async_track_time_interval(hass, _decay_task, timedelta(hours=24))
+        hass.data[DOMAIN]["_decay_unsub"] = unsub_decay
+
     redis_status = ", Redis working memory" if working_memory else ""
     _LOGGER.info("Jane Voice Assistant loaded (storage: %s%s)", "PostgreSQL" if pg_host else "files", redis_status)
     return True
@@ -240,6 +258,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if redis_unsub:
             redis_unsub()
         domain_data.pop("_working_memory", None)
+        # Stop decay task
+        decay_unsub = domain_data.pop("_decay_unsub", None)
+        if decay_unsub:
+            decay_unsub()
+        domain_data.pop("_structured", None)
         # Close Redis client
         redis_client = domain_data.pop("_redis", None)
         if redis_client:
