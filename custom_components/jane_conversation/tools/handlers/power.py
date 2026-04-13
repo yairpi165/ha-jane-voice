@@ -59,7 +59,12 @@ async def handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: str
         from homeassistant.config_entries import ConfigEntry
 
         from ...const import CONF_GEMINI_API_KEY, DOMAIN
-        entry = next(v for v in hass.data.get(DOMAIN, {}).values() if isinstance(v, ConfigEntry))
+        entry = next(
+            (v for v in hass.data.get(DOMAIN, {}).values() if isinstance(v, ConfigEntry)),
+            None,
+        )
+        if entry is None:
+            return "Web search unavailable: Jane configuration not found."
         client = genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY])
 
         response = await hass.async_add_executor_job(
