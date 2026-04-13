@@ -129,6 +129,15 @@ class TestDecayPreferences:
         assert count == 3
 
     @pytest.mark.asyncio
+    async def test_decay_applies_correct_formula(self, store, mock_pool):
+        _, conn = mock_pool
+        conn.execute.return_value = "UPDATE 0"
+        await store.decay_preferences()
+        sql = conn.execute.call_args[0][0]
+        assert "confidence - 0.05" in sql
+        assert "1.0 -" not in sql  # guard against the reset formula
+
+    @pytest.mark.asyncio
     async def test_decay_sql_filters_inferred_and_old(self, store, mock_pool):
         _, conn = mock_pool
         conn.execute.return_value = "UPDATE 0"

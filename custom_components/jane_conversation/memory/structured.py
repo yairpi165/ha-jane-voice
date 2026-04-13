@@ -94,12 +94,11 @@ class StructuredMemoryStore:
             )
 
     async def decay_preferences(self) -> int:
-        """Decay inferred preferences not reinforced in 7+ days. Returns count updated."""
+        """Decay inferred preferences not reinforced in 7+ days. Subtract 0.05 per run (daily)."""
         async with self._pool.acquire() as conn:
             result = await conn.execute(
                 """UPDATE preferences
-                   SET confidence = GREATEST(0.0,
-                       1.0 - 0.05 * EXTRACT(EPOCH FROM NOW() - last_reinforced) / 86400),
+                   SET confidence = GREATEST(0.0, confidence - 0.05),
                        updated_at = NOW()
                    WHERE inferred = TRUE
                      AND confidence > 0.0
@@ -122,7 +121,11 @@ class StructuredMemoryStore:
         birth_date=None,
         metadata: dict | None = None,
     ) -> None:
-        """Upsert a person."""
+        """Upsert a person.
+
+        Note: metadata merge uses jsonb || (shallow merge).
+        Calling save_person with overlapping keys will overwrite, not append.
+        """
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO persons (name, role, birth_date, metadata)
