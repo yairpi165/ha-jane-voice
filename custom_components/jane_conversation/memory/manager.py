@@ -123,8 +123,8 @@ def load_all_memory(user_name: str) -> str:
 # Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
 
-def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
-    """Schedule PG save from executor thread. File already written by caller."""
+def _schedule_on_pg(coro_factory, label: str = ""):
+    """Schedule a PG coroutine from executor thread. Pass a zero-arg callable, not a coroutine."""
     import asyncio
 
     pg = getattr(_backend, "_pg", None) if _backend else None
@@ -134,15 +134,22 @@ def _schedule_backend_save(category: str, content: str, user_name: str | None = 
 
     async def _safe():
         try:
-            await pg.save(category, content, user_name)
-            _LOGGER.debug("PG save OK: %s/%s (%d chars)", category, user_name, len(content))
+            await coro_factory()
+            _LOGGER.debug("PG OK: %s", label)
         except Exception as e:
-            _LOGGER.warning("PG save failed for %s/%s: %s", category, user_name, e)
+            _LOGGER.warning("PG failed (%s): %s", label, e)
 
     try:
         asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
-    except Exception:
-        pass
+    except Exception as e:
+        _LOGGER.debug("PG scheduling failed (%s): %s", label, e)
+
+
+def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
+    """Schedule PG save from executor thread. File already written by caller."""
+    pg = getattr(_backend, "_pg", None) if _backend else None
+    if pg:
+        _schedule_on_pg(lambda: pg.save(category, content, user_name), f"save {category}/{user_name}")
 
 
 def save_user_memory(user_name: str, content: str):
@@ -229,24 +236,12 @@ def track_response(response: str):
 
 def schedule_pg_append(event_type: str, user_name: str, description: str, metadata: dict | None = None):
     """Schedule PG append_event from executor thread."""
-    import asyncio
-
     pg = getattr(_backend, "_pg", None) if _backend else None
-    hass = getattr(getattr(_backend, "_file", None), "_hass", None) if _backend else None
-    if not pg or not hass:
-        return
-
-    async def _safe():
-        try:
-            await pg.append_event(event_type, user_name, description, metadata)
-            _LOGGER.debug("PG append OK: %s/%s", event_type, user_name)
-        except Exception as e:
-            _LOGGER.warning("PG append failed for %s/%s: %s", event_type, user_name, e)
-
-    try:
-        asyncio.run_coroutine_threadsafe(_safe(), hass.loop)
-    except Exception:
-        pass
+    if pg:
+        _schedule_on_pg(
+            lambda: pg.append_event(event_type, user_name, description, metadata),
+            f"append {event_type}/{user_name}",
+        )
 
 
 # ---------------------------------------------------------------------------
