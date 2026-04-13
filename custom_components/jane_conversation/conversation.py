@@ -94,6 +94,7 @@ class JaneConversationEntity(ConversationEntity):
 
         # Think with tool calling
         client = await self._get_client()
+        self.hass.data.setdefault(DOMAIN, {})["_gemini_client"] = client
         working_memory = self.hass.data.get(DOMAIN, {}).get("_working_memory")
         response_text = await think(
             client,

@@ -52,23 +52,16 @@ async def handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: str
         return "No search query provided."
 
     try:
-        from google import genai
         from google.genai import types
 
-        # Get Gemini client from hass data
-        from homeassistant.config_entries import ConfigEntry
+        from ...const import DOMAIN
 
-        from ...const import CONF_GEMINI_API_KEY, DOMAIN
-        entry = next(
-            (v for v in hass.data.get(DOMAIN, {}).values() if isinstance(v, ConfigEntry)),
-            None,
-        )
-        if entry is None:
-            return "Web search unavailable: Jane configuration not found."
-        api_key = entry.data[CONF_GEMINI_API_KEY]
+        client = hass.data.get(DOMAIN, {}).get("_gemini_client")
+        if client is None:
+            return "Web search unavailable: Gemini client not initialized."
 
         response = await hass.async_add_executor_job(
-            lambda: genai.Client(api_key=api_key).models.generate_content(
+            lambda: client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=query,
                 config=types.GenerateContentConfig(
