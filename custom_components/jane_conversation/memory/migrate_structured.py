@@ -2,7 +2,7 @@
 
 Parses family.md and users/*.md to populate persons, relationships,
 and preferences tables. Uses PREFERENCE_KEY_TAXONOMY for key mapping.
-Runs on startup if persons table is empty.
+Single-household migration — relationship parsing assumes Yair as anchor.
 """
 
 import logging
@@ -35,7 +35,6 @@ _PREFERENCE_MAP = {
     "run": "morning_routine",
     "screen time": "screen_time_rules",
     "tami4": "tami4_reminder_preference",
-    "reminders": "tami4_reminder_preference",
 }
 
 
@@ -46,10 +45,10 @@ async def migrate_to_structured(store, file_data: dict) -> int:
     """
     count = 0
 
-    # Check if already migrated
-    persons = await store.load_persons()
-    if persons:
-        _LOGGER.debug("Structured tables already populated (%d persons), skipping migration", len(persons))
+    # Check if already migrated — use preferences (survives persons table clear)
+    existing = await store.load_all_preferences(min_confidence=0.0)
+    if existing:
+        _LOGGER.debug("Structured tables already populated, skipping migration")
         return 0
 
     # Migrate family content → persons + relationships
