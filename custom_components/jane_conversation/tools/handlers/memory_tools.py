@@ -18,7 +18,7 @@ def _resolve_user_name(hass: HomeAssistant, gemini_name: str) -> str:
     for state in hass.states.async_all("person"):
         friendly = state.attributes.get("friendly_name", "")
         entity_slug = state.entity_id.split(".")[-1]
-        if gemini_lower == entity_slug or gemini_lower == friendly.lower():
+        if gemini_lower == entity_slug or entity_slug.startswith(gemini_lower + "_") or gemini_lower == friendly.lower():
             return friendly
     return gemini_name
 

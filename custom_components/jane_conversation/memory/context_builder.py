@@ -47,7 +47,13 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
             if p.get("role"):
                 parts.append(f"({p['role']})")
             meta = p.get("metadata") or {}
-            if meta:
+            if isinstance(meta, str):
+                import json
+                try:
+                    meta = json.loads(meta)
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
+            if meta and isinstance(meta, dict):
                 details = ", ".join(f"{k}: {v}" for k, v in meta.items() if v)
                 if details:
                     parts.append(f"— {details}")
