@@ -65,10 +65,10 @@ async def handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: str
         )
         if entry is None:
             return "Web search unavailable: Jane configuration not found."
-        client = genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY])
+        api_key = entry.data[CONF_GEMINI_API_KEY]
 
         response = await hass.async_add_executor_job(
-            lambda: client.models.generate_content(
+            lambda: genai.Client(api_key=api_key).models.generate_content(
                 model="gemini-2.5-flash",
                 contents=query,
                 config=types.GenerateContentConfig(
