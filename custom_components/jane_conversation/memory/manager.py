@@ -10,6 +10,9 @@ _LOGGER = logging.getLogger(__name__)
 # Active storage backend (set by init_memory)
 _backend: StorageBackend | None = None
 
+# HA instance (for scheduling async saves from executor threads)
+_hass = None
+
 # Memory directory (kept for extraction.py and legacy access)
 _memory_dir: Path | None = None
 
@@ -26,9 +29,10 @@ def get_backend() -> StorageBackend:
 
 def init_memory(config_dir: str, hass=None, backend: StorageBackend | None = None):
     """Initialize memory system."""
-    global _memory_dir, _backend
+    global _memory_dir, _backend, _hass
     _memory_dir = Path(config_dir) / "jane_memory"
     (_memory_dir / "users").mkdir(parents=True, exist_ok=True)
+    _hass = hass
 
     if backend is not None:
         _backend = backend
@@ -123,25 +127,46 @@ def load_all_memory(user_name: str) -> str:
 # Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
 
+def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
+    """Schedule async backend save from executor thread. Fire-and-forget, non-fatal."""
+    import asyncio
+
+    if _hass is None or _backend is None:
+        return
+    try:
+        loop = _hass.loop
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                _backend.save(category, content, user_name), loop
+            )
+    except Exception:
+        pass  # Non-fatal — file write already succeeded
+
+
 def save_user_memory(user_name: str, content: str):
     name = user_name.lower().strip()
     _write(get_memory_dir() / "users" / f"{name}.md", content, f"users_{name}")
+    _schedule_backend_save("user", content, name)
 
 
 def save_family_memory(content: str):
     _write(get_memory_dir() / "family.md", content, "family")
+    _schedule_backend_save("family", content)
 
 
 def save_habits_memory(content: str):
     _write(get_memory_dir() / "habits.md", content, "habits")
+    _schedule_backend_save("habits", content)
 
 
 def save_corrections(content: str):
     _write(get_memory_dir() / "corrections.md", content, "corrections")
+    _schedule_backend_save("corrections", content)
 
 
 def save_routines(content: str):
     _write(get_memory_dir() / "routines.md", content, "routines")
+    _schedule_backend_save("routines", content)
 
 
 # ---------------------------------------------------------------------------
