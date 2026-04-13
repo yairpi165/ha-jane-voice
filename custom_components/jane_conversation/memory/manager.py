@@ -123,6 +123,15 @@ def load_all_memory(user_name: str) -> str:
 # Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
 
+async def _safe_backend_save(category: str, content: str, user_name: str | None = None):
+    """Coroutine wrapper with logging — surfaces errors from fire-and-forget saves."""
+    try:
+        await _backend.save(category, content, user_name)
+        _LOGGER.debug("Backend save OK: %s/%s (%d chars)", category, user_name, len(content))
+    except Exception as e:
+        _LOGGER.warning("Backend save failed for %s/%s: %s", category, user_name, e)
+
+
 def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
     """Schedule async backend save from executor thread. Fire-and-forget, non-fatal."""
     import asyncio
@@ -132,13 +141,14 @@ def _schedule_backend_save(category: str, content: str, user_name: str | None = 
     # Get hass from backend (FileBackend._hass or DualWriteBackend._file._hass)
     hass = getattr(_backend, "_hass", None) or getattr(getattr(_backend, "_file", None), "_hass", None)
     if hass is None:
+        _LOGGER.debug("Backend save skipped — no hass reference for %s/%s", category, user_name)
         return
     try:
         asyncio.run_coroutine_threadsafe(
-            _backend.save(category, content, user_name), hass.loop
+            _safe_backend_save(category, content, user_name), hass.loop
         )
     except Exception as e:
-        _LOGGER.debug("Backend save skipped for %s/%s: %s", category, user_name, e)
+        _LOGGER.debug("Backend save scheduling failed for %s/%s: %s", category, user_name, e)
 
 
 def save_user_memory(user_name: str, content: str):
