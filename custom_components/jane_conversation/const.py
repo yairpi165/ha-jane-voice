@@ -36,6 +36,14 @@ WHISPER_HALLUCINATIONS = {
     "",
 }
 
+PREFERENCE_KEY_TAXONOMY = """Known preference keys — use EXACTLY these:
+  default_tv, morning_greeting_style, goodnight_style, emoji_preference,
+  action_style, tool_usage_policy, explanation_preference,
+  football_teams, food_preferences, entertainment_interests,
+  music_taste, hobbies, morning_routine, bedtime_routine,
+  screen_time_rules, tami4_reminder_preference
+If no known key fits, use: note_<short_slug>"""
+
 SYSTEM_PROMPT = """You are Jane — a warm, curious AI who lives in this family's smart home.
 You are part of the family. You know them, care about them, and enjoy talking with them.
 

@@ -38,6 +38,43 @@ CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_name);
 
+-- S1.3: Semantic Memory — Household Graph
+CREATE TABLE IF NOT EXISTS persons (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    role VARCHAR(50),
+    birth_date DATE,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS relationships (
+    id SERIAL PRIMARY KEY,
+    person_a_id INT REFERENCES persons(id) ON DELETE CASCADE,
+    person_b_id INT REFERENCES persons(id) ON DELETE CASCADE,
+    relation VARCHAR(50) NOT NULL,
+    UNIQUE(person_a_id, person_b_id, relation)
+);
+
+-- S1.3: Preference Memory
+CREATE TABLE IF NOT EXISTS preferences (
+    id SERIAL PRIMARY KEY,
+    person_name VARCHAR(100) NOT NULL,
+    key VARCHAR(200) NOT NULL,
+    value TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    inferred BOOLEAN DEFAULT FALSE,
+    source VARCHAR(50) DEFAULT 'extraction',
+    last_reinforced TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(person_name, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_preferences_person ON preferences(person_name);
+CREATE INDEX IF NOT EXISTS idx_preferences_confidence ON preferences(confidence) WHERE confidence > 0.3;
+
 -- Anti-repetition tracking (replaces in-memory list)
 CREATE TABLE IF NOT EXISTS response_tracking (
     id SERIAL PRIMARY KEY,
