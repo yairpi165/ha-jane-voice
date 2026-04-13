@@ -7,6 +7,22 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 
+def _resolve_user_name(hass: HomeAssistant, gemini_name: str) -> str:
+    """Resolve user_name to HA person friendly_name to avoid duplicates.
+
+    Only needed for the save_memory tool path — Gemini passes names in English
+    (e.g., 'yair') but the person entity uses Hebrew ('יאיר'). The extraction
+    path in conversation.py already resolves via hass.auth.async_get_user().
+    """
+    gemini_lower = gemini_name.lower().strip()
+    for state in hass.states.async_all("person"):
+        friendly = state.attributes.get("friendly_name", "")
+        entity_slug = state.entity_id.split(".")[-1]
+        if gemini_lower == entity_slug or gemini_lower == friendly.lower():
+            return friendly
+    return gemini_name
+
+
 async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
     """Explicitly save to Jane's memory."""
     from ...memory import (
@@ -26,7 +42,7 @@ async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
 
     category = args.get("category", "")
     content = args.get("content", "")
-    user_name = args.get("user_name", "default")
+    user_name = _resolve_user_name(hass, args.get("user_name", "default"))
 
     if not content:
         return "Error: content is required."
