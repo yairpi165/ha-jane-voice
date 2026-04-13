@@ -10,9 +10,6 @@ _LOGGER = logging.getLogger(__name__)
 # Active storage backend (set by init_memory)
 _backend: StorageBackend | None = None
 
-# HA instance (for scheduling async saves from executor threads)
-_hass = None
-
 # Memory directory (kept for extraction.py and legacy access)
 _memory_dir: Path | None = None
 
@@ -29,10 +26,9 @@ def get_backend() -> StorageBackend:
 
 def init_memory(config_dir: str, hass=None, backend: StorageBackend | None = None):
     """Initialize memory system."""
-    global _memory_dir, _backend, _hass
+    global _memory_dir, _backend
     _memory_dir = Path(config_dir) / "jane_memory"
     (_memory_dir / "users").mkdir(parents=True, exist_ok=True)
-    _hass = hass
 
     if backend is not None:
         _backend = backend
@@ -131,16 +127,18 @@ def _schedule_backend_save(category: str, content: str, user_name: str | None = 
     """Schedule async backend save from executor thread. Fire-and-forget, non-fatal."""
     import asyncio
 
-    if _hass is None or _backend is None:
+    if _backend is None:
+        return
+    # Get hass from backend (FileBackend._hass or DualWriteBackend._file._hass)
+    hass = getattr(_backend, "_hass", None) or getattr(getattr(_backend, "_file", None), "_hass", None)
+    if hass is None:
         return
     try:
-        loop = _hass.loop
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(
-                _backend.save(category, content, user_name), loop
-            )
-    except Exception:
-        pass  # Non-fatal — file write already succeeded
+        asyncio.run_coroutine_threadsafe(
+            _backend.save(category, content, user_name), hass.loop
+        )
+    except Exception as e:
+        _LOGGER.debug("Backend save skipped for %s/%s: %s", category, user_name, e)
 
 
 def save_user_memory(user_name: str, content: str):
