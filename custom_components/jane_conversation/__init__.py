@@ -163,7 +163,20 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
         # Initialize structured memory store (S1.3)
         from .memory.structured import StructuredMemoryStore
 
-        hass.data[DOMAIN]["_structured"] = StructuredMemoryStore(pool)
+        structured = StructuredMemoryStore(pool)
+        hass.data[DOMAIN]["_structured"] = structured
+
+        # Auto-migrate MD → structured tables on first connect
+        from pathlib import Path as _Path
+
+        from .memory.migrate_structured import migrate_to_structured
+
+        memory_dir = _Path(hass.config.config_dir) / "jane_memory"
+
+        # Read files in executor (sync I/O), then run async PG migration
+        file_data = await hass.async_add_executor_job(_read_migration_files, memory_dir)
+        if file_data:
+            await migrate_to_structured(structured, file_data)
 
         return backend
 
@@ -240,6 +253,18 @@ async def _auto_migrate(pool, hass: HomeAssistant) -> None:
 
     except Exception as e:
         _LOGGER.warning("Auto-migration failed (non-fatal, files still work): %s", e)
+
+
+def _read_migration_files(memory_dir) -> dict | None:
+    """Read MD files for structured migration (sync, runs in executor)."""
+    result = {}
+    family = memory_dir / "family.md"
+    if family.exists():
+        result["family"] = family.read_text(encoding="utf-8")
+    users = memory_dir / "users"
+    if users.exists():
+        result["users"] = {f.stem: f.read_text(encoding="utf-8") for f in users.glob("*.md")}
+    return result or None
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
