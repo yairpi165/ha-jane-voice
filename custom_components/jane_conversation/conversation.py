@@ -131,7 +131,7 @@ class JaneConversationEntity(ConversationEntity):
         # Memory extraction in background
         silent = any(p in user_text for p in ["אל תזכרי", "אל תזכור", "מצב שקט"])
         if not silent:
-            self.hass.async_add_executor_job(process_memory, client, user_name, user_text, response_text, "tool")
+            self.hass.async_add_executor_job(process_memory, client, user_name, user_text, response_text, "tool", self.hass)
 
         # Return response for TTS
         response = intent.IntentResponse(language=user_input.language or "he")

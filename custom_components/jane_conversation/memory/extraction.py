@@ -152,12 +152,12 @@ Respond in JSON only:
   "corrections": "Correction text if user corrected Jane, or null",
   "routines": "Full rewritten routines, or null",
   "preferences": [
-    {{"person": "name", "key": "known_key", "value": "the preference", "inferred": false}},
-  ] or empty array if no new preferences
+    {{"person": "name", "key": "known_key", "value": "the preference", "inferred": false}}
+  ] or null if no new preferences
 }}"""
 
 
-def process_memory(client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str):
+def process_memory(client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str, hass=None):
     """Analyze conversation and update memory if needed."""
     if action == "ha_service" and len(jane_response) < 30:
         return
@@ -224,7 +224,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
             save_routines(result["routines"])
 
         # S1.3: Save structured preferences to PG
-        _save_structured_preferences(user_name, result.get("preferences", []))
+        _save_structured_preferences(hass, user_name, result.get("preferences"))
 
         _LOGGER.info("Memory updated for %s", user_name)
 
@@ -232,22 +232,18 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
         _LOGGER.warning("Memory extraction failed: %s", e)
 
 
-def _save_structured_preferences(user_name: str, preferences: list):
-    """Save structured preferences to PG via StructuredMemoryStore. Non-fatal."""
-    if not preferences:
+def _save_structured_preferences(hass, user_name: str, preferences: list | None):
+    """Save structured preferences to PG via the existing StructuredMemoryStore. Non-fatal."""
+    if not preferences or hass is None:
         return
     try:
-        from .manager import _backend, _schedule_on_pg
-        from .structured import StructuredMemoryStore
+        from ..const import DOMAIN
+        from .manager import _schedule_on_pg
 
-        pg = getattr(_backend, "_pg", None) if _backend else None
-        if pg is None:
-            return
-        pool = getattr(pg, "_pool", None)
-        if pool is None:
+        store = hass.data.get(DOMAIN, {}).get("_structured")
+        if store is None:
             return
 
-        store = StructuredMemoryStore(pool)
         for pref in preferences:
             if not isinstance(pref, dict):
                 continue
