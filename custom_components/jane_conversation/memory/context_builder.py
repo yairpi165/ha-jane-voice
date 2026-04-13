@@ -54,12 +54,11 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
             lines.append(f"- {' '.join(parts)}")
         lines.append("")
 
-    # Per-person preferences
+    # Per-person preferences (_MAX_LINES is a soft cap — may exceed by 1 due to spacer lines)
     for person_name, prefs in all_prefs.items():
         if person_name == "_family":
             continue  # handled separately
-        label = f"{person_name}'s Preferences" if person_name != user_name else "Your Preferences"
-        lines.append(f"## {label}")
+        lines.append(f"## {person_name}'s Preferences")
         for pref in prefs:
             line = f"- {pref['key'].replace('_', ' ').title()}: {pref['value']}"
             if pref.get("inferred"):
