@@ -142,6 +142,11 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
         # Auto-migrate MD files on first PG connect
         await _auto_migrate(pool, hass)
 
+        # Initialize structured memory store (S1.3)
+        from .memory.structured import StructuredMemoryStore
+
+        hass.data[DOMAIN]["_structured"] = StructuredMemoryStore(pool)
+
         return backend
 
     except Exception as e:
