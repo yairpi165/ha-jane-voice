@@ -123,25 +123,48 @@ def load_all_memory(user_name: str) -> str:
 # Sync save functions (called from extraction.py in executor)
 # ---------------------------------------------------------------------------
 
+def _schedule_backend_save(category: str, content: str, user_name: str | None = None):
+    """Schedule async backend save from executor thread. Fire-and-forget, non-fatal."""
+    import asyncio
+
+    if _backend is None:
+        return
+    # Get hass from backend (FileBackend._hass or DualWriteBackend._file._hass)
+    hass = getattr(_backend, "_hass", None) or getattr(getattr(_backend, "_file", None), "_hass", None)
+    if hass is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _backend.save(category, content, user_name), hass.loop
+        )
+    except Exception as e:
+        _LOGGER.debug("Backend save skipped for %s/%s: %s", category, user_name, e)
+
+
 def save_user_memory(user_name: str, content: str):
     name = user_name.lower().strip()
     _write(get_memory_dir() / "users" / f"{name}.md", content, f"users_{name}")
+    _schedule_backend_save("user", content, name)
 
 
 def save_family_memory(content: str):
     _write(get_memory_dir() / "family.md", content, "family")
+    _schedule_backend_save("family", content)
 
 
 def save_habits_memory(content: str):
     _write(get_memory_dir() / "habits.md", content, "habits")
+    _schedule_backend_save("habits", content)
 
 
 def save_corrections(content: str):
     _write(get_memory_dir() / "corrections.md", content, "corrections")
+    _schedule_backend_save("corrections", content)
 
 
 def save_routines(content: str):
     _write(get_memory_dir() / "routines.md", content, "routines")
+    _schedule_backend_save("routines", content)
 
 
 # ---------------------------------------------------------------------------
