@@ -181,11 +181,35 @@ def _call_gemini(
     messages: list,
     config: types.GenerateContentConfig,
 ) -> object:
-    """Synchronous Gemini call (runs in executor)."""
+    """Synchronous Gemini call (runs in executor) with retry + fallback."""
+    import time
+
+    from ..const import GEMINI_MODEL_FAST
+
+    try:
+        return client.models.generate_content(
+            model=model, contents=messages, config=config,
+        )
+    except Exception as e:
+        if "503" not in str(e) and "429" not in str(e) and "UNAVAILABLE" not in str(e):
+            raise
+        _LOGGER.warning("Gemini %s unavailable, retrying in 3s: %s", model, e)
+
+    time.sleep(3)  # Blocking sleep OK — runs in executor thread
+    try:
+        return client.models.generate_content(
+            model=model, contents=messages, config=config,
+        )
+    except Exception as e:
+        if model == GEMINI_MODEL_FAST:
+            raise  # Flash failed too, nothing to fall back to
+        if "503" not in str(e) and "429" not in str(e) and "UNAVAILABLE" not in str(e):
+            raise
+        _LOGGER.warning("Gemini %s retry failed, falling back to Flash: %s", model, e)
+
+    # Fallback to Flash
     return client.models.generate_content(
-        model=model,
-        contents=messages,
-        config=config,
+        model=GEMINI_MODEL_FAST, contents=messages, config=config,
     )
 
 
