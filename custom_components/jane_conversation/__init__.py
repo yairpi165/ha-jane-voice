@@ -83,6 +83,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsub_decay = async_track_time_interval(hass, _decay_task, timedelta(hours=24))
         hass.data[DOMAIN]["_decay_unsub"] = unsub_decay
 
+    # S1.4: Consolidation periodic tasks
+    episodic = hass.data.get(DOMAIN, {}).get("_episodic")
+    if episodic:
+        from datetime import timedelta
+
+        from homeassistant.helpers.event import async_track_time_interval
+
+        from .memory.consolidation import ConsolidationWorker
+
+        worker = ConsolidationWorker(episodic, hass)
+        hass.data[DOMAIN]["_consolidation"] = worker
+
+        async def _consolidation_task(_now):
+            try:
+                count = await worker.consolidate_events()
+                if count:
+                    _LOGGER.info("Consolidation: %d episodes created", count)
+            except Exception as e:
+                _LOGGER.debug("Consolidation failed: %s", e)
+
+        async def _daily_summary_task(_now):
+            try:
+                created = await worker.generate_daily_summary()
+                if created:
+                    _LOGGER.info("Daily summary created")
+            except Exception as e:
+                _LOGGER.debug("Daily summary failed: %s", e)
+
+        unsub_cons = async_track_time_interval(hass, _consolidation_task, timedelta(hours=6))
+        unsub_daily = async_track_time_interval(hass, _daily_summary_task, timedelta(hours=24))
+        hass.data[DOMAIN]["_consolidation_unsub"] = unsub_cons
+        hass.data[DOMAIN]["_daily_unsub"] = unsub_daily
+
     redis_status = ", Redis working memory" if working_memory else ""
     _LOGGER.info("Jane Voice Assistant loaded (storage: %s%s)", "PostgreSQL" if pg_host else "files", redis_status)
     return True
@@ -297,6 +330,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             decay_unsub()
         domain_data.pop("_structured", None)
         domain_data.pop("_episodic", None)
+        domain_data.pop("_consolidation", None)
+        # Stop consolidation tasks
+        cons_unsub = domain_data.pop("_consolidation_unsub", None)
+        if cons_unsub:
+            cons_unsub()
+        daily_unsub = domain_data.pop("_daily_unsub", None)
+        if daily_unsub:
+            daily_unsub()
         # Close Redis client
         redis_client = domain_data.pop("_redis", None)
         if redis_client:

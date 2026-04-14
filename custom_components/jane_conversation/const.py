@@ -19,6 +19,11 @@ DEFAULT_REDIS_PORT = 6379
 GEMINI_MODEL_FAST = "gemini-2.5-flash"
 GEMINI_MODEL_SMART = "gemini-2.5-pro"
 
+# S1.4: Episodic Memory — consolidation constants
+CONSOLIDATION_INTERVAL_HOURS = 6
+EPISODE_GAP_MINUTES = 10
+EPISODE_MAX_DURATION_MINUTES = 90
+
 # Common Whisper hallucinations — phantom phrases generated from silence/noise.
 # These are phrases Whisper invents when it gets silence or background noise.
 WHISPER_HALLUCINATIONS = {
