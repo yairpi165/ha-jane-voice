@@ -111,10 +111,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as e:
                 _LOGGER.debug("Daily summary failed: %s", e)
 
+        async def _cleanup_task(_now):
+            try:
+                counts = await episodic.cleanup_old_data()
+                if any(counts.values()):
+                    _LOGGER.info("Episodic cleanup: %s", counts)
+            except Exception as e:
+                _LOGGER.debug("Episodic cleanup failed: %s", e)
+
         unsub_cons = async_track_time_interval(hass, _consolidation_task, timedelta(hours=6))
         unsub_daily = async_track_time_interval(hass, _daily_summary_task, timedelta(hours=24))
+        unsub_cleanup = async_track_time_interval(hass, _cleanup_task, timedelta(hours=24))
         hass.data[DOMAIN]["_consolidation_unsub"] = unsub_cons
         hass.data[DOMAIN]["_daily_unsub"] = unsub_daily
+        hass.data[DOMAIN]["_cleanup_unsub"] = unsub_cleanup
 
     redis_status = ", Redis working memory" if working_memory else ""
     _LOGGER.info("Jane Voice Assistant loaded (storage: %s%s)", "PostgreSQL" if pg_host else "files", redis_status)
@@ -332,12 +342,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data.pop("_episodic", None)
         domain_data.pop("_consolidation", None)
         # Stop consolidation tasks
-        cons_unsub = domain_data.pop("_consolidation_unsub", None)
-        if cons_unsub:
-            cons_unsub()
-        daily_unsub = domain_data.pop("_daily_unsub", None)
-        if daily_unsub:
-            daily_unsub()
+        for key in ("_consolidation_unsub", "_daily_unsub", "_cleanup_unsub"):
+            unsub = domain_data.pop(key, None)
+            if unsub:
+                unsub()
         # Close Redis client
         redis_client = domain_data.pop("_redis", None)
         if redis_client:
