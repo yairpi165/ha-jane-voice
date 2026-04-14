@@ -270,31 +270,20 @@ def _template_summary(cluster: list[dict]) -> dict | None:
     """Generate a template-based episode summary (no LLM call)."""
     if not cluster:
         return None
-
     descriptions = [e["description"] for e in cluster if e.get("description")]
     if not descriptions:
         return None
 
-    # Detect episode type from event content
     episode_type = "activity"
     desc_text = " ".join(descriptions).lower()
     if any(w in desc_text for w in ["home", "not_home", "הביתה"]):
         episode_type = "arrival" if "home" in desc_text and "not_home" not in desc_text else "departure"
-
-    has_conversation = any(e.get("event_type") == "conversation" for e in cluster)
-    if has_conversation and len(cluster) <= 3:
+    if any(e.get("event_type") == "conversation" for e in cluster) and len(cluster) <= 3:
         episode_type = "conversation"
 
-    # Build title from first event
     first = descriptions[0]
     title = first if len(first) <= 60 else first[:57] + "..."
-
-    # Build summary
-    if len(descriptions) <= 3:
-        summary = "; ".join(descriptions)
-    else:
-        summary = f"{descriptions[0]}; ועוד {len(descriptions) - 1} אירועים"
-
+    summary = "; ".join(descriptions) if len(descriptions) <= 3 else f"{first}; ועוד {len(descriptions) - 1} אירועים"
     return {"title": title, "summary": summary, "episode_type": episode_type}
 
 
@@ -302,9 +291,5 @@ def _template_daily_summary(episodes: list[dict], event_count: int) -> str:
     """Generate a template-based daily summary (no LLM)."""
     if not episodes:
         return f"יום שקט — {event_count} אירועי מערכת, ללא אפיזודות משמעותיות."
-
-    titles = [ep.get("title", "") for ep in episodes[:5]]
-    parts = [f"{event_count} אירועים, {len(episodes)} אפיזודות"]
-    if titles:
-        parts.append(": " + ", ".join(titles))
-    return "".join(parts)
+    titles = ", ".join(ep.get("title", "") for ep in episodes[:5])
+    return f"{event_count} אירועים, {len(episodes)} אפיזודות: {titles}"
