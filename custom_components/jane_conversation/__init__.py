@@ -103,7 +103,7 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
         from .memory.consolidation import ConsolidationWorker
 
         worker = ConsolidationWorker(jane.episodic, hass)
-        jane.consolidation = worker
+        jane.consolidation = worker  # Set here (not in _create_pg_backend) — needs episodic + hass
 
         async def _consolidation_task(_now):
             try:

@@ -37,7 +37,7 @@ class TestSaveRoutine:
         sql = conn.execute.call_args[0][0]
         assert "INSERT INTO routines" in sql
         assert "ON CONFLICT (name) DO UPDATE" in sql
-        assert "occurrence_count = routines.occurrence_count + 1" in sql
+        assert "occurrence_count" not in sql  # Only increment_occurrence bumps count
 
     @pytest.mark.asyncio
     async def test_passes_correct_params(self, store, mock_pool):

@@ -34,8 +34,6 @@ class RoutineStore:
                        steps = EXCLUDED.steps,
                        script_id = COALESCE(EXCLUDED.script_id, routines.script_id),
                        confidence = GREATEST(routines.confidence, EXCLUDED.confidence),
-                       occurrence_count = routines.occurrence_count + 1,
-                       last_used = NOW(),
                        updated_at = NOW()""",
                 name,
                 trigger_phrase,
