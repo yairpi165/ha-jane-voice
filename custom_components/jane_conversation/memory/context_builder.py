@@ -21,7 +21,7 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
     Falls back to load_all_memory() markdown if structured store unavailable.
     """
     try:
-        store = hass.data.get(DOMAIN, {}).get("_structured")
+        store = getattr(hass.data.get(DOMAIN), "structured", None)
     except (AttributeError, TypeError):
         store = None
     if store is None:
@@ -101,7 +101,7 @@ async def build_episodic_context(hass: HomeAssistant, hours: int = 12) -> str:
     Hard limit: _MAX_EPISODIC_CHARS (~200 tokens). Priority: daily summary first.
     """
     try:
-        episodic = hass.data.get(DOMAIN, {}).get("_episodic")
+        episodic = getattr(hass.data.get(DOMAIN), "episodic", None)
     except (AttributeError, TypeError):
         episodic = None
     if episodic is None:

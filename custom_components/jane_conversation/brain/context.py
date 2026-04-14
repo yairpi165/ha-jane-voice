@@ -10,8 +10,22 @@ from ..memory import get_memory_dir
 _LOGGER = logging.getLogger(__name__)
 
 
-def load_routines_index() -> str:
-    """Load routines memory for context injection — zero-cost cache hits."""
+async def load_routines_index(hass: HomeAssistant) -> str:
+    """Load routines — from PG RoutineStore if available, else routines.md fallback."""
+    from ..const import DOMAIN
+
+    routine_store = getattr(hass.data.get(DOMAIN), "routines", None)
+    if routine_store:
+        try:
+            return await routine_store.load_routines_for_context()
+        except Exception:
+            _LOGGER.debug("RoutineStore unavailable, falling back to MD")
+
+    return await hass.async_add_executor_job(_load_routines_md)
+
+
+def _load_routines_md() -> str:
+    """Load routines.md (sync, fallback)."""
     mem_dir = get_memory_dir()
     if not mem_dir:
         return ""

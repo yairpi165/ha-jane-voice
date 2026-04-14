@@ -48,7 +48,7 @@ async def think(
     # Build context
     home_context = await build_context(hass, working_memory)
     home_layout = await hass.async_add_executor_job(load_home)
-    routines_context = await hass.async_add_executor_job(load_routines_index)
+    routines_context = await load_routines_index(hass)
 
     # Build system instruction
     now = datetime.now().strftime("%A %H:%M")

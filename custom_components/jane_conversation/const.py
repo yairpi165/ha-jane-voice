@@ -1,4 +1,35 @@
+from dataclasses import dataclass, field
+
 DOMAIN = "jane_conversation"
+
+
+@dataclass
+class JaneData:
+    """Typed container for Jane's runtime state in hass.data[DOMAIN]."""
+
+    entry: object = None
+    pg_pool: object = None
+    redis: object = None
+    working_memory: object = None
+    gemini_client: object = None
+    structured: object = None
+    episodic: object = None
+    consolidation: object = None
+    routines: object = None
+    policies: object = None
+    # Unsubscribe callables for periodic tasks
+    _unsubs: list = field(default_factory=list)
+
+    def add_unsub(self, unsub):
+        """Register an unsubscribe callable for cleanup."""
+        self._unsubs.append(unsub)
+
+    def cancel_all(self):
+        """Cancel all registered periodic tasks."""
+        for unsub in self._unsubs:
+            if unsub:
+                unsub()
+        self._unsubs.clear()
 
 CONF_GEMINI_API_KEY = "gemini_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"

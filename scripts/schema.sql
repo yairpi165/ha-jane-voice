@@ -110,6 +110,20 @@ CREATE TABLE IF NOT EXISTS daily_summaries (
 );
 CREATE INDEX IF NOT EXISTS idx_daily_summaries_date ON daily_summaries(summary_date DESC);
 
+-- S1.5: Routine Memory
+CREATE TABLE IF NOT EXISTS routines (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL UNIQUE,
+    trigger_phrase VARCHAR(300) NOT NULL,
+    steps JSONB NOT NULL DEFAULT '[]',
+    script_id VARCHAR(200),
+    confidence REAL DEFAULT 1.0,
+    occurrence_count INT DEFAULT 1,
+    last_used TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Anti-repetition tracking (replaces in-memory list)
 CREATE TABLE IF NOT EXISTS response_tracking (
     id SERIAL PRIMARY KEY,

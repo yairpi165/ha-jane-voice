@@ -83,7 +83,7 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
 
     from ...const import DOMAIN
 
-    episodic = hass.data.get(DOMAIN, {}).get("_episodic")
+    episodic = getattr(hass.data.get(DOMAIN), "episodic", None)
     if not episodic:
         return "History not available — episodic memory not configured."
 

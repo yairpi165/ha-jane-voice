@@ -256,7 +256,7 @@ def _save_structured_preferences(hass, user_name: str, preferences: list | None)
         from ..const import DOMAIN
         from .manager import _schedule_on_pg
 
-        store = hass.data.get(DOMAIN, {}).get("_structured")
+        store = getattr(hass.data.get(DOMAIN), "structured", None)
         if store is None:
             return
 
