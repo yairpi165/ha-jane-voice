@@ -75,6 +75,41 @@ CREATE TABLE IF NOT EXISTS preferences (
 CREATE INDEX IF NOT EXISTS idx_preferences_person ON preferences(person_name);
 CREATE INDEX IF NOT EXISTS idx_preferences_confidence ON preferences(confidence) WHERE confidence > 0.3;
 
+-- S1.4: Episodic Memory — event entity links, episodes, daily summaries
+
+CREATE TABLE IF NOT EXISTS event_entities (
+    id SERIAL PRIMARY KEY,
+    event_id INT REFERENCES events(id) ON DELETE CASCADE,
+    entity_id VARCHAR(200) NOT NULL,
+    friendly_name VARCHAR(200)
+);
+CREATE INDEX IF NOT EXISTS idx_event_entities_event ON event_entities(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_entities_entity ON event_entities(entity_id);
+
+CREATE TABLE IF NOT EXISTS episodes (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(300) NOT NULL,
+    summary TEXT NOT NULL,
+    start_ts TIMESTAMPTZ NOT NULL,
+    end_ts TIMESTAMPTZ NOT NULL,
+    episode_type VARCHAR(50) NOT NULL DEFAULT 'activity',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_start ON episodes(start_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_episodes_type ON episodes(episode_type);
+
+CREATE TABLE IF NOT EXISTS daily_summaries (
+    id SERIAL PRIMARY KEY,
+    summary_date DATE NOT NULL UNIQUE,
+    summary TEXT NOT NULL,
+    event_count INT DEFAULT 0,
+    episode_count INT DEFAULT 0,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_date ON daily_summaries(summary_date DESC);
+
 -- Anti-repetition tracking (replaces in-memory list)
 CREATE TABLE IF NOT EXISTS response_tracking (
     id SERIAL PRIMARY KEY,
