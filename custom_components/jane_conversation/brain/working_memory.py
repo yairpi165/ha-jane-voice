@@ -19,9 +19,10 @@ OFF_STATES = {"off", "unavailable", "idle", "unknown", "standby"}
 class WorkingMemory:
     """Real-time household awareness backed by Redis."""
 
-    def __init__(self, redis_client, hass: HomeAssistant):
+    def __init__(self, redis_client, hass: HomeAssistant, episodic=None):
         self._redis = redis_client
         self._hass = hass
+        self._episodic = episodic  # Optional EpisodicStore for PG dual-write
 
     async def start_listening(self) -> Callable:
         """Start listening to HA state changes and populate initial snapshot."""
@@ -82,6 +83,8 @@ class WorkingMemory:
         except Exception:
             _LOGGER.debug("Working memory: Redis write failed for %s", entity_id, exc_info=True)
 
+        await self._persist_to_pg(event)
+
     async def _update_presence(self, state) -> None:
         """Update person presence in Redis."""
         name = state.attributes.get("friendly_name", state.entity_id)
@@ -119,6 +122,26 @@ class WorkingMemory:
         pipe.zadd("jane:changes", {entry: now})
         pipe.zremrangebyscore("jane:changes", "-inf", now - CHANGES_TTL)
         await pipe.execute()
+
+    async def _persist_to_pg(self, event: Event) -> None:
+        """Dual-write: persist state change to PG for long-term episodic memory."""
+        if not self._episodic:
+            return
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
+        if not old_state or not new_state or old_state.state == new_state.state:
+            return
+        try:
+            friendly = new_state.attributes.get("friendly_name", new_state.entity_id)
+            await self._episodic.persist_state_change(
+                entity_id=new_state.entity_id,
+                friendly_name=friendly,
+                old_state=old_state.state,
+                new_state=new_state.state,
+                timestamp=time.time(),
+            )
+        except Exception:
+            _LOGGER.debug("Episodic persist failed for %s", new_state.entity_id, exc_info=True)
 
     async def get_context(self) -> str | None:
         """Build context string from Redis. Returns None if Redis empty/down."""

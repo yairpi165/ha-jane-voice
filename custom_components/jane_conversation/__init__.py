@@ -108,7 +108,9 @@ async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_hos
 
         from .brain.working_memory import WorkingMemory
 
-        wm = WorkingMemory(client, hass)
+        # Pass episodic store for PG dual-write (if available)
+        episodic = hass.data.get(DOMAIN, {}).get("_episodic")
+        wm = WorkingMemory(client, hass, episodic=episodic)
         unsub = await wm.start_listening()
 
         hass.data.setdefault(DOMAIN, {})
@@ -165,6 +167,12 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
 
         structured = StructuredMemoryStore(pool)
         hass.data[DOMAIN]["_structured"] = structured
+
+        # Initialize episodic memory store (S1.4)
+        from .memory.episodic import EpisodicStore
+
+        episodic = EpisodicStore(pool)
+        hass.data[DOMAIN]["_episodic"] = episodic
 
         # Auto-migrate MD → structured tables on first connect
         from pathlib import Path as _Path
@@ -288,6 +296,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if decay_unsub:
             decay_unsub()
         domain_data.pop("_structured", None)
+        domain_data.pop("_episodic", None)
         # Close Redis client
         redis_client = domain_data.pop("_redis", None)
         if redis_client:
