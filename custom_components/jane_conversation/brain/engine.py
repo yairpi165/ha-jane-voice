@@ -77,8 +77,8 @@ async def think(
             policy_context = await policy_store.build_policy_context(user_name)
             if policy_context:
                 system_parts.append(f"\nUser Policy:\n{policy_context}")
-        except Exception:
-            pass
+        except Exception as e:
+            _LOGGER.debug("Policy context failed: %s", e)
 
     recent = get_recent_responses()
     if recent:

@@ -54,7 +54,13 @@ class PolicyStore:
         quiet_end = policies.get("quiet_hours_end")
         if quiet_start and quiet_end and action == "tts":
             now = datetime.now().strftime("%H:%M")
-            if quiet_start <= now or now < quiet_end:
+            if quiet_start <= quiet_end:
+                # Same-day range (e.g., 14:00–16:00)
+                in_quiet = quiet_start <= now < quiet_end
+            else:
+                # Overnight range (e.g., 23:00–07:00)
+                in_quiet = now >= quiet_start or now < quiet_end
+            if in_quiet:
                 return f"שעות שקט: {quiet_start}–{quiet_end}"
 
         # Role-based check for sensitive actions
