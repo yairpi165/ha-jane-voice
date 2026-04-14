@@ -1,3 +1,4 @@
+import importlib
 import logging
 
 import voluptuous as vol
@@ -30,7 +31,9 @@ class JaneConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             from google import genai
 
             try:
-                client = genai.Client(api_key=user_input[CONF_GEMINI_API_KEY])
+                client = await self.hass.async_add_executor_job(
+                    lambda: genai.Client(api_key=user_input[CONF_GEMINI_API_KEY])
+                )
                 await self.hass.async_add_executor_job(
                     lambda: client.models.generate_content(
                         model="gemini-2.5-flash",
@@ -93,7 +96,9 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                 # Validate Redis connection (same host as PG)
                 if not errors:
                     try:
-                        import redis.asyncio as aioredis
+                        aioredis = await self.hass.async_add_executor_job(
+                            importlib.import_module, "redis.asyncio"
+                        )
 
                         redis_client = aioredis.Redis(
                             host=pg_host,

@@ -86,6 +86,14 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
                 break
 
     result = "\n".join(lines).strip()
+
+    # If structured context is thin (< 3 content lines), supplement with markdown.
+    # This happens when only a few inferred preferences exist but memory_entries is rich.
+    if len(lines) < 3:
+        markdown = await _fallback_markdown(hass, user_name)
+        if markdown:
+            result = (result + "\n\n" + markdown).strip() if result else markdown
+
     if result:
         _LOGGER.debug("Memory context: %d lines, %d chars", len(lines), len(result))
     return result

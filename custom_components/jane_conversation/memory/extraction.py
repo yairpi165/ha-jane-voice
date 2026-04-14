@@ -22,6 +22,15 @@ from .manager import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _ensure_str(value) -> str:
+    """Coerce dict/list to str — Gemini sometimes returns JSON objects for categories."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
 # ---------------------------------------------------------------------------
 # Home map (Gemini-generated on first run)
 # ---------------------------------------------------------------------------
@@ -215,29 +224,39 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
             result = json.loads(raw)
         except json.JSONDecodeError:
             _LOGGER.warning("Memory extraction JSON truncated, attempting repair")
-            # Try closing open strings and braces
             repaired = raw
             if repaired.count('"') % 2 != 0:
                 repaired += '"'
-            # Close any open value with null
             if repaired.rstrip().endswith(","):
                 repaired = repaired.rstrip().rstrip(",")
-            # Count open/close braces
             open_braces = repaired.count("{") - repaired.count("}")
+            open_brackets = repaired.count("[") - repaired.count("]")
+            repaired += "]" * open_brackets
             repaired += "}" * open_braces
-            result = json.loads(repaired)
+            try:
+                result = json.loads(repaired)
+            except json.JSONDecodeError:
+                # Last resort: truncate at last complete element
+                last_comma = repaired.rfind(",")
+                if last_comma > 10:
+                    truncated = repaired[:last_comma]
+                    ob = truncated.count("{") - truncated.count("}")
+                    ol = truncated.count("[") - truncated.count("]")
+                    truncated += "]" * ol + "}" * ob
+                    result = json.loads(truncated)
+                else:
+                    raise
 
         if result.get("user"):
-            save_user_memory(user_name, result["user"])
+            save_user_memory(user_name, _ensure_str(result["user"]))
         if result.get("family"):
-            save_family_memory(result["family"])
+            save_family_memory(_ensure_str(result["family"]))
         if result.get("habits"):
-            save_habits_memory(result["habits"])
+            save_habits_memory(_ensure_str(result["habits"]))
         if result.get("corrections"):
-            # Route to events table, not memory_entries
-            schedule_pg_append("correction", user_name, result["corrections"], {"source": "extraction"})
+            schedule_pg_append("correction", user_name, _ensure_str(result["corrections"]), {"source": "extraction"})
         if result.get("routines"):
-            save_routines(result["routines"])
+            save_routines(_ensure_str(result["routines"]))
 
         # S1.3: Save structured preferences to PG
         _save_structured_preferences(hass, user_name, result.get("preferences"))

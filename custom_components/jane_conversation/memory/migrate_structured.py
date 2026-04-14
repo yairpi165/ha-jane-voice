@@ -45,9 +45,10 @@ async def migrate_to_structured(store, file_data: dict) -> int:
     """
     count = 0
 
-    # Check if already migrated — use preferences (survives persons table clear)
-    existing = await store.load_all_preferences(min_confidence=0.0)
-    if existing:
+    # Check if already migrated — skip only if BOTH persons and preferences exist
+    existing_persons = await store.load_persons()
+    existing_prefs = await store.load_all_preferences(min_confidence=0.0)
+    if existing_persons and existing_prefs:
         _LOGGER.debug("Structured tables already populated, skipping migration")
         return 0
 
