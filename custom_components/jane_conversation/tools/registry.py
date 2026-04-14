@@ -29,6 +29,7 @@ from .definitions import (
     TOOL_LIST_HELPERS,
     TOOL_LIST_SERVICES,
     TOOL_MANAGE_LIST,
+    TOOL_QUERY_HISTORY,
     TOOL_READ_MEMORY,
     TOOL_REMOVE_AUTOMATION,
     TOOL_REMOVE_SCENE,
@@ -99,6 +100,7 @@ _ALL_FUNCTION_DECLARATIONS = [
     TOOL_SET_SCENE,
     TOOL_REMOVE_SCENE,
     TOOL_LIST_CONFIG,
+    TOOL_QUERY_HISTORY,
 ]
 
 
@@ -107,7 +109,6 @@ def get_tools(tavily_api_key: str | None = None) -> list[dict]:
     from google.genai import types
 
     declarations = list(_ALL_FUNCTION_DECLARATIONS)
-    # search_web is always available (uses Google Search internally)
     declarations.append(TOOL_SEARCH_WEB)
     return [types.Tool(function_declarations=declarations)]
 
@@ -151,6 +152,7 @@ _HANDLER_MAP = {
     "create_helper": device.handle_create_helper,
     "save_memory": memory_tools.handle_save_memory,
     "read_memory": memory_tools.handle_read_memory,
+    "query_history": memory_tools.handle_query_history,
     "eval_template": power.handle_eval_template,
     "bulk_control": power.handle_bulk_control,
 }

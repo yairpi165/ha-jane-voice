@@ -65,6 +65,24 @@ TOOL_CALL_HA_SERVICE = {
     },
 }
 
+TOOL_QUERY_HISTORY = {
+    "name": "query_history",
+    "description": (
+        "Query household history — what happened in the house. "
+        "Use for questions like 'what happened last night?', 'when did I come home?', "
+        "'what happened on Thursday?'. Returns episode summaries from memory."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "hours_back": {
+                "type": "integer",
+                "description": "How many hours back to search. Default 24. Max 168 (7 days).",
+            },
+        },
+    },
+}
+
 TOOL_SEARCH_WEB = {
     "name": "search_web",
     "description": (

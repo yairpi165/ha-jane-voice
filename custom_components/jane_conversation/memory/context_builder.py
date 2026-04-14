@@ -91,6 +91,62 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
     return result
 
 
+_MAX_EPISODIC_CHARS = 800  # ~200 tokens
+
+
+async def build_episodic_context(hass: HomeAssistant, hours: int = 12) -> str:
+    """Build a concise episodic context from recent episodes + yesterday's summary.
+
+    Returns a formatted string for injection into Gemini system_instruction.
+    Hard limit: _MAX_EPISODIC_CHARS (~200 tokens). Priority: daily summary first.
+    """
+    try:
+        episodic = hass.data.get(DOMAIN, {}).get("_episodic")
+    except (AttributeError, TypeError):
+        episodic = None
+    if episodic is None:
+        return ""
+
+    try:
+        from datetime import date, datetime, timedelta
+
+        now = datetime.now().astimezone()
+        start = now - timedelta(hours=hours)
+
+        episodes = await episodic.query_episodes(start, now, limit=10)
+        yesterday = date.today() - timedelta(days=1)
+        daily = await episodic.get_daily_summary(yesterday)
+    except Exception as e:
+        _LOGGER.debug("Episodic context unavailable: %s", e)
+        return ""
+
+    if not episodes and not daily:
+        return ""
+
+    parts: list[str] = []
+    chars = 0
+
+    # Yesterday's summary first (most compact, most useful)
+    if daily:
+        summary = daily.get("summary", "") if isinstance(daily, dict) else str(daily)
+        if summary:
+            line = f"אתמול: {summary}"
+            parts.append(line)
+            chars += len(line)
+
+    # Recent episodes (most recent first)
+    for ep in episodes:
+        ts = ep["start_ts"]
+        time_str = ts.strftime("%H:%M") if hasattr(ts, "strftime") else str(ts)[:5]
+        line = f"{time_str} — {ep['title']}"
+        if chars + len(line) > _MAX_EPISODIC_CHARS:
+            break
+        parts.append(line)
+        chars += len(line)
+
+    return "\n".join(parts)
+
+
 async def _fallback_markdown(hass: HomeAssistant, user_name: str) -> str:
     """Fall back to loading markdown memory when structured store is unavailable."""
     try:
