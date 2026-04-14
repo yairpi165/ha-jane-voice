@@ -22,6 +22,8 @@ Jane uses a multi-layer memory system backed by PostgreSQL and Redis.
 | `persons` | Family members: name, role, birth_date, metadata | S1.3 migration, extraction |
 | `relationships` | Family relationships (spouse, parent_of) | S1.3 migration |
 | `preferences` | Structured preferences with confidence + decay | extraction.py |
+| `routines` | Structured Smart Routines (trigger, steps, occurrences) | routine_store.py |
+| `policies` | Per-user access control (role, quiet hours) | policy.py, auto-seed |
 | `events` | Audit trail: actions, conversations, state_changes | conversation.py, working_memory.py |
 | `event_entities` | Links events to HA entities (entity_id) | working_memory.py dual-write |
 | `episodes` | Consolidated event groups (title, summary, type) | consolidation.py (every 6h) |
@@ -85,7 +87,9 @@ Engine (each conversation)
     ├── build_context() → Working Memory (Redis) or live hass.states
     ├── build_memory_context() → persons + preferences from PG
     ├── build_episodic_context() → recent episodes + yesterday's summary
-    └── load_home() / load_routines() → memory_entries
+    ├── load_home() → memory_entries
+    ├── load_routines_index() → RoutineStore (PG) or routines.md fallback
+    └── build_policy_context() → policies from PG
 ```
 
 ## Preference System (S1.3)
@@ -108,6 +112,26 @@ Engine (each conversation)
 - **Idempotency** — consolidation records last-processed window in memory_entries sentinel
 - **Retention** — 10 days events, 90 days episodes, 365 days daily summaries
 
+## Routine Memory (S1.5)
+
+- **RoutineStore** — structured Smart Routines in PG `routines` table
+- **Trigger matching** — substring containment, case-insensitive (ILIKE)
+- **Occurrence tracking** — `increment_occurrence()` bumps count + last_used
+- **Context injection** — top 10 routines by usage injected into Gemini context
+- **Fallback** — if PG unavailable, reads from routines.md (backward compat)
+- **Migration** — start fresh, new routines accumulate from conversations
+
+## Policy Memory (S1.5)
+
+- **PolicyStore** — per-user policies in PG `policies` table
+- **Keys** — role (admin/child/guest), confirmation_threshold, quiet_hours, tts_enabled
+- **check_permission()** — returns `str | None` (reason or allowed)
+- **Quiet hours** — supports same-day (14:00–16:00) and overnight (23:00–07:00) ranges
+- **Sensitive actions** — child role requires confirmation for set/remove automation/script, bulk_control
+- **Context injection** — policies injected into Gemini system_instruction per user
+- **Scope** — S1.5 stores + injects, Gemini decides. Hard enforcement in Phase 3
+- **Auto-seed** — default policies (admin/child) seeded from persons table on startup
+
 ## Key Files
 
 | File | Purpose |
@@ -122,4 +146,6 @@ Engine (each conversation)
 | `memory/migrate_structured.py` | One-time MD → structured migration |
 | `memory/firebase.py` | Firestore backup |
 | `brain/working_memory.py` | Redis real-time awareness + PG dual-write |
-| `brain/context.py` | Working Memory context + fallback |
+| `memory/routine_store.py` | RoutineStore (structured routines) |
+| `memory/policy.py` | PolicyStore (per-user policies) |
+| `brain/context.py` | Working Memory context + routines fallback |
