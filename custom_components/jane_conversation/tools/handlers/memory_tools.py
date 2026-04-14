@@ -77,6 +77,32 @@ async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
     return f"Saved to {category} memory."
 
 
+async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
+    """Query episodic history — what happened in the house."""
+    from datetime import datetime, timedelta
+
+    from ...const import DOMAIN
+
+    episodic = hass.data.get(DOMAIN, {}).get("_episodic")
+    if not episodic:
+        return "History not available — episodic memory not configured."
+
+    hours = min(int(args.get("hours_back", 24)), 168)
+    now = datetime.now().astimezone()
+    start = now - timedelta(hours=hours)
+
+    episodes = await episodic.query_episodes(start, now, limit=20)
+    if not episodes:
+        return f"No episodes found in the last {hours} hours."
+
+    lines = []
+    for ep in episodes:
+        ts = ep["start_ts"]
+        time_str = ts.strftime("%d/%m %H:%M") if hasattr(ts, "strftime") else str(ts)
+        lines.append(f"{time_str} — {ep['title']}: {ep['summary']}")
+    return "\n".join(lines)
+
+
 async def handle_read_memory(hass: HomeAssistant, args: dict) -> str:
     """Read a specific memory file on demand."""
     from ...memory.manager import (
