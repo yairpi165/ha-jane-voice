@@ -28,7 +28,7 @@ class ConsolidationWorker:
 
     def _get_gemini_client(self):
         """Lazily obtain Gemini client from hass.data."""
-        return self._hass.data.get(DOMAIN, {}).get("_gemini_client")
+        return getattr(self._hass.data.get(DOMAIN), "gemini_client", None)
 
     # ------------------------------------------------------------------
     # Event → Episode consolidation

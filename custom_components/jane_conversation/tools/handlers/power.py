@@ -56,7 +56,7 @@ async def handle_search_web(hass: HomeAssistant, args: dict, tavily_api_key: str
 
         from ...const import DOMAIN
 
-        client = hass.data.get(DOMAIN, {}).get("_gemini_client")
+        client = getattr(hass.data.get(DOMAIN), "gemini_client", None)
         if client is None:
             return "Web search unavailable: Gemini client not initialized."
 

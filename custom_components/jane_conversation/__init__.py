@@ -15,6 +15,7 @@ from .const import (
     CONF_REDIS_PORT,
     DEFAULT_REDIS_PORT,
     DOMAIN,
+    JaneData,
 )
 from .memory import init_memory, rebuild_home_map
 
@@ -23,8 +24,17 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.CONVERSATION]
 
 
+def _get_jane(hass: HomeAssistant) -> JaneData:
+    """Get or create JaneData from hass.data."""
+    hass.data.setdefault(DOMAIN, JaneData())
+    return hass.data[DOMAIN]
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Jane from a config entry."""
+    jane = _get_jane(hass)
+    jane.entry = entry
+
     # Determine storage backend
     backend = None
     pg_host = entry.options.get(CONF_PG_HOST) or entry.data.get(CONF_PG_HOST)
@@ -58,42 +68,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = await hass.async_add_executor_job(lambda: genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY]))
     await hass.async_add_executor_job(rebuild_home_map, client, hass)
 
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry
-
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    # S1.3: Daily preference decay task
-    structured = hass.data.get(DOMAIN, {}).get("_structured")
-    if structured:
-        from datetime import timedelta
+    # Register periodic tasks
+    _register_periodic_tasks(hass, jane)
 
-        from homeassistant.helpers.event import async_track_time_interval
+    redis_status = ", Redis working memory" if working_memory else ""
+    _LOGGER.info("Jane Voice Assistant loaded (storage: %s%s)", "PostgreSQL" if pg_host else "files", redis_status)
+    return True
 
+
+def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
+    """Register all periodic background tasks."""
+    from datetime import timedelta
+
+    from homeassistant.helpers.event import async_track_time_interval
+
+    # S1.3: Daily preference decay
+    if jane.structured:
         async def _decay_task(_now):
             try:
-                count = await structured.decay_preferences()
+                count = await jane.structured.decay_preferences()
                 if count:
                     _LOGGER.info("Preference decay: %d preferences updated", count)
             except Exception as e:
                 _LOGGER.debug("Preference decay failed: %s", e)
 
-        unsub_decay = async_track_time_interval(hass, _decay_task, timedelta(hours=24))
-        hass.data[DOMAIN]["_decay_unsub"] = unsub_decay
+        jane.add_unsub(async_track_time_interval(hass, _decay_task, timedelta(hours=24)))
 
-    # S1.4: Consolidation periodic tasks
-    episodic = hass.data.get(DOMAIN, {}).get("_episodic")
-    if episodic:
-        from datetime import timedelta
-
-        from homeassistant.helpers.event import async_track_time_interval
-
+    # S1.4: Consolidation + daily summary + cleanup
+    if jane.episodic:
         from .memory.consolidation import ConsolidationWorker
 
-        worker = ConsolidationWorker(episodic, hass)
-        hass.data[DOMAIN]["_consolidation"] = worker
+        worker = ConsolidationWorker(jane.episodic, hass)
+        jane.consolidation = worker  # Set here (not in _create_pg_backend) — needs episodic + hass
 
         async def _consolidation_task(_now):
             try:
@@ -105,36 +115,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         async def _daily_summary_task(_now):
             try:
-                created = await worker.generate_daily_summary()
-                if created:
+                if await worker.generate_daily_summary():
                     _LOGGER.info("Daily summary created")
             except Exception as e:
                 _LOGGER.debug("Daily summary failed: %s", e)
 
         async def _cleanup_task(_now):
             try:
-                counts = await episodic.cleanup_old_data()
+                counts = await jane.episodic.cleanup_old_data()
                 if any(counts.values()):
                     _LOGGER.info("Episodic cleanup: %s", counts)
             except Exception as e:
                 _LOGGER.debug("Episodic cleanup failed: %s", e)
 
-        unsub_cons = async_track_time_interval(hass, _consolidation_task, timedelta(hours=6))
-        unsub_daily = async_track_time_interval(hass, _daily_summary_task, timedelta(hours=24))
-        unsub_cleanup = async_track_time_interval(hass, _cleanup_task, timedelta(hours=24))
-        hass.data[DOMAIN]["_consolidation_unsub"] = unsub_cons
-        hass.data[DOMAIN]["_daily_unsub"] = unsub_daily
-        hass.data[DOMAIN]["_cleanup_unsub"] = unsub_cleanup
-
-    redis_status = ", Redis working memory" if working_memory else ""
-    _LOGGER.info("Jane Voice Assistant loaded (storage: %s%s)", "PostgreSQL" if pg_host else "files", redis_status)
-    return True
+        jane.add_unsub(async_track_time_interval(hass, _consolidation_task, timedelta(hours=6)))
+        jane.add_unsub(async_track_time_interval(hass, _daily_summary_task, timedelta(hours=24)))
+        jane.add_unsub(async_track_time_interval(hass, _cleanup_task, timedelta(hours=24)))
 
 
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
     """Create Redis client and start Working Memory listener."""
     try:
         aioredis = await hass.async_add_executor_job(importlib.import_module, "redis.asyncio")
+        jane = _get_jane(hass)
 
         data = {**entry.data, **entry.options}
         redis_port = int(data.get(CONF_REDIS_PORT, DEFAULT_REDIS_PORT))
@@ -151,15 +154,12 @@ async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_hos
 
         from .brain.working_memory import WorkingMemory
 
-        # Pass episodic store for PG dual-write (if available)
-        episodic = hass.data.get(DOMAIN, {}).get("_episodic")
-        wm = WorkingMemory(client, hass, episodic=episodic)
+        wm = WorkingMemory(client, hass, episodic=jane.episodic)
         unsub = await wm.start_listening()
 
-        hass.data.setdefault(DOMAIN, {})
-        hass.data[DOMAIN]["_redis"] = client
-        hass.data[DOMAIN]["_working_memory"] = wm
-        hass.data[DOMAIN]["_redis_unsub"] = unsub
+        jane.redis = client
+        jane.working_memory = wm
+        jane.add_unsub(unsub)
 
         _LOGGER.info("Redis connected: %s:%s", pg_host, redis_port)
         return wm
@@ -188,9 +188,8 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             max_size=5,
         )
 
-        # Store pool for cleanup
-        hass.data.setdefault(DOMAIN, {})
-        hass.data[DOMAIN]["_pg_pool"] = pool
+        jane = _get_jane(hass)
+        jane.pg_pool = pool
 
         from .memory.storage import DualWriteBackend, FileBackend, PostgresBackend
 
@@ -205,17 +204,17 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
         # Auto-migrate MD files on first PG connect
         await _auto_migrate(pool, hass)
 
-        # Initialize structured memory store (S1.3)
+        # Initialize stores
+        from .memory.episodic import EpisodicStore
         from .memory.structured import StructuredMemoryStore
 
-        structured = StructuredMemoryStore(pool)
-        hass.data[DOMAIN]["_structured"] = structured
+        jane.structured = StructuredMemoryStore(pool)
+        jane.episodic = EpisodicStore(pool)
 
-        # Initialize episodic memory store (S1.4)
-        from .memory.episodic import EpisodicStore
+        # Initialize routine store (S1.5)
+        from .memory.routine_store import RoutineStore
 
-        episodic = EpisodicStore(pool)
-        hass.data[DOMAIN]["_episodic"] = episodic
+        jane.routines = RoutineStore(pool)
 
         # Auto-migrate MD → structured tables on first connect
         from pathlib import Path as _Path
@@ -223,11 +222,9 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
         from .memory.migrate_structured import migrate_to_structured
 
         memory_dir = _Path(hass.config.config_dir) / "jane_memory"
-
-        # Read files in executor (sync I/O), then run async PG migration
         file_data = await hass.async_add_executor_job(_read_migration_files, memory_dir)
         if file_data:
-            await migrate_to_structured(structured, file_data)
+            await migrate_to_structured(jane.structured, file_data)
 
         return backend
 
@@ -237,12 +234,7 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def _auto_migrate(pool, hass: HomeAssistant) -> None:
-    """Auto-migrate permanent MD memory files to PostgreSQL on first connect.
-
-    Migrates: family, habits, corrections, routines, home, user/* files.
-    Does NOT migrate: actions.md (rolling 24h) or history.log (append-only).
-    For full historical migration, use scripts/migrate_md_to_pg.py.
-    """
+    """Auto-migrate permanent MD memory files to PostgreSQL on first connect."""
     from pathlib import Path
 
     try:
@@ -282,7 +274,6 @@ async def _auto_migrate(pool, hass: HomeAssistant) -> None:
                     )
                     migrated += 1
 
-            # Migrate user files
             users_dir = memory_dir / "users"
             user_files = await hass.async_add_executor_job(
                 lambda: list(users_dir.glob("*.md")) if users_dir.exists() else []
@@ -327,31 +318,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload Jane config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        domain_data = hass.data.get(DOMAIN, {})
-        domain_data.pop(entry.entry_id, None)
-        # Stop working memory listener
-        redis_unsub = domain_data.pop("_redis_unsub", None)
-        if redis_unsub:
-            redis_unsub()
-        domain_data.pop("_working_memory", None)
-        # Stop decay task
-        decay_unsub = domain_data.pop("_decay_unsub", None)
-        if decay_unsub:
-            decay_unsub()
-        domain_data.pop("_structured", None)
-        domain_data.pop("_episodic", None)
-        domain_data.pop("_consolidation", None)
-        # Stop consolidation tasks
-        for key in ("_consolidation_unsub", "_daily_unsub", "_cleanup_unsub"):
-            unsub = domain_data.pop(key, None)
-            if unsub:
-                unsub()
-        # Close Redis client
-        redis_client = domain_data.pop("_redis", None)
-        if redis_client:
-            await redis_client.aclose()
-        # Close PG pool
-        pool = domain_data.pop("_pg_pool", None)
-        if pool:
-            await pool.close()
+        jane = hass.data.pop(DOMAIN, None)
+        if jane and isinstance(jane, JaneData):
+            jane.cancel_all()
+            if jane.redis:
+                await jane.redis.aclose()
+            if jane.pg_pool:
+                await jane.pg_pool.close()
     return unload_ok
