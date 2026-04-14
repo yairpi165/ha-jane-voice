@@ -6,7 +6,7 @@ Works alongside Redis Working Memory (real-time, 1h TTL) — dual-write pattern.
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class EpisodicStore:
         timestamp: float,
     ) -> None:
         """Insert a state_change event and link it to the entity."""
-        ts = datetime.fromtimestamp(timestamp)
+        ts = datetime.fromtimestamp(timestamp, tz=UTC)
         description = f"{friendly_name}: {old_state} → {new_state}"
         metadata = json.dumps(
             {"entity_id": entity_id, "old_state": old_state, "new_state": new_state},

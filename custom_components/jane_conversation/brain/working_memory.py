@@ -79,10 +79,11 @@ class WorkingMemory:
                 await self._update_active(new_state)
 
             await self._record_change(event)
-            await self._persist_to_pg(event)
             await self._redis.delete("jane:context_cache")
         except Exception:
             _LOGGER.debug("Working memory: Redis write failed for %s", entity_id, exc_info=True)
+
+        await self._persist_to_pg(event)
 
     async def _update_presence(self, state) -> None:
         """Update person presence in Redis."""
