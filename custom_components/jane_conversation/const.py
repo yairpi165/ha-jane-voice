@@ -55,6 +55,10 @@ CONSOLIDATION_INTERVAL_HOURS = 6
 EPISODE_GAP_MINUTES = 10
 EPISODE_MAX_DURATION_MINUTES = 90
 
+# S1.5: Policy Memory
+POLICY_KEYS = {"role", "confirmation_threshold", "quiet_hours_start", "quiet_hours_end", "tts_enabled"}
+SENSITIVE_ACTIONS = {"set_automation", "remove_automation", "set_script", "remove_script", "bulk_control"}
+
 # Common Whisper hallucinations — phantom phrases generated from silence/noise.
 # These are phrases Whisper invents when it gets silence or background noise.
 WHISPER_HALLUCINATIONS = {
