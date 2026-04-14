@@ -8,7 +8,8 @@
 Jane uses a multi-layer memory system backed by PostgreSQL and Redis.
 
 **Long-term memory** — PostgreSQL (via DualWriteBackend: writes PG + MD files)
-**Working memory** — Redis (real-time household awareness)
+**Working memory** — Redis (real-time household awareness, 1h TTL)
+**Episodic memory** — PostgreSQL (state changes → episodes → daily summaries)
 **Backup** — Firebase Firestore (write-through)
 
 ## Storage Layers
@@ -20,8 +21,11 @@ Jane uses a multi-layer memory system backed by PostgreSQL and Redis.
 | `memory_entries` | Legacy MD-equivalent (category/content blobs) | extraction.py, save_memory tool |
 | `persons` | Family members: name, role, birth_date, metadata | S1.3 migration, extraction |
 | `relationships` | Family relationships (spouse, parent_of) | S1.3 migration |
-| `preferences` | Structured preferences with confidence + decay | extraction.py (Phase B) |
-| `events` | Audit trail: actions, conversations, corrections | conversation.py |
+| `preferences` | Structured preferences with confidence + decay | extraction.py |
+| `events` | Audit trail: actions, conversations, state_changes | conversation.py, working_memory.py |
+| `event_entities` | Links events to HA entities (entity_id) | working_memory.py dual-write |
+| `episodes` | Consolidated event groups (title, summary, type) | consolidation.py (every 6h) |
+| `daily_summaries` | One daily narrative per day | consolidation.py (daily) |
 | `response_tracking` | Anti-repetition (last 50 openings) | conversation.py |
 
 ### Redis Keys
@@ -52,16 +56,35 @@ jane_memory/
 ## Data Flow
 
 ```
+HA state_changed events
+    ↓
+working_memory.py: _on_state_changed()
+    ├── Redis jane:changes (1h TTL, real-time context)
+    └── PG events + event_entities (dual-write, persistent)
+
+Every 6 hours: ConsolidationWorker
+    ├── Load raw events from PG (last 6h window)
+    ├── Group by temporal proximity (>10 min gap = new cluster, 90 min hard cap)
+    ├── Simple clusters → template summary (no LLM)
+    ├── Complex clusters → Gemini Flash summary (max 3 calls per window)
+    └── Save to episodes table
+
+Daily: ConsolidationWorker
+    ├── Load yesterday's episodes
+    ├── Gemini Flash → daily narrative summary
+    └── Save to daily_summaries table
+
 Conversation
     ↓
 extraction.py: process_memory()
     ├── save_*_memory() → memory_entries (DualWrite: PG + files)
     ├── schedule_pg_append("correction", ...) → events table
     └── _save_structured_preferences() → preferences table
-    
+
 Engine (each conversation)
     ├── build_context() → Working Memory (Redis) or live hass.states
     ├── build_memory_context() → persons + preferences from PG
+    ├── build_episodic_context() → recent episodes + yesterday's summary
     └── load_home() / load_routines() → memory_entries
 ```
 
@@ -72,6 +95,19 @@ Engine (each conversation)
 - **Decay** — inferred preferences: -0.05/day after 7-day grace period
 - **Context injection** — preferences with confidence >= 0.5 injected into Gemini system_instruction
 
+## Episodic Memory (S1.4)
+
+- **Dual-write** — every state_change persists to both Redis (1h TTL) and PG (permanent)
+- **Consolidation** — every 6h, groups raw events into episodes via temporal clustering
+- **Clustering** — 10 min gap splits clusters, 90 min hard cap prevents giant episodes
+- **Templates** — 80% of clusters summarized without LLM (template-based)
+- **LLM budget** — max 3 Gemini Flash calls per 6h window, excess falls back to template
+- **Daily summaries** — 1 Flash call/day for narrative summary
+- **Context injection** — episodes + daily summary injected into Gemini system_instruction (max 800 chars)
+- **query_history tool** — enables "what happened last Thursday?" (up to 7 days)
+- **Idempotency** — consolidation records last-processed window in memory_entries sentinel
+- **Retention** — 10 days events, 90 days episodes, 365 days daily summaries
+
 ## Key Files
 
 | File | Purpose |
@@ -79,9 +115,11 @@ Engine (each conversation)
 | `memory/manager.py` | Load/save functions, PG scheduling |
 | `memory/storage.py` | StorageBackend abstraction (File/Postgres/DualWrite) |
 | `memory/structured.py` | StructuredMemoryStore (persons, preferences) |
-| `memory/context_builder.py` | Formats memory for Gemini context |
+| `memory/episodic.py` | EpisodicStore (events, episodes, summaries) |
+| `memory/consolidation.py` | ConsolidationWorker (clustering, LLM summaries) |
+| `memory/context_builder.py` | Formats memory + episodic for Gemini context |
 | `memory/extraction.py` | Gemini-based memory extraction |
 | `memory/migrate_structured.py` | One-time MD → structured migration |
 | `memory/firebase.py` | Firestore backup |
-| `brain/working_memory.py` | Redis real-time awareness |
+| `brain/working_memory.py` | Redis real-time awareness + PG dual-write |
 | `brain/context.py` | Working Memory context + fallback |
