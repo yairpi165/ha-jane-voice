@@ -7,7 +7,7 @@ from google import genai
 from google.genai import types
 from homeassistant.core import HomeAssistant
 
-from ..const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART, SYSTEM_PROMPT
+from ..const import DOMAIN, GEMINI_MODEL_FAST, GEMINI_MODEL_SMART, SYSTEM_PROMPT
 from ..memory import get_recent_responses, load_home
 from ..memory.context_builder import build_episodic_context, build_memory_context
 from ..tools import execute_tool, get_tools, get_tools_minimal
@@ -69,6 +69,16 @@ async def think(
     episodic_context = await build_episodic_context(hass)
     if episodic_context:
         system_parts.append(f"\nRecent Activity:\n{episodic_context}")
+
+    # Inject user policies (role, quiet hours)
+    policy_store = getattr(hass.data.get(DOMAIN), "policies", None)
+    if policy_store:
+        try:
+            policy_context = await policy_store.build_policy_context(user_name)
+            if policy_context:
+                system_parts.append(f"\nUser Policy:\n{policy_context}")
+        except Exception as e:
+            _LOGGER.debug("Policy context failed: %s", e)
 
     recent = get_recent_responses()
     if recent:

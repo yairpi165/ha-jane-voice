@@ -216,6 +216,22 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
 
         jane.routines = RoutineStore(pool)
 
+        # Initialize policy store (S1.5)
+        from .memory.policy import PolicyStore
+
+        jane.policies = PolicyStore(pool)
+
+        # Seed default policies for existing persons
+        if jane.structured:
+            try:
+                persons = await jane.structured.load_persons()
+                if persons:
+                    seeded = await jane.policies.seed_defaults(persons)
+                    if seeded:
+                        _LOGGER.info("Seeded default policies for %d persons", seeded)
+            except Exception as e:
+                _LOGGER.debug("Policy seeding skipped: %s", e)
+
         # Auto-migrate MD → structured tables on first connect
         from pathlib import Path as _Path
 

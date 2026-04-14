@@ -124,6 +124,17 @@ CREATE TABLE IF NOT EXISTS routines (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- S1.5: Policy Memory
+CREATE TABLE IF NOT EXISTS policies (
+    id SERIAL PRIMARY KEY,
+    person_name VARCHAR(100) NOT NULL,
+    key VARCHAR(100) NOT NULL,
+    value TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(person_name, key)
+);
+
 -- Anti-repetition tracking (replaces in-memory list)
 CREATE TABLE IF NOT EXISTS response_tracking (
     id SERIAL PRIMARY KEY,
