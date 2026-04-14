@@ -207,7 +207,7 @@ def _call_gemini(
             raise
         _LOGGER.warning("Gemini %s retry failed, falling back to Flash: %s", model, e)
 
-    # Fallback to Flash
+    # Fallback to Flash — reuses Pro config (tools, max_tokens) for graceful degradation
     return client.models.generate_content(
         model=GEMINI_MODEL_FAST, contents=messages, config=config,
     )
