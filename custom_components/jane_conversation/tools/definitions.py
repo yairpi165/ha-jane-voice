@@ -70,7 +70,8 @@ TOOL_QUERY_HISTORY = {
     "description": (
         "Query household history — what happened in the house. "
         "Use for questions like 'what happened last night?', 'when did I come home?', "
-        "'what happened on Thursday?'. Returns episode summaries from memory."
+        "'what happened on Thursday?', 'when was the last time the AC stayed on all night?'. "
+        "Supports both time-based and semantic search over episodes."
     ),
     "parameters": {
         "type": "object",
@@ -78,6 +79,10 @@ TOOL_QUERY_HISTORY = {
             "hours_back": {
                 "type": "integer",
                 "description": "How many hours back to search. Default 24. Max 168 (7 days).",
+            },
+            "query": {
+                "type": "string",
+                "description": "Natural language search query for semantic matching over past episodes.",
             },
         },
     },

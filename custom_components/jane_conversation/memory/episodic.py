@@ -135,6 +135,46 @@ class EpisodicStore:
             return [dict(r) for r in rows]
 
     # ------------------------------------------------------------------
+    # Semantic search (S1.6 — pgvector)
+    # ------------------------------------------------------------------
+
+    async def semantic_search(self, query_embedding: list[float], limit: int = 5) -> list[dict]:
+        """Find episodes most similar to query by cosine distance."""
+        from .embeddings import _to_pg_vector
+
+        vec_str = _to_pg_vector(query_embedding)
+        async with self._pool.acquire() as conn:
+            await conn.execute("SET ivfflat.probes = 3")
+            rows = await conn.fetch(
+                """SELECT id, title, summary, start_ts, end_ts, episode_type,
+                          1 - (embedding <=> $1::vector) AS similarity
+                   FROM episodes
+                   WHERE embedding IS NOT NULL
+                   ORDER BY embedding <=> $1::vector
+                   LIMIT $2""",
+                vec_str, limit,
+            )
+            return [dict(r) for r in rows]
+
+    async def semantic_search_summaries(self, query_embedding: list[float], limit: int = 3) -> list[dict]:
+        """Find daily summaries most similar to query by cosine distance."""
+        from .embeddings import _to_pg_vector
+
+        vec_str = _to_pg_vector(query_embedding)
+        async with self._pool.acquire() as conn:
+            await conn.execute("SET ivfflat.probes = 3")
+            rows = await conn.fetch(
+                """SELECT summary_date, summary, event_count, episode_count,
+                          1 - (embedding <=> $1::vector) AS similarity
+                   FROM daily_summaries
+                   WHERE embedding IS NOT NULL
+                   ORDER BY embedding <=> $1::vector
+                   LIMIT $2""",
+                vec_str, limit,
+            )
+            return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
     # Daily Summaries
     # ------------------------------------------------------------------
 

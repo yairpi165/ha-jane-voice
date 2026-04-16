@@ -73,7 +73,7 @@ class ConsolidationWorker:
             if episode:
                 start_ts = cluster[0]["timestamp"]
                 end_ts = cluster[-1]["timestamp"]
-                await self._episodic.save_episode(
+                ep_id = await self._episodic.save_episode(
                     title=episode["title"],
                     summary=episode["summary"],
                     start_ts=start_ts,
@@ -81,6 +81,8 @@ class ConsolidationWorker:
                     episode_type=episode.get("episode_type", "activity"),
                 )
                 episode_count += 1
+                # Generate embedding for semantic search (non-fatal)
+                await self._embed_episode(ep_id, episode["title"], episode["summary"])
 
         await self._episodic.set_last_consolidation_ts(now)
 
@@ -129,6 +131,38 @@ class ConsolidationWorker:
             return _template_summary(cluster)
 
     # ------------------------------------------------------------------
+    # Embeddings (S1.6)
+    # ------------------------------------------------------------------
+
+    async def _embed_episode(self, episode_id: int, title: str, summary: str):
+        """Generate and store embedding for an episode. Non-fatal."""
+        try:
+            from .embeddings import generate_embedding, store_episode_embedding
+
+            client = self._get_gemini_client()
+            if not client:
+                return
+            embedding = await generate_embedding(self._hass, client, f"{title} {summary}")
+            if embedding:
+                await store_episode_embedding(self._episodic._pool, episode_id, embedding)
+        except Exception as e:
+            _LOGGER.debug("Episode embedding failed (id=%d): %s", episode_id, e)
+
+    async def _embed_summary(self, summary_date, summary: str):
+        """Generate and store embedding for a daily summary. Non-fatal."""
+        try:
+            from .embeddings import generate_embedding, store_summary_embedding
+
+            client = self._get_gemini_client()
+            if not client:
+                return
+            embedding = await generate_embedding(self._hass, client, summary)
+            if embedding:
+                await store_summary_embedding(self._episodic._pool, summary_date, embedding)
+        except Exception as e:
+            _LOGGER.debug("Summary embedding failed (%s): %s", summary_date, e)
+
+    # ------------------------------------------------------------------
     # Daily summary
     # ------------------------------------------------------------------
 
@@ -165,6 +199,8 @@ class ConsolidationWorker:
             event_count=len(events),
             episode_count=len(episodes),
         )
+        # Generate embedding for semantic search (non-fatal)
+        await self._embed_summary(yesterday, summary)
         _LOGGER.info("Daily summary created for %s (%d episodes, %d events)", yesterday, len(episodes), len(events))
         return True
 

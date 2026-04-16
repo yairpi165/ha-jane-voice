@@ -78,7 +78,7 @@ async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
 
 
 async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
-    """Query episodic history — what happened in the house."""
+    """Query episodic history — time-based + semantic search."""
     from datetime import datetime, timedelta
 
     from ...const import DOMAIN
@@ -88,18 +88,56 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
         return "History not available — episodic memory not configured."
 
     hours = min(int(args.get("hours_back", 24)), 168)
+    query = args.get("query", "")
     now = datetime.now().astimezone()
     start = now - timedelta(hours=hours)
 
+    # Time-based results (existing behavior)
     episodes = await episodic.query_episodes(start, now, limit=20)
-    if not episodes:
-        return f"No episodes found in the last {hours} hours."
 
+    # Semantic search if query text provided
+    semantic_results = []
+    if query:
+        try:
+            from ...memory.embeddings import generate_embedding
+
+            client = getattr(hass.data.get(DOMAIN), "gemini_client", None)
+            if client:
+                embedding = await generate_embedding(hass, client, query)
+                if embedding:
+                    semantic_results = await episodic.semantic_search(embedding, limit=5)
+                    semantic_summaries = await episodic.semantic_search_summaries(embedding, limit=3)
+        except Exception:
+            pass  # Semantic search is best-effort
+
+    # Merge and deduplicate (semantic first, then time-based)
+    seen_ids = set()
     lines = []
+
+    for ep in semantic_results:
+        if ep["id"] in seen_ids:
+            continue
+        seen_ids.add(ep["id"])
+        ts = ep["start_ts"]
+        time_str = ts.strftime("%d/%m %H:%M") if hasattr(ts, "strftime") else str(ts)
+        sim = ep.get("similarity", 0)
+        lines.append(f"[{sim:.0%}] {time_str} — {ep['title']}: {ep['summary']}")
+
     for ep in episodes:
+        if ep["id"] in seen_ids:
+            continue
+        seen_ids.add(ep["id"])
         ts = ep["start_ts"]
         time_str = ts.strftime("%d/%m %H:%M") if hasattr(ts, "strftime") else str(ts)
         lines.append(f"{time_str} — {ep['title']}: {ep['summary']}")
+
+    # Add semantic summary matches
+    for ds in semantic_summaries if query else []:
+        date_str = str(ds["summary_date"])
+        lines.append(f"[daily] {date_str}: {ds['summary']}")
+
+    if not lines:
+        return f"No episodes found in the last {hours} hours."
     return "\n".join(lines)
 
 

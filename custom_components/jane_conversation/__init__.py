@@ -132,6 +132,21 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
         jane.add_unsub(async_track_time_interval(hass, _daily_summary_task, timedelta(hours=24)))
         jane.add_unsub(async_track_time_interval(hass, _cleanup_task, timedelta(hours=24)))
 
+        # S1.6: Backfill embeddings for existing episodes/summaries (background, non-blocking)
+        async def _backfill_embeddings():
+            try:
+                from .memory.embeddings import backfill_embeddings
+
+                client = jane.gemini_client
+                if client and jane.pg_pool:
+                    count = await backfill_embeddings(hass, jane.pg_pool, client)
+                    if count:
+                        _LOGGER.info("Embedding backfill: %d vectors generated", count)
+            except Exception as e:
+                _LOGGER.debug("Embedding backfill failed: %s", e)
+
+        hass.async_create_task(_backfill_embeddings())
+
 
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
     """Create Redis client and start Working Memory listener."""
