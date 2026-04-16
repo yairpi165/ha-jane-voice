@@ -8,7 +8,8 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-004"
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIMS = 768
 
 
 def _to_pg_vector(embedding: list[float]) -> str:
@@ -19,10 +20,14 @@ def _to_pg_vector(embedding: list[float]) -> str:
 async def generate_embedding(hass, client, text: str) -> list[float] | None:
     """Generate embedding via Gemini text-embedding-004. Returns None on failure."""
     try:
+        from google.genai import types
+
         response = await hass.async_add_executor_job(
-            client.models.embed_content,
-            model=EMBEDDING_MODEL,
-            contents=text,
+            lambda: client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=text,
+                config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIMS),
+            ),
         )
         return response.embeddings[0].values
     except Exception as e:

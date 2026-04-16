@@ -66,6 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from google import genai
 
     client = await hass.async_add_executor_job(lambda: genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY]))
+    _get_jane(hass).gemini_client = client  # Store for backfill + consolidation
     await hass.async_add_executor_job(rebuild_home_map, client, hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
