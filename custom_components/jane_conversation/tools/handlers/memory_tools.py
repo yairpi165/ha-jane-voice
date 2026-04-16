@@ -97,6 +97,7 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
 
     # Semantic search if query text provided
     semantic_results = []
+    semantic_summaries = []
     if query:
         try:
             from ...memory.embeddings import generate_embedding

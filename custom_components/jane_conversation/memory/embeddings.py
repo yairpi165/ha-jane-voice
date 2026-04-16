@@ -8,6 +8,8 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
+# gemini-embedding-001 is the only embedding model available in the current API.
+# text-embedding-004 was deprecated. Native output is 3072 dims, reduced to 768 via config.
 EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIMS = 768
 
