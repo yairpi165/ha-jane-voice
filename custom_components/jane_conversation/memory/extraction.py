@@ -31,9 +31,33 @@ def _ensure_str(value) -> str:
     return str(value)
 
 
-# ---------------------------------------------------------------------------
-# Home map (Gemini-generated on first run)
-# ---------------------------------------------------------------------------
+def _repair_json(raw: str) -> dict:
+    """Repair truncated JSON from Gemini extraction. Raises JSONDecodeError if unfixable."""
+    repaired = raw
+    # Close unclosed string (count unescaped quotes only)
+    real_quotes = raw.count('"') - (len(raw) - len(raw.replace('\\"', "")))
+    if real_quotes % 2 != 0:
+        repaired += '"'
+    if repaired.rstrip().endswith(","):
+        repaired = repaired.rstrip()[:-1]
+    # Close brackets then braces (order matters for nested structures)
+    repaired += "]" * max(repaired.count("[") - repaired.count("]"), 0)
+    repaired += "}" * max(repaired.count("{") - repaired.count("}"), 0)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        pass
+    # Last resort: truncate at last complete element
+    last_comma = repaired.rfind(",")
+    if last_comma > 10:
+        truncated = repaired[:last_comma]
+        truncated += "]" * max(truncated.count("[") - truncated.count("]"), 0)
+        truncated += "}" * max(truncated.count("{") - truncated.count("}"), 0)
+        try:
+            return json.loads(truncated)
+        except json.JSONDecodeError:
+            pass
+    raise json.JSONDecodeError("All repair attempts failed", raw, 0)
 
 HOME_SETUP_PROMPT = """You are setting up the memory for Jane, a smart home assistant.
 Below is a raw list of smart home devices from Home Assistant.
@@ -57,10 +81,10 @@ def rebuild_home_map(client: genai.Client, hass):
 
     relevant_domains = {"light", "climate", "cover", "media_player", "fan", "vacuum", "water_heater"}
     skip_keywords = {
-        "camera", "motion_detection", "microphone", "speaker", "audio_recording",
-        "pet_detection", "rtsp", "extra_dry", "child_lock", "notification",
-        "backup_map", "wetness_level", "suction_level", "mop_pad", "cleaning_mode",
-        "cleaning_times", "cleaning_route", "floor_material", "visibility",
+        "camera", "motion_detection", "microphone", "speaker", "audio_recording", "pet_detection",
+        "rtsp", "extra_dry", "child_lock", "notification", "backup_map", "wetness_level",
+        "suction_level", "mop_pad", "cleaning_mode", "cleaning_times", "cleaning_route",
+        "floor_material", "visibility",
     }
     entities = []
     for state in hass.states.async_all():
@@ -94,10 +118,6 @@ def rebuild_home_map(client: genai.Client, hass):
     except Exception as e:
         _LOGGER.error("Home map generation failed: %s", e)
 
-
-# ---------------------------------------------------------------------------
-# Memory extraction (Gemini-managed, runs in background)
-# ---------------------------------------------------------------------------
 
 MEMORY_EXTRACTION_PROMPT = """You are the memory manager for Jane, a Hebrew smart home assistant.
 Analyze the conversation and decide what to remember.
@@ -224,28 +244,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
             result = json.loads(raw)
         except json.JSONDecodeError:
             _LOGGER.warning("Memory extraction JSON truncated, attempting repair")
-            repaired = raw
-            if repaired.count('"') % 2 != 0:
-                repaired += '"'
-            if repaired.rstrip().endswith(","):
-                repaired = repaired.rstrip().rstrip(",")
-            open_braces = repaired.count("{") - repaired.count("}")
-            open_brackets = repaired.count("[") - repaired.count("]")
-            repaired += "]" * open_brackets
-            repaired += "}" * open_braces
-            try:
-                result = json.loads(repaired)
-            except json.JSONDecodeError:
-                # Last resort: truncate at last complete element
-                last_comma = repaired.rfind(",")
-                if last_comma > 10:
-                    truncated = repaired[:last_comma]
-                    ob = truncated.count("{") - truncated.count("}")
-                    ol = truncated.count("[") - truncated.count("]")
-                    truncated += "]" * ol + "}" * ob
-                    result = json.loads(truncated)
-                else:
-                    raise
+            result = _repair_json(raw)
 
         if result.get("user"):
             save_user_memory(user_name, _ensure_str(result["user"]))
@@ -268,7 +267,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
 
 
 def _save_structured_preferences(hass, user_name: str, preferences: list | None):
-    """Save structured preferences to PG via the existing StructuredMemoryStore. Non-fatal."""
+    """Save structured preferences to PG. Non-fatal."""
     if not preferences or hass is None:
         return
     try:
@@ -297,21 +296,17 @@ def _save_structured_preferences(hass, user_name: str, preferences: list | None)
 
 
 def _resolve_person_name(hass, gemini_name: str) -> str:
-    """Resolve Gemini's English name to HA person friendly_name.
-
-    Called from executor thread — hass.states.get() is thread-safe.
-    """
+    """Resolve Gemini's English name to HA person friendly_name (thread-safe)."""
     gemini_lower = gemini_name.lower().strip()
     try:
-        for entity_id in hass.states.async_entity_ids("person"):
-            state = hass.states.get(entity_id)
+        for eid in hass.states.async_entity_ids("person"):
+            state = hass.states.get(eid)
             if state is None:
                 continue
             friendly = state.attributes.get("friendly_name", "")
-            entity_slug = entity_id.split(".")[-1]  # e.g. "yair_pinchasi"
-            if gemini_lower == entity_slug or entity_slug.startswith(gemini_lower + "_") or gemini_lower == friendly.lower():
-                _LOGGER.debug("Resolved person %s → %s", gemini_name, friendly)
+            slug = eid.split(".")[-1]
+            if gemini_lower in (slug, friendly.lower()) or slug.startswith(gemini_lower + "_"):
                 return friendly
-    except Exception as e:
-        _LOGGER.debug("Person name resolution failed for %s: %s", gemini_name, e)
+    except Exception:
+        pass
     return gemini_name
