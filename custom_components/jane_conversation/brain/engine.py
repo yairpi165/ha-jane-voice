@@ -41,7 +41,7 @@ async def think(
         temperature = 0.4
     else:
         model = GEMINI_MODEL_FAST
-        temperature = 0.8
+        temperature = 0.95
 
     _LOGGER.info("Request type: %s -> model: %s", request_type, model)
 

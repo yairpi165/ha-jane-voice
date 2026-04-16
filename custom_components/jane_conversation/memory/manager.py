@@ -210,7 +210,12 @@ async def async_get_recent_responses() -> str:
     responses = await get_backend().get_recent_responses(10)
     if not responses:
         return ""
-    return "Your recent response openings (don't repeat these): " + " | ".join(responses)
+    openings = " | ".join(responses)
+    return (
+        "ANTI-REPETITION: You already used these openings recently — "
+        "DO NOT start with the same words or sentence structure. "
+        "Vary your greeting, tone, and sentence pattern completely:\n" + openings
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +226,12 @@ def get_recent_responses() -> str:
     """Sync version — uses local in-memory list."""
     if not _recent_responses:
         return ""
-    return "Your recent response openings (don't repeat these): " + " | ".join(_recent_responses[-10:])
+    openings = " | ".join(_recent_responses[-10:])
+    return (
+        "ANTI-REPETITION: You already used these openings recently — "
+        "DO NOT start with the same words or sentence structure. "
+        "Vary your greeting, tone, and sentence pattern completely:\n" + openings
+    )
 
 
 def track_response(response: str):
