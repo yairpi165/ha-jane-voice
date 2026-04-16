@@ -1,6 +1,6 @@
 """Tests for embedding generation and pgvector semantic search (S1.6)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
