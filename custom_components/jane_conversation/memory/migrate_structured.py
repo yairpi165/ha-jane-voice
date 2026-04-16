@@ -45,10 +45,13 @@ async def migrate_to_structured(store, file_data: dict) -> int:
     """
     count = 0
 
-    # Check if already migrated — use preferences (survives persons table clear)
-    existing = await store.load_all_preferences(min_confidence=0.0)
-    if existing:
-        _LOGGER.debug("Structured tables already populated, skipping migration")
+    # Check sentinel — one-time migration (same pattern as consolidation)
+    async with store._pool.acquire() as conn:
+        sentinel = await conn.fetchval(
+            "SELECT content FROM memory_entries WHERE category = '_migration' AND user_name IS NULL",
+        )
+    if sentinel:
+        _LOGGER.debug("Migration sentinel found (%s), skipping", sentinel)
         return 0
 
     # Infer primary user from users directory
@@ -62,6 +65,16 @@ async def migrate_to_structured(store, file_data: dict) -> int:
     # Migrate user content → preferences
     for user_name, content in users.items():
         count += await _migrate_user_preferences(store, user_name, content)
+
+    # Record sentinel so migration never re-runs
+    async with store._pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO memory_entries (category, user_name, content, updated_at)
+               VALUES ('_migration', NULL, $1, NOW())
+               ON CONFLICT (category, user_name)
+               DO UPDATE SET content = $1, updated_at = NOW()""",
+            f"migrated {count} items",
+        )
 
     if count:
         _LOGGER.info("Structured migration: %d items migrated from MD files", count)
