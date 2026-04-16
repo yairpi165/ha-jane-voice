@@ -66,6 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from google import genai
 
     client = await hass.async_add_executor_job(lambda: genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY]))
+    _get_jane(hass).gemini_client = client  # Store for backfill + consolidation
     await hass.async_add_executor_job(rebuild_home_map, client, hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -131,6 +132,21 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
         jane.add_unsub(async_track_time_interval(hass, _consolidation_task, timedelta(hours=6)))
         jane.add_unsub(async_track_time_interval(hass, _daily_summary_task, timedelta(hours=24)))
         jane.add_unsub(async_track_time_interval(hass, _cleanup_task, timedelta(hours=24)))
+
+        # S1.6: Backfill embeddings for existing episodes/summaries (background, non-blocking)
+        async def _backfill_embeddings():
+            try:
+                from .memory.embeddings import backfill_embeddings
+
+                client = jane.gemini_client
+                if client and jane.pg_pool:
+                    count = await backfill_embeddings(hass, jane.pg_pool, client)
+                    if count:
+                        _LOGGER.info("Embedding backfill: %d vectors generated", count)
+            except Exception as e:
+                _LOGGER.debug("Embedding backfill failed: %s", e)
+
+        hass.async_create_task(_backfill_embeddings())
 
 
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
