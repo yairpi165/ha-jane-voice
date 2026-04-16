@@ -35,7 +35,8 @@ def _repair_json(raw: str) -> dict:
     """Repair truncated JSON from Gemini extraction. Raises JSONDecodeError if unfixable."""
     repaired = raw
     # Close unclosed string (count unescaped quotes only)
-    real_quotes = raw.count('"') - (len(raw) - len(raw.replace('\\"', "")))
+    escaped_count = raw.count('\\"')
+    real_quotes = raw.count('"') - escaped_count
     if real_quotes % 2 != 0:
         repaired += '"'
     if repaired.rstrip().endswith(","):
@@ -307,6 +308,6 @@ def _resolve_person_name(hass, gemini_name: str) -> str:
             slug = eid.split(".")[-1]
             if gemini_lower in (slug, friendly.lower()) or slug.startswith(gemini_lower + "_"):
                 return friendly
-    except Exception:
-        pass
+    except Exception as e:
+        _LOGGER.debug("Person name resolution failed for %s: %s", gemini_name, e)
     return gemini_name

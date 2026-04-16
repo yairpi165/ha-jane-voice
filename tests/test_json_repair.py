@@ -34,6 +34,16 @@ class TestRepairJson:
         result = _repair_json(raw)
         assert "hello" in result["user"]
 
+    def test_escaped_quotes_even_real_quotes(self):
+        """Escaped quotes must not break the unclosed-string check.
+
+        Here we have 4 real quotes (all paired) + 2 escaped quotes.
+        Without correct counting the parity check would add a spurious quote.
+        """
+        raw = '{"user": "likes \\"pizza\\""}'
+        result = _repair_json(raw)
+        assert "pizza" in result["user"]
+
     def test_trailing_comma(self):
         """Trailing comma after last complete value."""
         raw = '{"user": "done", "family": "ok",'
