@@ -186,7 +186,6 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             ssl="disable",
             min_size=2,
             max_size=5,
-            command_timeout=5,
             timeout=5,
         )
 
