@@ -61,8 +61,13 @@ class WorkingMemory:
                     continue
                 if any(kw in state.entity_id.lower() for kw in self._skip):
                     continue
-                if state.state not in OFF_STATES:
-                    pipe.hset("jane:active", state.entity_id, describe_entity(state))
+                if state.state in OFF_STATES:
+                    continue
+                if state.domain == "cover":
+                    pos = state.attributes.get("current_position")
+                    if pos in (None, 0, 100):
+                        continue
+                pipe.hset("jane:active", state.entity_id, describe_entity(state))
 
             await pipe.execute()
             _LOGGER.info("Working memory: initial snapshot loaded")
@@ -172,9 +177,7 @@ class WorkingMemory:
         cached = await self._redis.get("jane:context_cache")
         if cached:
             return cached
-
         parts = []
-
         presence = await self._redis.hgetall("jane:presence")
         since = await self._redis.hgetall("jane:presence:since")
         if presence:
@@ -190,12 +193,10 @@ class WorkingMemory:
         if weather:
             temp = weather.attributes.get("temperature", "?")
             parts.append(f"Weather: {weather.state}, {temp}°C")
-
         active = await self._redis.hgetall("jane:active")
         if active:
             descriptions = list(active.values())[:15]
             parts.append(f"Active: {', '.join(descriptions)}")
-
         now = time.time()
         changes_raw = await self._redis.zrangebyscore("jane:changes", now - 1800, "+inf")
         if changes_raw:
@@ -209,7 +210,6 @@ class WorkingMemory:
                     continue
             if change_lines:
                 parts.append("Recent: " + ", ".join(change_lines))
-
         if not parts:
             return None
 
