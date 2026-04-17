@@ -9,7 +9,7 @@ from ..memory import get_backend
 
 _LOGGER = logging.getLogger(__name__)
 
-_FALLBACK_DOMAINS = parse_csv(DEFAULT_TRACKED_DOMAINS) - {"person"}
+_FALLBACK_DOMAINS = parse_csv(DEFAULT_TRACKED_DOMAINS)
 _FALLBACK_SKIP = parse_csv(DEFAULT_SKIP_KEYWORDS)
 _OFF_STATES = {"off", "unavailable", "idle", "unknown", "standby"}
 

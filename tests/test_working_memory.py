@@ -137,11 +137,9 @@ class TestDescribeEntity:
         state = make_state("vacuum.x40", "cleaning", {"friendly_name": "X40 Ultra"})
         assert describe_entity(state) == "X40 Ultra (cleaning)"
 
-    def test_light_with_brightness(self):
+    def test_light_with_brightness_raw(self):
         state = make_state("light.living", "on", {"friendly_name": "סלון", "brightness": 178})
-        result = describe_entity(state)
-        assert "סלון" in result
-        assert "%" in result
+        assert describe_entity(state) == "סלון (70%)"  # 178/255 ≈ 70%
 
     def test_light_with_brightness_pct(self):
         state = make_state("light.living", "on", {"friendly_name": "סלון", "brightness_pct": 70})
@@ -157,11 +155,11 @@ class TestDescribeEntity:
 
     def test_lock_locked(self):
         state = make_state("lock.door", "locked", {"friendly_name": "דלת כניסה"})
-        assert describe_entity(state) == "דלת כניסה (נעול)"
+        assert describe_entity(state) == "דלת כניסה (locked)"
 
     def test_lock_unlocked(self):
         state = make_state("lock.door", "unlocked", {"friendly_name": "דלת כניסה"})
-        assert describe_entity(state) == "דלת כניסה (פתוח)"
+        assert describe_entity(state) == "דלת כניסה (unlocked)"
 
     def test_default_on(self):
         state = make_state("switch.boiler", "on", {"friendly_name": "דוד חשמל"})
@@ -346,6 +344,10 @@ class TestDebounce:
             {"friendly_name": "TV"},
         )
         await working_memory._on_state_changed(event2)
+
+        # Verify per-state debounce keys exist
+        assert await redis_mock.get("jane:change_ts:media_player.tv:playing") is not None
+        assert await redis_mock.get("jane:change_ts:media_player.tv:idle") is not None
 
         # Now back to playing (same as first) within 60s — should be suppressed
         event3 = _make_state_event(

@@ -55,7 +55,7 @@ GEMINI_MODEL_SMART = "gemini-2.5-pro"
 CONF_TRACKED_DOMAINS = "tracked_domains"
 CONF_SKIP_KEYWORDS = "skip_keywords"
 DEFAULT_TRACKED_DOMAINS = (
-    "light,switch,input_boolean,climate,fan,humidifier,water_heater,media_player,vacuum,cover,lock,alarm_control_panel"
+    "light,switch,climate,fan,humidifier,water_heater,media_player,vacuum,cover,lock,alarm_control_panel"
 )
 DEFAULT_SKIP_KEYWORDS = (
     "camera,motion,microphone,speaker,rtsp,recording,detection,"

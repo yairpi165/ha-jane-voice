@@ -2,6 +2,7 @@
 
 import json
 import logging
+import textwrap
 import time
 from collections.abc import Callable
 
@@ -108,8 +109,13 @@ class WorkingMemory:
         """Update active device tracking in Redis with rich descriptions."""
         if state.state in OFF_STATES:
             await self._redis.hdel("jane:active", state.entity_id)
-        else:
-            await self._redis.hset("jane:active", state.entity_id, describe_entity(state))
+            return
+        if state.domain == "cover":
+            pos = state.attributes.get("current_position")
+            if pos in (None, 0, 100):
+                await self._redis.hdel("jane:active", state.entity_id)
+                return
+        await self._redis.hset("jane:active", state.entity_id, describe_entity(state))
 
     async def _record_change(self, event: Event) -> None:
         """Record state change with smart debounce (per entity+state)."""
@@ -123,15 +129,12 @@ class WorkingMemory:
         now = time.time()
         entity_id = new_state.entity_id
 
-        # Smart debounce: suppress if same entity returned to same state within window
-        last_key = f"jane:change_last:{entity_id}"
-        last_state = await self._redis.get(last_key)
-        if last_state == new_state.state:
-            last_ts = await self._redis.get(f"jane:change_ts:{entity_id}")
-            if last_ts and now - float(last_ts) < DEBOUNCE_SECONDS:
-                return
-        await self._redis.set(last_key, new_state.state, ex=DEBOUNCE_SECONDS)
-        await self._redis.set(f"jane:change_ts:{entity_id}", str(now), ex=DEBOUNCE_SECONDS)
+        # Smart debounce: suppress if entity reached this same state within window
+        state_key = f"jane:change_ts:{entity_id}:{new_state.state}"
+        last_ts = await self._redis.get(state_key)
+        if last_ts and now - float(last_ts) < DEBOUNCE_SECONDS:
+            return
+        await self._redis.set(state_key, str(now), ex=DEBOUNCE_SECONDS)
 
         friendly = new_state.attributes.get("friendly_name", new_state.entity_id)
         entry = json.dumps(
@@ -245,7 +248,8 @@ def describe_entity(state) -> str:
     if domain == "media_player":
         title = attrs.get("media_title", "")
         if title:
-            return f"{name} ({title[:30]})"
+            short = textwrap.shorten(title, width=30, placeholder="…")
+            return f"{name} ({short})"
         source = attrs.get("app_name") or attrs.get("source", "")
         return f"{name} ({source})" if source else f"{name} ({state.state})"
 
@@ -253,29 +257,30 @@ def describe_entity(state) -> str:
         pos = attrs.get("current_position")
         return f"{name} ({pos}%)" if pos is not None else f"{name} ({state.state})"
 
-    if domain == "vacuum":
+    if domain in ("vacuum", "alarm_control_panel", "lock"):
         return f"{name} ({state.state})"
 
     if domain == "light" and state.state == "on":
-        bright = attrs.get("brightness_pct") or attrs.get("brightness")
+        bright_pct = attrs.get("brightness_pct")
+        if bright_pct is not None:
+            return f"{name} ({bright_pct}%)"
+        bright = attrs.get("brightness")
         if bright is not None:
-            pct = bright if isinstance(bright, int) and bright <= 100 else round(bright / 255 * 100)
-            return f"{name} ({pct}%)"
+            return f"{name} ({round(bright / 255 * 100)}%)"
         return name
 
     if domain == "fan":
         pct = attrs.get("percentage")
         return f"{name} ({pct}%)" if pct else f"{name} ({state.state})"
 
-    if domain == "lock":
-        return f"{name} ({'נעול' if state.state == 'locked' else 'פתוח'})"
+    if domain == "water_heater":
+        current = attrs.get("current_temperature") or attrs.get("temperature")
+        unit = attrs.get("temperature_unit", "°C")
+        return f"{name} ({state.state}, {current}{unit})" if current is not None else f"{name} ({state.state})"
 
-    if domain == "alarm_control_panel":
-        return f"{name} ({state.state})"
-
-    if domain in ("water_heater", "humidifier"):
-        temp = attrs.get("temperature") or attrs.get("humidity")
-        return f"{name} ({state.state}, {temp})" if temp else f"{name} ({state.state})"
+    if domain == "humidifier":
+        current = attrs.get("current_humidity") or attrs.get("humidity")
+        return f"{name} ({state.state}, {current}%)" if current is not None else f"{name} ({state.state})"
 
     if state.state != "on":
         return f"{name} ({state.state})"
