@@ -8,7 +8,7 @@ from google.genai import types
 from homeassistant.core import HomeAssistant
 
 from ..const import DOMAIN, GEMINI_MODEL_FAST, GEMINI_MODEL_SMART, SYSTEM_PROMPT
-from ..memory import get_recent_responses, load_home
+from ..memory import get_backend, get_recent_responses
 from ..memory.context_builder import build_episodic_context, build_memory_context
 from ..tools import execute_tool, get_tools, get_tools_minimal
 from .classifier import classify_request
@@ -47,7 +47,10 @@ async def think(
 
     # Build context
     home_context = await build_context(hass, working_memory)
-    home_layout = await hass.async_add_executor_job(load_home)
+    try:
+        home_layout = await get_backend().load("home")
+    except Exception:
+        home_layout = ""
     routines_context = await load_routines_index(hass)
 
     # Build system instruction

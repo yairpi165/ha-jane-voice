@@ -8,38 +8,25 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _resolve_user_name(hass: HomeAssistant, gemini_name: str) -> str:
-    """Resolve user_name to HA person friendly_name to avoid duplicates.
-
-    Only needed for the save_memory tool path — Gemini passes names in English
-    (e.g., 'yair') but the person entity uses Hebrew ('יאיר'). The extraction
-    path in conversation.py already resolves via hass.auth.async_get_user().
-    """
+    """Resolve user_name to HA person friendly_name to avoid duplicates."""
     gemini_lower = gemini_name.lower().strip()
     for state in hass.states.async_all("person"):
         friendly = state.attributes.get("friendly_name", "")
         entity_slug = state.entity_id.split(".")[-1]
-        if gemini_lower == entity_slug or entity_slug.startswith(gemini_lower + "_") or gemini_lower == friendly.lower():
+        if (
+            gemini_lower == entity_slug
+            or entity_slug.startswith(gemini_lower + "_")
+            or gemini_lower == friendly.lower()
+        ):
             return friendly
     return gemini_name
 
 
 async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
-    """Explicitly save to Jane's memory."""
-    from ...memory import (
-        save_corrections,
-        save_family_memory,
-        save_habits_memory,
-        save_routines,
-        save_user_memory,
-    )
-    from ...memory.manager import (
-        load_corrections,
-        load_family_memory,
-        load_habits_memory,
-        load_routines,
-        load_user_memory,
-    )
+    """Explicitly save to Jane's memory (PG backend)."""
+    from ...memory.manager import get_backend
 
+    backend = get_backend()
     category = args.get("category", "")
     content = args.get("content", "")
     user_name = _resolve_user_name(hass, args.get("user_name", "default"))
@@ -47,32 +34,15 @@ async def handle_save_memory(hass: HomeAssistant, args: dict) -> str:
     if not content:
         return "Error: content is required."
 
-    # Load existing content and append
-    loaders = {
-        "user": lambda: load_user_memory(user_name),
-        "family": load_family_memory,
-        "habits": load_habits_memory,
-        "corrections": load_corrections,
-        "routines": load_routines,
-    }
-    savers = {
-        "user": lambda c: save_user_memory(user_name, c),
-        "family": save_family_memory,
-        "habits": save_habits_memory,
-        "corrections": save_corrections,
-        "routines": save_routines,
-    }
+    valid = {"user", "family", "habits", "corrections", "routines"}
+    if category not in valid:
+        return f"Unknown category: {category}. Use: {', '.join(valid)}"
 
-    if category not in loaders:
-        return f"Unknown category: {category}. Use: user, family, habits, corrections, routines"
+    uname = user_name if category == "user" else None
+    existing = await backend.load(category, uname)
+    new_content = (existing + "\n" + content) if existing else content
 
-    existing = await hass.async_add_executor_job(loaders[category])
-    if existing:
-        new_content = existing + "\n" + content
-    else:
-        new_content = content
-
-    await hass.async_add_executor_job(savers[category], new_content)
+    await backend.save(category, new_content, uname)
     _LOGGER.info("Memory saved: category=%s, length=%d", category, len(new_content))
     return f"Saved to {category} memory."
 
@@ -92,10 +62,8 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
     now = datetime.now().astimezone()
     start = now - timedelta(hours=hours)
 
-    # Time-based results (existing behavior)
     episodes = await episodic.query_episodes(start, now, limit=20)
 
-    # Semantic search if query text provided
     semantic_results = []
     semantic_summaries = []
     if query:
@@ -109,9 +77,8 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
                     semantic_results = await episodic.semantic_search(embedding, limit=5)
                     semantic_summaries = await episodic.semantic_search_summaries(embedding, limit=3)
         except Exception:
-            pass  # Semantic search is best-effort
+            pass
 
-    # Merge and deduplicate (semantic first, then time-based)
     seen_ids = set()
     lines = []
 
@@ -132,7 +99,6 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
         time_str = ts.strftime("%d/%m %H:%M") if hasattr(ts, "strftime") else str(ts)
         lines.append(f"{time_str} — {ep['title']}: {ep['summary']}")
 
-    # Add semantic summary matches
     for ds in semantic_summaries if query else []:
         date_str = str(ds["summary_date"])
         lines.append(f"[daily] {date_str}: {ds['summary']}")
@@ -143,32 +109,39 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
 
 
 async def handle_read_memory(hass: HomeAssistant, args: dict) -> str:
-    """Read a specific memory file on demand."""
-    from ...memory.manager import (
-        load_actions,
-        load_corrections,
-        load_family_memory,
-        load_habits_memory,
-        load_routines,
-        load_user_memory,
-    )
+    """Read memory from PG backend."""
+    from ...const import DOMAIN
+    from ...memory.manager import get_backend
 
     category = args.get("category", "")
     user_name = args.get("user_name", "default")
 
-    loaders = {
-        "user": lambda: load_user_memory(user_name),
-        "family": load_family_memory,
-        "habits": load_habits_memory,
-        "corrections": load_corrections,
-        "routines": load_routines,
-        "actions": load_actions,
-    }
+    valid = {"user", "family", "habits", "corrections", "routines", "actions"}
+    if category not in valid:
+        return f"Unknown category: {category}. Available: {', '.join(valid)}"
 
-    if category not in loaders:
-        return f"Unknown category: {category}. Available: {', '.join(loaders.keys())}"
+    # Actions live in events table, not memory_entries
+    if category == "actions":
+        try:
+            pool = getattr(hass.data.get(DOMAIN), "pg_pool", None)
+            if pool:
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """SELECT description, timestamp FROM events
+                           WHERE event_type = 'action'
+                             AND timestamp > NOW() - INTERVAL '24 hours'
+                           ORDER BY timestamp DESC LIMIT 20""",
+                    )
+                    if not rows:
+                        return "No recent actions in the last 24 hours."
+                    lines = [f"- {r['timestamp'].strftime('%H:%M')} — {r['description']}" for r in rows]
+                    return "Recent actions (24h):\n" + "\n".join(lines)
+        except Exception:
+            return "Could not load actions."
 
-    content = await hass.async_add_executor_job(loaders[category])
+    backend = get_backend()
+    uname = user_name if category == "user" else None
+    content = await backend.load(category, uname)
     if not content:
         return f"No {category} memory saved yet."
     return content

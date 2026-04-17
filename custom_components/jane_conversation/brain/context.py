@@ -1,17 +1,16 @@
 """Context assembly — home awareness, routines, layout."""
 
 import logging
-from pathlib import Path
 
 from homeassistant.core import HomeAssistant
 
-from ..memory import get_memory_dir
+from ..memory import get_backend
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def load_routines_index(hass: HomeAssistant) -> str:
-    """Load routines — from PG RoutineStore if available, else routines.md fallback."""
+    """Load routines — from PG RoutineStore if available, else memory_entries fallback."""
     from ..const import DOMAIN
 
     routine_store = getattr(hass.data.get(DOMAIN), "routines", None)
@@ -19,22 +18,12 @@ async def load_routines_index(hass: HomeAssistant) -> str:
         try:
             return await routine_store.load_routines_for_context()
         except Exception:
-            _LOGGER.debug("RoutineStore unavailable, falling back to MD")
+            _LOGGER.debug("RoutineStore unavailable, falling back to memory_entries")
 
-    return await hass.async_add_executor_job(_load_routines_md)
-
-
-def _load_routines_md() -> str:
-    """Load routines.md (sync, fallback)."""
-    mem_dir = get_memory_dir()
-    if not mem_dir:
+    try:
+        return await get_backend().load("routines")
+    except Exception:
         return ""
-    routines_path = Path(mem_dir) / "routines.md"
-    if routines_path.exists():
-        content = routines_path.read_text(encoding="utf-8").strip()
-        if content:
-            return content
-    return ""
 
 
 async def build_context(hass: HomeAssistant, working_memory=None) -> str:

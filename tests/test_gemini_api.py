@@ -11,6 +11,7 @@ from jane_conversation.const import GEMINI_MODEL_FAST, GEMINI_MODEL_SMART
 # History Conversion (dict → Gemini Content)
 # ---------------------------------------------------------------------------
 
+
 class TestHistoryConversion:
     """Tests that dict-format history is converted to Gemini Content objects."""
 
@@ -20,10 +21,17 @@ class TestHistoryConversion:
         text_resp = gemini_client_mock._make_text_response("שלום")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             await think(
-                gemini_client_mock, "מה שלומך", "yair", hass_mock,
+                gemini_client_mock,
+                "מה שלומך",
+                "yair",
+                hass_mock,
                 history=[{"role": "user", "content": "היי"}],
             )
 
@@ -40,10 +48,17 @@ class TestHistoryConversion:
         text_resp = gemini_client_mock._make_text_response("בסדר")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             await think(
-                gemini_client_mock, "תודה", "yair", hass_mock,
+                gemini_client_mock,
+                "תודה",
+                "yair",
+                hass_mock,
                 history=[
                     {"role": "user", "content": "היי"},
                     {"role": "assistant", "content": "שלום!"},
@@ -61,6 +76,7 @@ class TestHistoryConversion:
 # Model Selection
 # ---------------------------------------------------------------------------
 
+
 class TestModelSelection:
     """Tests that the right model is chosen based on request type."""
 
@@ -69,8 +85,12 @@ class TestModelSelection:
         text_resp = gemini_client_mock._make_text_response("שלום!")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             await think(gemini_client_mock, "מה שלומך", "yair", hass_mock)
 
         call_args = gemini_client_mock.models.generate_content.call_args
@@ -82,8 +102,12 @@ class TestModelSelection:
         text_resp = gemini_client_mock._make_text_response("הדלקתי")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             await think(gemini_client_mock, "תדליק אור", "yair", hass_mock)
 
         call_args = gemini_client_mock.models.generate_content.call_args
@@ -95,8 +119,12 @@ class TestModelSelection:
         text_resp = gemini_client_mock._make_text_response("יצרתי אוטומציה")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             await think(gemini_client_mock, "תיצרי אוטומציה שמדליקה אור", "yair", hass_mock)
 
         call_args = gemini_client_mock.models.generate_content.call_args
@@ -108,6 +136,7 @@ class TestModelSelection:
 # Tool Calling Loop
 # ---------------------------------------------------------------------------
 
+
 class TestToolCallingLoop:
     """Tests for the think() tool calling loop."""
 
@@ -117,8 +146,12 @@ class TestToolCallingLoop:
         text_resp = gemini_client_mock._make_text_response("הטמפרטורה היא 25 מעלות")
         gemini_client_mock.models.generate_content.return_value = text_resp
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             result = await think(gemini_client_mock, "מה הטמפרטורה?", "yair", hass_mock)
 
         assert "25" in result
@@ -128,17 +161,21 @@ class TestToolCallingLoop:
     async def test_single_tool_call(self, hass_mock, gemini_client_mock):
         """Gemini calls a tool → gets result → responds with text."""
         # First call: tool call
-        tool_resp = gemini_client_mock._make_tool_call_response(
-            "get_entity_state", {"entity_id": "climate.ac"}
-        )
+        tool_resp = gemini_client_mock._make_tool_call_response("get_entity_state", {"entity_id": "climate.ac"})
         # Second call: text response
         text_resp = gemini_client_mock._make_text_response("המזגן על 24 מעלות")
 
         gemini_client_mock.models.generate_content.side_effect = [tool_resp, text_resp]
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""), \
-             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="מזגן: cool, 24°C"):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+            patch(
+                "jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="מזגן: cool, 24°C"
+            ),
+        ):
             result = await think(gemini_client_mock, "מה מצב המזגן?", "yair", hass_mock)
 
         assert "24" in result
@@ -151,8 +188,12 @@ class TestToolCallingLoop:
         response.candidates = []
         gemini_client_mock.models.generate_content.return_value = response
 
-        with patch("jane_conversation.brain.engine.load_home", return_value=""), \
-             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""):
+        with (
+            patch(
+                "jane_conversation.brain.engine.get_backend", return_value=AsyncMock(load=AsyncMock(return_value=""))
+            ),
+            patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
+        ):
             result = await think(gemini_client_mock, "בדיקה", "yair", hass_mock)
 
         assert result == ""
