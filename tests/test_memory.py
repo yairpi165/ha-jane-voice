@@ -147,3 +147,11 @@ class TestNormalizeDate:
 
     def test_empty_returns_none(self):
         assert _normalize_date("") is None
+
+    def test_returns_date_object_not_string(self):
+        """asyncpg requires datetime.date for DATE columns, not str."""
+        from datetime import date
+
+        result = _normalize_date("2024-12-08")
+        assert isinstance(result, date)
+        assert not isinstance(result, str)

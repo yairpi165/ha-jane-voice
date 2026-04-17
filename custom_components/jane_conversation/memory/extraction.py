@@ -385,7 +385,7 @@ def _save_correction_dedup(hass, user_name: str, correction_text: str):
                     """SELECT 1 FROM events
                        WHERE event_type = 'correction' AND user_name = $1
                          AND description = $2
-                         AND created_at > NOW() - INTERVAL '24 hours'
+                         AND timestamp > NOW() - INTERVAL '24 hours'
                        LIMIT 1""",
                     user_name,
                     correction_text,
