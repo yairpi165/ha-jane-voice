@@ -1,6 +1,5 @@
 """Tests for memory.py — file I/O, anti-repetition tracking, action log."""
 
-
 from jane_conversation.memory import (
     _recent_responses,
     append_action,
@@ -11,10 +10,12 @@ from jane_conversation.memory import (
     load_home,
     track_response,
 )
+from jane_conversation.memory.extraction import _normalize_date
 
 # ---------------------------------------------------------------------------
 # Anti-Repetition Tracking
 # ---------------------------------------------------------------------------
+
 
 class TestAntiRepetition:
     def setup_method(self):
@@ -68,6 +69,7 @@ class TestAntiRepetition:
 # Memory File I/O
 # ---------------------------------------------------------------------------
 
+
 class TestMemoryFileIO:
     def test_init_creates_directories(self, tmp_memory_dir):
         init_memory(str(tmp_memory_dir.parent))
@@ -98,6 +100,7 @@ class TestMemoryFileIO:
 # Action Log
 # ---------------------------------------------------------------------------
 
+
 class TestActionLog:
     def test_append_creates_file(self, tmp_memory_dir):
         init_memory(str(tmp_memory_dir.parent))
@@ -116,3 +119,31 @@ class TestActionLog:
         content = log_file.read_text()
         assert "תדליק אור" in content
         assert "הדלקתי" in content
+
+
+# ---------------------------------------------------------------------------
+# Birthday Date Normalization
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeDate:
+    def test_iso_format(self):
+        from datetime import date
+
+        assert _normalize_date("2024-12-08") == date(2024, 12, 8)
+
+    def test_slash_format_dayfirst(self):
+        from datetime import date
+
+        assert _normalize_date("08/12/2024") == date(2024, 12, 8)
+
+    def test_natural_english(self):
+        from datetime import date
+
+        assert _normalize_date("December 8, 2024") == date(2024, 12, 8)
+
+    def test_invalid_returns_none(self):
+        assert _normalize_date("not a date") is None
+
+    def test_empty_returns_none(self):
+        assert _normalize_date("") is None
