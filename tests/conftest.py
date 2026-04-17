@@ -53,10 +53,14 @@ def hass_mock():
     hass = AsyncMock()
 
     # Weather state
-    weather = make_state("weather.forecast_home", "sunny", {
-        "temperature": 25,
-        "friendly_name": "Forecast Home",
-    })
+    weather = make_state(
+        "weather.forecast_home",
+        "sunny",
+        {
+            "temperature": 25,
+            "friendly_name": "Forecast Home",
+        },
+    )
 
     # People
     person_yair = make_state("person.yair", "home", {"friendly_name": "יאיר"})
@@ -75,7 +79,22 @@ def hass_mock():
     # Camera (should be filtered)
     camera = make_state("media_player.camera_stream", "on", {"friendly_name": "Camera Stream"})
 
-    all_states = [weather, person_yair, person_efrat, light_living, light_bedroom, ac, tv, camera]
+    # Calendars
+    cal_family = make_state("calendar.family", "off", {"friendly_name": "משפחה"})
+    cal_personal = make_state("calendar.personal", "off", {"friendly_name": "אישי"})
+
+    all_states = [
+        weather,
+        person_yair,
+        person_efrat,
+        light_living,
+        light_bedroom,
+        ac,
+        tv,
+        camera,
+        cal_family,
+        cal_personal,
+    ]
 
     def get_state(entity_id):
         for s in all_states:

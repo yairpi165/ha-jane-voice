@@ -53,11 +53,11 @@ TOOL_CALL_HA_SERVICE = {
                 "type": "object",
                 "description": (
                     "Additional service data. Examples:\n"
-                    "- Brightness: {\"brightness_pct\": 50}\n"
-                    "- AC temperature: {\"temperature\": 23}\n"
-                    "- Volume: {\"volume_level\": 0.5} (0.0=mute, 1.0=max)\n"
-                    "- Cover position: {\"position\": 40} (0=closed, 100=open)\n"
-                    "- Weather forecast: {\"type\": \"daily\"}"
+                    '- Brightness: {"brightness_pct": 50}\n'
+                    '- AC temperature: {"temperature": 23}\n'
+                    '- Volume: {"volume_level": 0.5} (0.0=mute, 1.0=max)\n'
+                    '- Cover position: {"position": 40} (0=closed, 100=open)\n'
+                    '- Weather forecast: {"type": "daily"}'
                 ),
             },
         },
@@ -124,7 +124,7 @@ TOOL_SET_AUTOMATION = {
         "EXAMPLE — One-time with date condition:\n"
         '{"alias": "Heat tomorrow", "trigger": [{"platform": "time", "at": "09:00:00"}], '
         '"condition": [{"condition": "template", "value_template": '
-        '"{{ now().strftime(\'%Y-%m-%d\') == \'2026-04-10\' }}"}], '
+        "\"{{ now().strftime('%Y-%m-%d') == '2026-04-10' }}\"}], "
         '"action": [{"service": "climate.turn_on", "target": {"entity_id": "climate.ac"}}]}\n\n'
         "EXAMPLE — Blueprint:\n"
         '{"alias": "Motion Light", "use_blueprint": {"path": "homeassistant/motion_light.yaml", '
@@ -150,8 +150,7 @@ TOOL_SET_AUTOMATION = {
 TOOL_REMOVE_AUTOMATION = {
     "name": "remove_automation",
     "description": (
-        "Delete a Home Assistant automation permanently.\n"
-        "Use entity_id (automation.morning_routine) or unique_id."
+        "Delete a Home Assistant automation permanently.\nUse entity_id (automation.morning_routine) or unique_id."
     ),
     "parameters": {
         "type": "object",
@@ -197,10 +196,7 @@ TOOL_SET_SCRIPT = {
 
 TOOL_REMOVE_SCRIPT = {
     "name": "remove_script",
-    "description": (
-        "Delete a Home Assistant script permanently.\n"
-        "Use entity_id (script.xxx) or unique_id."
-    ),
+    "description": ("Delete a Home Assistant script permanently.\nUse entity_id (script.xxx) or unique_id."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -241,10 +237,7 @@ TOOL_SET_SCENE = {
 
 TOOL_REMOVE_SCENE = {
     "name": "remove_scene",
-    "description": (
-        "Delete a Home Assistant scene permanently.\n"
-        "Use entity_id (scene.xxx) or unique_id."
-    ),
+    "description": ("Delete a Home Assistant scene permanently.\nUse entity_id (scene.xxx) or unique_id."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -259,10 +252,7 @@ TOOL_REMOVE_SCENE = {
 
 TOOL_LIST_CONFIG = {
     "name": "list_config",
-    "description": (
-        "List all automations, scripts, or scenes. "
-        "Returns id and alias for each item."
-    ),
+    "description": ("List all automations, scripts, or scenes. Returns id and alias for each item."),
     "parameters": {
         "type": "object",
         "properties": {
@@ -366,8 +356,7 @@ TOOL_SEND_NOTIFICATION = {
 TOOL_CHECK_PEOPLE = {
     "name": "check_people",
     "description": (
-        "Check who is home and where family members are. "
-        "Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
+        "Check who is home and where family members are. Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
     ),
     "parameters": {
         "type": "object",
@@ -493,7 +482,7 @@ TOOL_EVAL_TEMPLATE = {
     "name": "eval_template",
     "description": (
         "Evaluate a Jinja2 template in Home Assistant. Very powerful for calculations and queries. "
-        "Examples: count entities ('{{ states.light | selectattr(\"state\",\"eq\",\"on\") | list | count }}'), "
+        'Examples: count entities (\'{{ states.light | selectattr("state","eq","on") | list | count }}\'), '
         "date math ('{{ now().strftime(\"%A %d/%m\") }}'), "
         "check conditions ('{{ states(\"sensor.temperature\") | float > 30 }}')."
     ),
@@ -617,12 +606,15 @@ TOOL_GET_DEVICE = {
 TOOL_GET_CALENDAR_EVENTS = {
     "name": "get_calendar_events",
     "description": (
-        "Get upcoming calendar events. Use for 'what's on today?', "
-        "'do I have anything tomorrow?', 'what's this week?'."
+        "Get upcoming calendar events. Use for 'what's on today?', 'do I have anything tomorrow?', 'what's this week?'."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "Calendar entity ID (e.g. calendar.family). If not specified, searches all calendars.",
+            },
             "days": {
                 "type": "integer",
                 "description": "How many days ahead to look (default 1, max 7)",
@@ -635,22 +627,27 @@ TOOL_CREATE_CALENDAR_EVENT = {
     "name": "create_calendar_event",
     "description": (
         "Create a new calendar event. Use for 'add to calendar', "
-        "'remind me about the meeting', 'schedule dinner'."
+        "'remind me about the meeting', 'schedule dinner'. "
+        "For all-day events like birthdays, use date-only format (2026-12-08) without time."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "Calendar entity ID (e.g. calendar.family). If not specified, uses the first available calendar.",
+            },
             "summary": {
                 "type": "string",
                 "description": "Event title/summary",
             },
             "start": {
                 "type": "string",
-                "description": "Start datetime (ISO format: 2026-04-10T09:00:00)",
+                "description": "Start date or datetime. Use date-only (2026-12-08) for all-day events, or ISO datetime (2026-04-10T09:00:00) for timed events.",
             },
             "end": {
                 "type": "string",
-                "description": "End datetime (ISO format: 2026-04-10T10:00:00)",
+                "description": "End date or datetime. For all-day events use the next day (2026-12-09). For timed events use ISO datetime.",
             },
             "description": {
                 "type": "string",
@@ -784,8 +781,7 @@ TOOL_GET_AUTOMATION_CONFIG = {
 TOOL_GET_SCRIPT_CONFIG = {
     "name": "get_script_config",
     "description": (
-        "Read the full configuration of a script by its id. "
-        "Use for 'what does this script do?', 'show me the script'."
+        "Read the full configuration of a script by its id. Use for 'what does this script do?', 'show me the script'."
     ),
     "parameters": {
         "type": "object",
@@ -832,9 +828,7 @@ TOOL_GET_OVERVIEW = {
 
 TOOL_LIST_FLOORS = {
     "name": "list_floors",
-    "description": (
-        "List all floors in the home and which areas belong to each floor."
-    ),
+    "description": ("List all floors in the home and which areas belong to each floor."),
     "parameters": {
         "type": "object",
         "properties": {},
@@ -862,8 +856,7 @@ TOOL_GET_ZONE = {
 TOOL_UPDATE_DEVICE = {
     "name": "update_device",
     "description": (
-        "Update a device's name or area assignment. "
-        "Use for 'move the heater to the bedroom', 'rename the vacuum'."
+        "Update a device's name or area assignment. Use for 'move the heater to the bedroom', 'rename the vacuum'."
     ),
     "parameters": {
         "type": "object",

@@ -51,7 +51,7 @@ async def think(
     routines_context = await load_routines_index(hass)
 
     # Build system instruction
-    now = datetime.now().strftime("%A %H:%M")
+    now = datetime.now().strftime("%A %d/%m/%Y %H:%M")
     system_parts = [SYSTEM_PROMPT, f"\nCurrent time: {now}"]
     if home_context:
         system_parts.append(f"\nHome status:\n{home_context}")
@@ -203,7 +203,9 @@ def _call_gemini(
 
     try:
         return client.models.generate_content(
-            model=model, contents=messages, config=config,
+            model=model,
+            contents=messages,
+            config=config,
         )
     except Exception as e:
         if "503" not in str(e) and "429" not in str(e) and "UNAVAILABLE" not in str(e):
@@ -213,7 +215,9 @@ def _call_gemini(
     time.sleep(3)  # Blocking sleep OK — runs in executor thread
     try:
         return client.models.generate_content(
-            model=model, contents=messages, config=config,
+            model=model,
+            contents=messages,
+            config=config,
         )
     except Exception as e:
         if model == GEMINI_MODEL_FAST:
@@ -224,7 +228,9 @@ def _call_gemini(
 
     # Fallback to Flash — reuses Pro config (tools, max_tokens) for graceful degradation
     return client.models.generate_content(
-        model=GEMINI_MODEL_FAST, contents=messages, config=config,
+        model=GEMINI_MODEL_FAST,
+        contents=messages,
+        config=config,
     )
 
 

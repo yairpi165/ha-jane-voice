@@ -9,7 +9,7 @@ from ..const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 # Max lines in the memory context block
-_MAX_LINES = 20
+_MAX_LINES = 40
 # Minimum confidence to include a preference
 _MIN_CONFIDENCE = 0.5
 
@@ -46,9 +46,14 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
             parts = [p["name"]]
             if p.get("role"):
                 parts.append(f"({p['role']})")
+            if p.get("birth_date"):
+                bd = p["birth_date"]
+                bd_str = bd.strftime("%d/%m/%Y") if hasattr(bd, "strftime") else str(bd)
+                parts.append(f"born {bd_str}")
             meta = p.get("metadata") or {}
             if isinstance(meta, str):
                 import json
+
                 try:
                     meta = json.loads(meta)
                 except (json.JSONDecodeError, TypeError):

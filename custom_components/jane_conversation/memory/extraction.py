@@ -60,6 +60,7 @@ def _repair_json(raw: str) -> dict:
             pass
     raise json.JSONDecodeError("All repair attempts failed", raw, 0)
 
+
 HOME_SETUP_PROMPT = """You are setting up the memory for Jane, a smart home assistant.
 Below is a raw list of smart home devices from Home Assistant.
 
@@ -82,10 +83,25 @@ def rebuild_home_map(client: genai.Client, hass):
 
     relevant_domains = {"light", "climate", "cover", "media_player", "fan", "vacuum", "water_heater"}
     skip_keywords = {
-        "camera", "motion_detection", "microphone", "speaker", "audio_recording", "pet_detection",
-        "rtsp", "extra_dry", "child_lock", "notification", "backup_map", "wetness_level",
-        "suction_level", "mop_pad", "cleaning_mode", "cleaning_times", "cleaning_route",
-        "floor_material", "visibility",
+        "camera",
+        "motion_detection",
+        "microphone",
+        "speaker",
+        "audio_recording",
+        "pet_detection",
+        "rtsp",
+        "extra_dry",
+        "child_lock",
+        "notification",
+        "backup_map",
+        "wetness_level",
+        "suction_level",
+        "mop_pad",
+        "cleaning_mode",
+        "cleaning_times",
+        "cleaning_route",
+        "floor_material",
+        "visibility",
     }
     entities = []
     for state in hass.states.async_all():
@@ -184,7 +200,10 @@ Respond in JSON only:
   "routines": "Full rewritten routines, or null",
   "preferences": [
     {{"person": "name", "key": "known_key", "value": "the preference", "inferred": false}}
-  ] or null if no new preferences
+  ] or null if no new preferences,
+  "birthdays": [
+    {{"person": "name", "date": "YYYY-MM-DD"}}
+  ] or null if no birthdays mentioned
 }}"""
 
 
@@ -219,8 +238,7 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
     memory_context = load_all_memory(user_name)
 
     prompt = (
-        MEMORY_EXTRACTION_PROMPT
-        .replace("{memory_context}", memory_context)
+        MEMORY_EXTRACTION_PROMPT.replace("{memory_context}", memory_context)
         .replace("{user_name}", user_name)
         .replace("{user_text}", user_text)
         .replace("{jane_response}", jane_response)
@@ -254,12 +272,15 @@ def process_memory(client: genai.Client, user_name: str, user_text: str, jane_re
         if result.get("habits"):
             save_habits_memory(_ensure_str(result["habits"]))
         if result.get("corrections"):
-            schedule_pg_append("correction", user_name, _ensure_str(result["corrections"]), {"source": "extraction"})
+            _save_correction_dedup(hass, user_name, _ensure_str(result["corrections"]))
         if result.get("routines"):
             save_routines(_ensure_str(result["routines"]))
 
         # S1.3: Save structured preferences to PG
         _save_structured_preferences(hass, user_name, result.get("preferences"))
+
+        # Save birthdays to persons table
+        _save_birthdays(hass, user_name, result.get("birthdays"))
 
         _LOGGER.info("Memory updated for %s", user_name)
 
@@ -294,6 +315,93 @@ def _save_structured_preferences(hass, user_name: str, preferences: list | None)
         _LOGGER.debug("Scheduled %d structured preferences", len(preferences))
     except Exception as e:
         _LOGGER.debug("Structured preference save skipped: %s", e)
+
+
+def _save_birthdays(hass, user_name: str, birthdays: list | None):
+    """Save birthday dates to persons table. Non-fatal."""
+    if not birthdays or hass is None:
+        return
+    try:
+        from ..const import DOMAIN
+        from .manager import _schedule_on_pg
+
+        store = getattr(hass.data.get(DOMAIN), "structured", None)
+        if store is None:
+            return
+
+        for entry in birthdays:
+            if not isinstance(entry, dict):
+                continue
+            person = _resolve_person_name(hass, entry.get("person", ""))
+            date_str = entry.get("date", "")
+            if not person or not date_str:
+                continue
+            normalized = _normalize_date(date_str)
+            if normalized is None:
+                _LOGGER.warning("Could not parse birthday date '%s' for %s", date_str, person)
+                continue
+            _schedule_on_pg(
+                lambda p=person, d=normalized: store.save_person(p, birth_date=d),
+                f"birthday {person}/{normalized}",
+            )
+        _LOGGER.debug("Scheduled %d birthday updates", len(birthdays))
+    except Exception as e:
+        _LOGGER.debug("Birthday save skipped: %s", e)
+
+
+def _normalize_date(date_str: str):
+    """Parse various date formats to datetime.date object (for asyncpg)."""
+    from datetime import datetime as _dt
+
+    if not date_str or not date_str.strip():
+        return None
+    s = date_str.strip()
+    # Try common formats (Gemini typically returns YYYY-MM-DD or Month D, YYYY)
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y", "%d %B %Y"):
+        try:
+            return _dt.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _save_correction_dedup(hass, user_name: str, correction_text: str):
+    """Save correction to PG only if no identical correction exists in last 24h."""
+    if not hass:
+        schedule_pg_append("correction", user_name, correction_text, {"source": "extraction"})
+        return
+    try:
+        from ..const import DOMAIN
+        from .manager import _schedule_on_pg
+
+        pool = getattr(hass.data.get(DOMAIN), "pg_pool", None)
+        if pool is None:
+            schedule_pg_append("correction", user_name, correction_text, {"source": "extraction"})
+            return
+
+        async def _insert_if_new():
+            async with pool.acquire() as conn:
+                exists = await conn.fetchval(
+                    """SELECT 1 FROM events
+                       WHERE event_type = 'correction' AND user_name = $1
+                         AND description = $2
+                         AND timestamp > NOW() - INTERVAL '24 hours'
+                       LIMIT 1""",
+                    user_name,
+                    correction_text,
+                )
+                if not exists:
+                    await conn.execute(
+                        """INSERT INTO events (event_type, user_name, description, metadata)
+                           VALUES ('correction', $1, $2, '{"source": "extraction"}'::jsonb)""",
+                        user_name,
+                        correction_text,
+                    )
+
+        _schedule_on_pg(_insert_if_new, f"correction_dedup {user_name}")
+    except Exception as e:
+        _LOGGER.debug("Correction dedup failed, falling back to append: %s", e)
+        schedule_pg_append("correction", user_name, correction_text, {"source": "extraction"})
 
 
 def _resolve_person_name(hass, gemini_name: str) -> str:
