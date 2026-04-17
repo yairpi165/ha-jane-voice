@@ -1,13 +1,8 @@
-"""Tests for memory.py — file I/O, anti-repetition tracking, action log."""
+"""Tests for memory — anti-repetition tracking, date normalization."""
 
 from jane_conversation.memory import (
     _recent_responses,
-    append_action,
-    append_history,
     get_recent_responses,
-    init_memory,
-    load_all_memory,
-    load_home,
     track_response,
 )
 from jane_conversation.memory.extraction import _normalize_date
@@ -60,65 +55,8 @@ class TestAntiRepetition:
         for i in range(15):
             track_response(f"Response {i}")
         result = get_recent_responses()
-        # Should contain response 5-14 (last 10)
         assert "Response 14" in result
         assert "Response 4" not in result
-
-
-# ---------------------------------------------------------------------------
-# Memory File I/O
-# ---------------------------------------------------------------------------
-
-
-class TestMemoryFileIO:
-    def test_init_creates_directories(self, tmp_memory_dir):
-        init_memory(str(tmp_memory_dir.parent))
-        assert (tmp_memory_dir / "users").exists()
-
-    def test_load_missing_file_returns_empty(self, tmp_memory_dir):
-        init_memory(str(tmp_memory_dir.parent))
-        result = load_home()
-        assert result == ""
-
-    def test_load_existing_file(self, tmp_memory_dir):
-        init_memory(str(tmp_memory_dir.parent))
-        home_file = tmp_memory_dir / "home.md"
-        home_file.write_text("# Home\n- Light (light.test)")
-        result = load_home()
-        assert "# Home" in result
-        assert "light.test" in result
-
-    def test_load_all_memory_sections(self, tmp_memory_dir):
-        init_memory(str(tmp_memory_dir.parent))
-        result = load_all_memory("yair")
-        assert "## Home Layout" in result
-        assert "## Personal Memory" in result
-        assert "## Family Memory" in result
-
-
-# ---------------------------------------------------------------------------
-# Action Log
-# ---------------------------------------------------------------------------
-
-
-class TestActionLog:
-    def test_append_creates_file(self, tmp_memory_dir):
-        init_memory(str(tmp_memory_dir.parent))
-        append_action("yair", "Turned on light")
-        actions_file = tmp_memory_dir / "actions.md"
-        assert actions_file.exists()
-        content = actions_file.read_text()
-        assert "Turned on light" in content
-        assert "yair" in content
-
-    def test_append_history_creates_log(self, tmp_memory_dir):
-        init_memory(str(tmp_memory_dir.parent))
-        append_history("yair", "תדליק אור", "הדלקתי")
-        log_file = tmp_memory_dir / "history.log"
-        assert log_file.exists()
-        content = log_file.read_text()
-        assert "תדליק אור" in content
-        assert "הדלקתי" in content
 
 
 # ---------------------------------------------------------------------------

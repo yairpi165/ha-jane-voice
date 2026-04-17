@@ -5,6 +5,7 @@ import logging
 from homeassistant.core import HomeAssistant
 
 from ..const import DOMAIN
+from .manager import get_backend
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -14,28 +15,36 @@ _MAX_LINES = 40
 _MIN_CONFIDENCE = 0.5
 
 
+async def _fallback_pg(user_name: str) -> str:
+    """Fall back to loading memory from PG memory_entries table."""
+    try:
+        return await get_backend().load_all(user_name)
+    except Exception:
+        return ""
+
+
 async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
     """Build a concise memory context string from structured PG data.
 
     Returns a formatted string for injection into Gemini system_instruction.
-    Falls back to load_all_memory() markdown if structured store unavailable.
+    Falls back to memory_entries table if structured store unavailable.
     """
     try:
         store = getattr(hass.data.get(DOMAIN), "structured", None)
     except (AttributeError, TypeError):
         store = None
     if store is None:
-        return await _fallback_markdown(hass, user_name)
+        return await _fallback_pg(user_name)
 
     try:
         persons = await store.load_persons()
         all_prefs = await store.load_all_preferences(min_confidence=_MIN_CONFIDENCE)
     except Exception as e:
-        _LOGGER.warning("Structured memory unavailable, falling back to markdown: %s", e)
-        return await _fallback_markdown(hass, user_name)
+        _LOGGER.warning("Structured memory unavailable, falling back to PG: %s", e)
+        return await _fallback_pg(user_name)
 
     if not persons and not all_prefs:
-        return await _fallback_markdown(hass, user_name)
+        return await _fallback_pg(user_name)
 
     lines: list[str] = []
 
@@ -65,7 +74,7 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
             lines.append(f"- {' '.join(parts)}")
         lines.append("")
 
-    # Per-person preferences (_MAX_LINES is a soft cap — may exceed by 1 due to spacer lines)
+    # Per-person preferences (_MAX_LINES is a soft cap)
     for person_name, prefs in all_prefs.items():
         if person_name == "_family":
             continue  # handled separately
@@ -92,12 +101,11 @@ async def build_memory_context(hass: HomeAssistant, user_name: str) -> str:
 
     result = "\n".join(lines).strip()
 
-    # If structured context is thin (< 3 content lines), supplement with markdown.
-    # This happens when only a few inferred preferences exist but memory_entries is rich.
+    # If structured context is thin, supplement with memory_entries
     if len(lines) < 3:
-        markdown = await _fallback_markdown(hass, user_name)
-        if markdown:
-            result = (result + "\n\n" + markdown).strip() if result else markdown
+        pg_content = await _fallback_pg(user_name)
+        if pg_content:
+            result = (result + "\n\n" + pg_content).strip() if result else pg_content
 
     if result:
         _LOGGER.debug("Memory context: %d lines, %d chars", len(lines), len(result))
@@ -158,13 +166,3 @@ async def build_episodic_context(hass: HomeAssistant, hours: int = 12) -> str:
         chars += len(line)
 
     return "\n".join(parts)
-
-
-async def _fallback_markdown(hass: HomeAssistant, user_name: str) -> str:
-    """Fall back to loading markdown memory when structured store is unavailable."""
-    try:
-        from .manager import load_all_memory
-
-        return await hass.async_add_executor_job(load_all_memory, user_name)
-    except Exception:
-        return ""

@@ -47,19 +47,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if pg_host:
         working_memory = await _create_working_memory(hass, entry, pg_host)
 
-    # Initialize memory directory + backend
-    await hass.async_add_executor_job(init_memory, hass.config.config_dir, hass, backend)
+    # Initialize memory backend
+    init_memory(backend, hass) if backend else None
 
     # Initialize Firebase backup if configured
     firebase_key = entry.data.get(CONF_FIREBASE_KEY_PATH)
     if firebase_key:
-        from .memory import get_memory_dir
-        from .memory.firebase import init_firebase, restore_all_memory, sync_existing_memory
+        from .memory.firebase import init_firebase
 
         ok = await hass.async_add_executor_job(init_firebase, firebase_key)
         if ok:
-            await restore_all_memory(get_memory_dir())
-            await sync_existing_memory(get_memory_dir(), hass)
             _LOGGER.info("Firebase memory backup enabled")
 
     # Build home map on first setup
@@ -67,7 +64,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     client = await hass.async_add_executor_job(lambda: genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY]))
     _get_jane(hass).gemini_client = client  # Store for backfill + consolidation
-    await hass.async_add_executor_job(rebuild_home_map, client, hass)
+    await rebuild_home_map(client, hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -89,6 +86,7 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
 
     # S1.3: Daily preference decay
     if jane.structured:
+
         async def _decay_task(_now):
             try:
                 count = await jane.structured.decay_preferences()
@@ -208,11 +206,9 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
         jane = _get_jane(hass)
         jane.pg_pool = pool
 
-        from .memory.storage import DualWriteBackend, FileBackend, PostgresBackend
+        from .memory.storage import PostgresBackend
 
-        pg_backend = PostgresBackend(pool)
-        file_backend = FileBackend(hass.config.path("jane_memory"), hass)
-        backend = DualWriteBackend(pg_backend, file_backend)
+        backend = PostgresBackend(pool)
 
         _LOGGER.info(
             "PostgreSQL connected: %s:%s/%s", data.get(CONF_PG_HOST), data.get(CONF_PG_PORT), data.get(CONF_PG_DATABASE)
@@ -262,7 +258,7 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
         return backend
 
     except Exception as e:
-        _LOGGER.error("Failed to connect to PostgreSQL, falling back to files: %s", e)
+        _LOGGER.error("Failed to connect to PostgreSQL: %s", e)
         return None
 
 
