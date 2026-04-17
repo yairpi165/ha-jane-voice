@@ -171,7 +171,7 @@ async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_hos
 
         from .brain.working_memory import WorkingMemory
 
-        wm = WorkingMemory(client, hass, episodic=jane.episodic)
+        wm = WorkingMemory(client, hass, episodic=jane.episodic, config_entry=entry)
         unsub = await wm.start_listening()
 
         jane.redis = client

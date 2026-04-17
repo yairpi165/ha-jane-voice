@@ -7,25 +7,38 @@ from collections.abc import Callable
 
 from homeassistant.core import Event, HomeAssistant
 
+from ..const import (
+    CONF_SKIP_KEYWORDS,
+    CONF_TRACKED_DOMAINS,
+    DEFAULT_SKIP_KEYWORDS,
+    DEFAULT_TRACKED_DOMAINS,
+    normalize_person_state,
+    parse_csv,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
-TRACKED_DOMAINS = {"person", "light", "climate", "media_player", "fan", "cover"}
-SKIP_KEYWORDS = {"camera", "motion", "microphone", "speaker", "rtsp", "recording", "detection"}
 CHANGES_TTL = 3600  # Keep changes for 1 hour
 CONTEXT_CACHE_TTL = 30  # Cache rendered context for 30 seconds
+DEBOUNCE_SECONDS = 60
 OFF_STATES = {"off", "unavailable", "idle", "unknown", "standby"}
 
 
 class WorkingMemory:
     """Real-time household awareness backed by Redis."""
 
-    def __init__(self, redis_client, hass: HomeAssistant, episodic=None):
+    def __init__(self, redis_client, hass: HomeAssistant, episodic=None, config_entry=None):
         self._redis = redis_client
         self._hass = hass
-        self._episodic = episodic  # Optional EpisodicStore for PG dual-write
+        self._episodic = episodic
+        raw = {**(config_entry.data or {}), **(config_entry.options or {})} if config_entry else {}
+        self._tracked = parse_csv(raw.get(CONF_TRACKED_DOMAINS, DEFAULT_TRACKED_DOMAINS))
+        self._tracked.add("person")  # always track presence
+        self._skip = parse_csv(raw.get(CONF_SKIP_KEYWORDS, DEFAULT_SKIP_KEYWORDS))
 
     async def start_listening(self) -> Callable:
         """Start listening to HA state changes and populate initial snapshot."""
+        await self._redis.delete("jane:active", "jane:context_cache")
         await self._snapshot_current_state()
         unsub = self._hass.bus.async_listen("state_changed", self._on_state_changed)
         _LOGGER.info("Working memory: listening to state changes")
@@ -36,22 +49,19 @@ class WorkingMemory:
         try:
             pipe = self._redis.pipeline()
 
-            # Presence
             for state in self._hass.states.async_all("person"):
                 name = state.attributes.get("friendly_name", state.entity_id)
-                status = "home" if state.state == "home" else "away"
+                status = normalize_person_state(state.state)
                 pipe.hset("jane:presence", name, status)
                 pipe.hset("jane:presence:since", name, str(time.time()))
 
-            # Active devices
             for state in self._hass.states.async_all():
-                if state.domain not in TRACKED_DOMAINS or state.domain == "person":
+                if state.domain not in self._tracked or state.domain == "person":
                     continue
-                if any(kw in state.entity_id.lower() for kw in SKIP_KEYWORDS):
+                if any(kw in state.entity_id.lower() for kw in self._skip):
                     continue
                 if state.state not in OFF_STATES:
-                    friendly = state.attributes.get("friendly_name", state.entity_id)
-                    pipe.hset("jane:active", state.entity_id, friendly)
+                    pipe.hset("jane:active", state.entity_id, describe_entity(state))
 
             await pipe.execute()
             _LOGGER.info("Working memory: initial snapshot loaded")
@@ -65,11 +75,11 @@ class WorkingMemory:
             return
 
         domain = new_state.domain
-        if domain not in TRACKED_DOMAINS:
+        if domain not in self._tracked:
             return
 
         entity_id = new_state.entity_id
-        if any(kw in entity_id.lower() for kw in SKIP_KEYWORDS):
+        if any(kw in entity_id.lower() for kw in self._skip):
             return
 
         try:
@@ -88,22 +98,21 @@ class WorkingMemory:
     async def _update_presence(self, state) -> None:
         """Update person presence in Redis."""
         name = state.attributes.get("friendly_name", state.entity_id)
-        status = "home" if state.state == "home" else "away"
+        status = normalize_person_state(state.state)
         pipe = self._redis.pipeline()
         pipe.hset("jane:presence", name, status)
         pipe.hset("jane:presence:since", name, str(time.time()))
         await pipe.execute()
 
     async def _update_active(self, state) -> None:
-        """Update active device tracking in Redis."""
-        friendly = state.attributes.get("friendly_name", state.entity_id)
+        """Update active device tracking in Redis with rich descriptions."""
         if state.state in OFF_STATES:
             await self._redis.hdel("jane:active", state.entity_id)
         else:
-            await self._redis.hset("jane:active", state.entity_id, friendly)
+            await self._redis.hset("jane:active", state.entity_id, describe_entity(state))
 
     async def _record_change(self, event: Event) -> None:
-        """Record state change in sorted set for temporal awareness."""
+        """Record state change with smart debounce (per entity+state)."""
         old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
         if old_state is None or new_state is None:
@@ -112,6 +121,18 @@ class WorkingMemory:
             return
 
         now = time.time()
+        entity_id = new_state.entity_id
+
+        # Smart debounce: suppress if same entity returned to same state within window
+        last_key = f"jane:change_last:{entity_id}"
+        last_state = await self._redis.get(last_key)
+        if last_state == new_state.state:
+            last_ts = await self._redis.get(f"jane:change_ts:{entity_id}")
+            if last_ts and now - float(last_ts) < DEBOUNCE_SECONDS:
+                return
+        await self._redis.set(last_key, new_state.state, ex=DEBOUNCE_SECONDS)
+        await self._redis.set(f"jane:change_ts:{entity_id}", str(now), ex=DEBOUNCE_SECONDS)
+
         friendly = new_state.attributes.get("friendly_name", new_state.entity_id)
         entry = json.dumps(
             {"entity": friendly, "from": old_state.state, "to": new_state.state, "ts": now},
@@ -145,14 +166,12 @@ class WorkingMemory:
 
     async def get_context(self) -> str | None:
         """Build context string from Redis. Returns None if Redis empty/down."""
-        # Check cache first
         cached = await self._redis.get("jane:context_cache")
         if cached:
             return cached
 
         parts = []
 
-        # Presence
         presence = await self._redis.hgetall("jane:presence")
         since = await self._redis.hgetall("jane:presence:since")
         if presence:
@@ -164,24 +183,21 @@ class WorkingMemory:
                 people.append(f"{name}: {status}{suffix}")
             parts.append("People: " + ", ".join(people))
 
-        # Weather (still from hass.states — not tracked in Redis)
         weather = self._hass.states.get("weather.forecast_home")
         if weather:
             temp = weather.attributes.get("temperature", "?")
             parts.append(f"Weather: {weather.state}, {temp}°C")
 
-        # Active devices
         active = await self._redis.hgetall("jane:active")
         if active:
-            names = list(active.values())[:10]
-            parts.append(f"Active: {', '.join(names)}")
+            descriptions = list(active.values())[:15]
+            parts.append(f"Active: {', '.join(descriptions)}")
 
-        # Recent changes (last 30 min)
         now = time.time()
         changes_raw = await self._redis.zrangebyscore("jane:changes", now - 1800, "+inf")
         if changes_raw:
             change_lines = []
-            for raw in changes_raw[-5:]:  # Last 5 changes
+            for raw in changes_raw[-5:]:
                 try:
                     c = json.loads(raw)
                     ago = _format_time_ago(c["ts"])
@@ -212,6 +228,58 @@ class WorkingMemory:
             )
         except Exception:
             _LOGGER.debug("Working memory: failed to record interaction", exc_info=True)
+
+
+def describe_entity(state) -> str:
+    """Build a short human description with key attributes."""
+    name = state.attributes.get("friendly_name", state.entity_id)
+    domain = state.domain
+    attrs = state.attributes
+
+    if domain == "climate":
+        mode = state.state
+        temp = attrs.get("temperature", "")
+        unit = attrs.get("temperature_unit", "°C")
+        return f"{name} ({mode}, {temp}{unit})" if temp else f"{name} ({mode})"
+
+    if domain == "media_player":
+        title = attrs.get("media_title", "")
+        if title:
+            return f"{name} ({title[:30]})"
+        source = attrs.get("app_name") or attrs.get("source", "")
+        return f"{name} ({source})" if source else f"{name} ({state.state})"
+
+    if domain == "cover":
+        pos = attrs.get("current_position")
+        return f"{name} ({pos}%)" if pos is not None else f"{name} ({state.state})"
+
+    if domain == "vacuum":
+        return f"{name} ({state.state})"
+
+    if domain == "light" and state.state == "on":
+        bright = attrs.get("brightness_pct") or attrs.get("brightness")
+        if bright is not None:
+            pct = bright if isinstance(bright, int) and bright <= 100 else round(bright / 255 * 100)
+            return f"{name} ({pct}%)"
+        return name
+
+    if domain == "fan":
+        pct = attrs.get("percentage")
+        return f"{name} ({pct}%)" if pct else f"{name} ({state.state})"
+
+    if domain == "lock":
+        return f"{name} ({'נעול' if state.state == 'locked' else 'פתוח'})"
+
+    if domain == "alarm_control_panel":
+        return f"{name} ({state.state})"
+
+    if domain in ("water_heater", "humidifier"):
+        temp = attrs.get("temperature") or attrs.get("humidity")
+        return f"{name} ({state.state}, {temp})" if temp else f"{name} ({state.state})"
+
+    if state.state != "on":
+        return f"{name} ({state.state})"
+    return name
 
 
 def _format_time_ago(timestamp: float) -> str:
