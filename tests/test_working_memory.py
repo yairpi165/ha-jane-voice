@@ -18,6 +18,7 @@ from jane_conversation.brain.working_memory import (  # noqa: E402
     WorkingMemory,
     _format_time_ago,
     describe_entity,
+    should_track_active,
 )
 from jane_conversation.const import normalize_person_state, parse_csv  # noqa: E402
 
@@ -490,10 +491,58 @@ class TestSnapshot:
         assert await redis_mock.hget("jane:active", "light.bedroom") is None
 
     @pytest.mark.asyncio
+    async def test_snapshot_filters_resting_covers(self, hass_mock, redis_mock):
+        """Covers at 0% and 100% should NOT appear in snapshot; partial should."""
+        from tests.conftest import make_state as ms
+
+        all_states = list(hass_mock.states.async_all())
+        all_states.extend(
+            [
+                ms("cover.closed", "closed", {"friendly_name": "תריס סגור", "current_position": 0}),
+                ms("cover.open", "open", {"friendly_name": "תריס פתוח", "current_position": 100}),
+                ms("cover.partial", "open", {"friendly_name": "תריס חלקי", "current_position": 45}),
+            ]
+        )
+        hass_mock.states.async_all = lambda domain=None: (
+            [s for s in all_states if s.domain == domain] if domain else all_states
+        )
+        wm = WorkingMemory(redis_mock, hass_mock)
+        await wm._snapshot_current_state()
+        assert await redis_mock.hget("jane:active", "cover.closed") is None
+        assert await redis_mock.hget("jane:active", "cover.open") is None
+        assert await redis_mock.hget("jane:active", "cover.partial") is not None
+
+    @pytest.mark.asyncio
     async def test_startup_flushes_stale_data(self, working_memory, redis_mock):
         await redis_mock.hset("jane:active", "stale.entity", "old data")
         await working_memory.start_listening()
         assert await redis_mock.hget("jane:active", "stale.entity") is None
+
+
+# --- should_track_active predicate ---
+
+
+class TestShouldTrackActive:
+    def test_off_state(self):
+        assert should_track_active(make_state("light.x", "off")) is False
+
+    def test_on_state(self):
+        assert should_track_active(make_state("light.x", "on")) is True
+
+    def test_cover_fully_closed(self):
+        assert should_track_active(make_state("cover.x", "closed", {"current_position": 0})) is False
+
+    def test_cover_fully_open(self):
+        assert should_track_active(make_state("cover.x", "open", {"current_position": 100})) is False
+
+    def test_cover_partial(self):
+        assert should_track_active(make_state("cover.x", "open", {"current_position": 45})) is True
+
+    def test_cover_no_position(self):
+        assert should_track_active(make_state("cover.x", "open")) is False
+
+    def test_unavailable(self):
+        assert should_track_active(make_state("switch.x", "unavailable")) is False
 
 
 # --- Last Interaction ---

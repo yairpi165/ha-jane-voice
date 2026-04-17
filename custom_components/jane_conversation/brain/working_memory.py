@@ -61,13 +61,8 @@ class WorkingMemory:
                     continue
                 if any(kw in state.entity_id.lower() for kw in self._skip):
                     continue
-                if state.state in OFF_STATES:
-                    continue
-                if state.domain == "cover":
-                    pos = state.attributes.get("current_position")
-                    if pos in (None, 0, 100):
-                        continue
-                pipe.hset("jane:active", state.entity_id, describe_entity(state))
+                if should_track_active(state):
+                    pipe.hset("jane:active", state.entity_id, describe_entity(state))
 
             await pipe.execute()
             _LOGGER.info("Working memory: initial snapshot loaded")
@@ -112,14 +107,9 @@ class WorkingMemory:
 
     async def _update_active(self, state) -> None:
         """Update active device tracking in Redis with rich descriptions."""
-        if state.state in OFF_STATES:
+        if not should_track_active(state):
             await self._redis.hdel("jane:active", state.entity_id)
             return
-        if state.domain == "cover":
-            pos = state.attributes.get("current_position")
-            if pos in (None, 0, 100):
-                await self._redis.hdel("jane:active", state.entity_id)
-                return
         await self._redis.hset("jane:active", state.entity_id, describe_entity(state))
 
     async def _record_change(self, event: Event) -> None:
@@ -231,6 +221,17 @@ class WorkingMemory:
             )
         except Exception:
             _LOGGER.debug("Working memory: failed to record interaction", exc_info=True)
+
+
+def should_track_active(state) -> bool:
+    """Return True if this entity state should appear in the active devices list."""
+    if state.state in OFF_STATES:
+        return False
+    if state.domain == "cover":
+        pos = state.attributes.get("current_position")
+        if pos in (None, 0, 100):
+            return False
+    return True
 
 
 def describe_entity(state) -> str:
