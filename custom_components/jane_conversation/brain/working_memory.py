@@ -61,7 +61,7 @@ class WorkingMemory:
                     continue
                 if any(kw in state.entity_id.lower() for kw in self._skip):
                     continue
-                if state.state not in OFF_STATES:
+                if should_track_active(state):
                     pipe.hset("jane:active", state.entity_id, describe_entity(state))
 
             await pipe.execute()
@@ -107,14 +107,9 @@ class WorkingMemory:
 
     async def _update_active(self, state) -> None:
         """Update active device tracking in Redis with rich descriptions."""
-        if state.state in OFF_STATES:
+        if not should_track_active(state):
             await self._redis.hdel("jane:active", state.entity_id)
             return
-        if state.domain == "cover":
-            pos = state.attributes.get("current_position")
-            if pos in (None, 0, 100):
-                await self._redis.hdel("jane:active", state.entity_id)
-                return
         await self._redis.hset("jane:active", state.entity_id, describe_entity(state))
 
     async def _record_change(self, event: Event) -> None:
@@ -172,9 +167,7 @@ class WorkingMemory:
         cached = await self._redis.get("jane:context_cache")
         if cached:
             return cached
-
         parts = []
-
         presence = await self._redis.hgetall("jane:presence")
         since = await self._redis.hgetall("jane:presence:since")
         if presence:
@@ -190,12 +183,10 @@ class WorkingMemory:
         if weather:
             temp = weather.attributes.get("temperature", "?")
             parts.append(f"Weather: {weather.state}, {temp}°C")
-
         active = await self._redis.hgetall("jane:active")
         if active:
             descriptions = list(active.values())[:15]
             parts.append(f"Active: {', '.join(descriptions)}")
-
         now = time.time()
         changes_raw = await self._redis.zrangebyscore("jane:changes", now - 1800, "+inf")
         if changes_raw:
@@ -209,7 +200,6 @@ class WorkingMemory:
                     continue
             if change_lines:
                 parts.append("Recent: " + ", ".join(change_lines))
-
         if not parts:
             return None
 
@@ -231,6 +221,17 @@ class WorkingMemory:
             )
         except Exception:
             _LOGGER.debug("Working memory: failed to record interaction", exc_info=True)
+
+
+def should_track_active(state) -> bool:
+    """Return True if this entity state should appear in the active devices list."""
+    if state.state in OFF_STATES:
+        return False
+    if state.domain == "cover":
+        pos = state.attributes.get("current_position")
+        if pos in (None, 0, 100):
+            return False
+    return True
 
 
 def describe_entity(state) -> str:
