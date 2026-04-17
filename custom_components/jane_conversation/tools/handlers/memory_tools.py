@@ -110,9 +110,9 @@ async def handle_query_history(hass: HomeAssistant, args: dict) -> str:
 
 async def handle_read_memory(hass: HomeAssistant, args: dict) -> str:
     """Read memory from PG backend."""
+    from ...const import DOMAIN
     from ...memory.manager import get_backend
 
-    backend = get_backend()
     category = args.get("category", "")
     user_name = args.get("user_name", "default")
 
@@ -120,6 +120,26 @@ async def handle_read_memory(hass: HomeAssistant, args: dict) -> str:
     if category not in valid:
         return f"Unknown category: {category}. Available: {', '.join(valid)}"
 
+    # Actions live in events table, not memory_entries
+    if category == "actions":
+        try:
+            pool = getattr(hass.data.get(DOMAIN), "pg_pool", None)
+            if pool:
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """SELECT description, timestamp FROM events
+                           WHERE event_type = 'action'
+                             AND timestamp > NOW() - INTERVAL '24 hours'
+                           ORDER BY timestamp DESC LIMIT 20""",
+                    )
+                    if not rows:
+                        return "No recent actions in the last 24 hours."
+                    lines = [f"- {r['timestamp'].strftime('%H:%M')} — {r['description']}" for r in rows]
+                    return "Recent actions (24h):\n" + "\n".join(lines)
+        except Exception:
+            return "Could not load actions."
+
+    backend = get_backend()
     uname = user_name if category == "user" else None
     content = await backend.load(category, uname)
     if not content:

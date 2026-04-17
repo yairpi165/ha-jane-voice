@@ -47,7 +47,10 @@ async def think(
 
     # Build context
     home_context = await build_context(hass, working_memory)
-    home_layout = await get_backend().load("home")
+    try:
+        home_layout = await get_backend().load("home")
+    except Exception:
+        home_layout = ""
     routines_context = await load_routines_index(hass)
 
     # Build system instruction

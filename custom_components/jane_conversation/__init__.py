@@ -47,8 +47,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if pg_host:
         working_memory = await _create_working_memory(hass, entry, pg_host)
 
-    # Initialize memory backend
-    init_memory(backend, hass) if backend else None
+    # Initialize memory backend (PG required — Jane cannot function without it)
+    if not backend:
+        _LOGGER.error("PostgreSQL backend unavailable — Jane requires PG for memory. Check pg_host config.")
+        return False
+    init_memory(backend, hass)
 
     # Initialize Firebase backup if configured
     firebase_key = entry.data.get(CONF_FIREBASE_KEY_PATH)
