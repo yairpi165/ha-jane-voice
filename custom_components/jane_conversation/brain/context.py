@@ -4,9 +4,14 @@ import logging
 
 from homeassistant.core import HomeAssistant
 
+from ..const import DEFAULT_SKIP_KEYWORDS, DEFAULT_TRACKED_DOMAINS, normalize_person_state, parse_csv
 from ..memory import get_backend
 
 _LOGGER = logging.getLogger(__name__)
+
+_FALLBACK_DOMAINS = parse_csv(DEFAULT_TRACKED_DOMAINS)
+_FALLBACK_SKIP = parse_csv(DEFAULT_SKIP_KEYWORDS)
+_OFF_STATES = {"off", "unavailable", "idle", "unknown", "standby"}
 
 
 async def load_routines_index(hass: HomeAssistant) -> str:
@@ -44,7 +49,9 @@ async def build_context(hass: HomeAssistant, working_memory=None) -> str:
 
 
 def _build_context_live(hass: HomeAssistant) -> str:
-    """Build context from live hass.states (original logic, used as fallback)."""
+    """Build context from live hass.states (fallback when Redis unavailable)."""
+    from .working_memory import describe_entity
+
     parts = []
 
     weather = hass.states.get("weather.forecast_home")
@@ -55,26 +62,21 @@ def _build_context_live(hass: HomeAssistant) -> str:
     people_lines = []
     for state in hass.states.async_all("person"):
         name = state.attributes.get("friendly_name", "?")
-        status = "home" if state.state == "home" else "away"
+        status = normalize_person_state(state.state)
         people_lines.append(f"{name}: {status}")
     if people_lines:
         parts.append("People: " + ", ".join(people_lines))
 
-    skip_keywords = {"camera", "motion", "microphone", "speaker", "rtsp", "recording", "detection"}
     active = []
     for state in hass.states.async_all():
-        if state.domain in ("light", "climate", "media_player", "fan") and state.state not in (
-            "off",
-            "unavailable",
-            "idle",
-            "unknown",
-            "standby",
-        ):
-            eid = state.entity_id.lower()
-            if any(kw in eid for kw in skip_keywords):
-                continue
-            active.append(state.attributes.get("friendly_name", state.entity_id))
+        if state.domain not in _FALLBACK_DOMAINS:
+            continue
+        if state.state in _OFF_STATES:
+            continue
+        if any(kw in state.entity_id.lower() for kw in _FALLBACK_SKIP):
+            continue
+        active.append(describe_entity(state))
     if active:
-        parts.append(f"Active: {', '.join(active[:10])}")
+        parts.append(f"Active: {', '.join(active[:15])}")
 
     return "\n".join(parts) if parts else ""

@@ -14,7 +14,11 @@ from .const import (
     CONF_PG_USER,
     CONF_REDIS_PASSWORD,
     CONF_REDIS_PORT,
+    CONF_SKIP_KEYWORDS,
+    CONF_TRACKED_DOMAINS,
     DEFAULT_REDIS_PORT,
+    DEFAULT_SKIP_KEYWORDS,
+    DEFAULT_TRACKED_DOMAINS,
     DOMAIN,
 )
 
@@ -96,9 +100,7 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                 # Validate Redis connection (same host as PG)
                 if not errors:
                     try:
-                        aioredis = await self.hass.async_add_executor_job(
-                            importlib.import_module, "redis.asyncio"
-                        )
+                        aioredis = await self.hass.async_add_executor_job(importlib.import_module, "redis.asyncio")
 
                         redis_client = aioredis.Redis(
                             host=pg_host,
@@ -118,7 +120,7 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                 self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
                 return self.async_create_entry(title="", data={})
 
-        data = self._config_entry.data
+        data = {**self._config_entry.data, **self._config_entry.options}
 
         return self.async_show_form(
             step_id="init",
@@ -155,6 +157,14 @@ class JaneOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(
                         CONF_REDIS_PASSWORD,
                         default=data.get(CONF_REDIS_PASSWORD, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_TRACKED_DOMAINS,
+                        default=data.get(CONF_TRACKED_DOMAINS, DEFAULT_TRACKED_DOMAINS),
+                    ): str,
+                    vol.Optional(
+                        CONF_SKIP_KEYWORDS,
+                        default=data.get(CONF_SKIP_KEYWORDS, DEFAULT_SKIP_KEYWORDS),
                     ): str,
                 }
             ),

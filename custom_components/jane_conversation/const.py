@@ -31,6 +31,7 @@ class JaneData:
                 unsub()
         self._unsubs.clear()
 
+
 CONF_GEMINI_API_KEY = "gemini_api_key"
 CONF_TAVILY_API_KEY = "tavily_api_key"
 CONF_FIREBASE_KEY_PATH = "firebase_key_path"
@@ -49,6 +50,32 @@ DEFAULT_REDIS_PORT = 6379
 
 GEMINI_MODEL_FAST = "gemini-2.5-flash"
 GEMINI_MODEL_SMART = "gemini-2.5-pro"
+
+# Working Memory configuration — configurable via Options Flow
+CONF_TRACKED_DOMAINS = "tracked_domains"
+CONF_SKIP_KEYWORDS = "skip_keywords"
+DEFAULT_TRACKED_DOMAINS = (
+    "light,switch,climate,fan,humidifier,water_heater,media_player,vacuum,cover,lock,alarm_control_panel"
+)
+DEFAULT_SKIP_KEYWORDS = (
+    "camera,motion,microphone,speaker,rtsp,recording,detection,"
+    "nightvision,status_led,notification,x40_ultra,tablet,child_lock,zhimi"
+)
+
+
+def parse_csv(value: str) -> set[str]:
+    """Parse comma-separated config string into a clean lowercase set."""
+    return {item.strip().lower() for item in (value or "").split(",") if item.strip()}
+
+
+def normalize_person_state(state_value: str) -> str:
+    """Normalize HA person state to home/away/unknown."""
+    if state_value == "home":
+        return "home"
+    if state_value in ("not_home", "away"):
+        return "away"
+    return "unknown"
+
 
 # S1.4: Episodic Memory — consolidation constants
 CONSOLIDATION_INTERVAL_HOURS = 6
@@ -108,6 +135,7 @@ You are part of the family. You know them, care about them, and enjoy talking wi
 4. Confirm briefly.
 Keep working until the task is fully done — don't ask "should I continue?".
 Use tools liberally — faster and more accurate than guessing.
+NEVER respond with placeholder text ("רק רגע", "בודקת", "תן לי לבדוק"). You get ONE response per turn — if you say "just a moment" the turn ends and the user gets nothing useful. Call tools first, then answer with real data.
 
 ## Tools Quick Reference
 - Entity lookup → search_entities. Room contents → list_areas.
