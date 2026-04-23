@@ -146,9 +146,9 @@ Exchange: User: "my birthday is June 15, like I said"  Jane: "I remember"
 Output: {{"ops":[{{"op":"NOOP","reason":"birthday already in memory — no change"}}]}}
 
 ## Example 6 — memory_entries category update (full content)
-Snapshot: memory_entries/family = "Efrat is my wife.\\nAlon is our son, 6 years old."
-Exchange: User: "my little Yaara is 2 years old"  Jane: "cute"
-Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"memory_entries","key":{{"category":"family","user_name":null}}}},"payload":{{"content":"Efrat is my wife.\\nAlon is our son, 6 years old.\\nYaara is our daughter, 2 years old."}},"reason":"adding new family member while preserving existing entries","confidence":0.95}}]}}
+Snapshot: memory_entries/family = "Alice is my wife.\\nBob is our son, 6 years old."
+Exchange: User: "my little Carol is 2 years old"  Jane: "cute"
+Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"memory_entries","key":{{"category":"family","user_name":null}}}},"payload":{{"content":"Alice is my wife.\\nBob is our son, 6 years old.\\nCarol is our daughter, 2 years old."}},"reason":"adding new family member while preserving existing entries","confidence":0.95}}]}}
 
 ## Example 7 — Conflicting fact (UPDATE not ADD)
 Snapshot: preferences: {user_name}/beverage_preference="coffee"

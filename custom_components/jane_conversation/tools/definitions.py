@@ -356,7 +356,7 @@ TOOL_SEND_NOTIFICATION = {
 TOOL_CHECK_PEOPLE = {
     "name": "check_people",
     "description": (
-        "Check who is home and where family members are. Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
+        "Check who is home and where family members are. Use for 'who is home?', 'is <person> home?', 'where is <person>?'"
     ),
     "parameters": {
         "type": "object",
