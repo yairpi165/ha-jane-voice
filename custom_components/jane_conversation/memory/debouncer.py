@@ -175,14 +175,20 @@ class ExtractionDebouncer:
         try:
             await process_memory(client, user_name, exchanges, "tool", self._hass)
         except Exception as e:
-            # Re-persist for retry on next burst or startup restore (A2 §2.1).
+            # Re-queue for retry on next burst or startup restore (A2 §2.1).
+            # Re-acquire the lock and merge with any concurrent schedule()s that
+            # arrived during process_memory — otherwise we'd overwrite their writes.
             _LOGGER.warning(
                 "Extraction flush failed for %s (%d exchanges): %s — re-queued for retry",
                 key,
                 len(exchanges),
                 e,
             )
-            await self._persist(key, exchanges)
+            async with self._lock(key):
+                existing = self._pending.get(key, [])
+                merged = exchanges + existing
+                self._pending[key] = merged
+                await self._persist(key, merged)
 
     async def flush_all(self) -> None:
         """Drain every queue — for HA unload / shutdown."""
