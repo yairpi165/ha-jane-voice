@@ -303,3 +303,24 @@ class TestNormalizePrefKey:
         await store.save_preference("Alice", "Food_Preferences", "coffee")
         # Second positional arg is the key
         assert conn.execute.await_args.args[2] == "food preferences"
+
+
+# ---------------------------------------------------------------------------
+# JANE-84 — Extraction uses response_schema for Gemini JSON mode
+# ---------------------------------------------------------------------------
+
+
+class TestExtractionResponseSchema:
+    def test_call_with_retry_passes_response_schema(self):
+        from jane_conversation.memory.extraction import _OPS_RESPONSE_SCHEMA, _call_with_retry
+
+        client = MagicMock()
+        client.models.generate_content = MagicMock(return_value=MagicMock())
+        _call_with_retry(client, "fake prompt")
+
+        kwargs = client.models.generate_content.call_args.kwargs
+        assert kwargs["contents"] == "fake prompt"
+        config = kwargs["config"]
+        # Gemini's types.GenerateContentConfig stores fields as attrs.
+        assert getattr(config, "response_mime_type", None) == "application/json"
+        assert getattr(config, "response_schema", None) == _OPS_RESPONSE_SCHEMA

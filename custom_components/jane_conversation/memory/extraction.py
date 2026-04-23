@@ -30,13 +30,42 @@ from .ops_applier import OpApplier
 
 _LOGGER = logging.getLogger(__name__)
 
+# JANE-84: Schema-enforced JSON for Gemini Flash.
+# `response_mime_type="application/json"` alone is not enough — Flash still
+# returns prose like "Here is the JSON requested:\n" sometimes. Pairing with
+# `response_schema` reliably forces clean JSON. See feedback_gemini_json_mode.md.
+_OPS_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ops": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string"},
+                    "target": {"type": "object"},
+                    "payload": {"type": "object"},
+                    "reason": {"type": "string"},
+                    "confidence": {"type": "number"},
+                },
+                "required": ["op"],
+            },
+        },
+    },
+    "required": ["ops"],
+}
+
 # Backwards-compat aliases for tests (pre-A3 naming convention)
 _cap_exchanges = cap_exchanges
 _format_exchanges_for_prompt = format_exchanges_for_prompt
 _repair_json = repair_json
 __all__ = [
-    "process_memory", "rebuild_home_map", "_MAX_CONTEXT_CHARS",
-    "_cap_exchanges", "_format_exchanges_for_prompt", "_repair_json",
+    "process_memory",
+    "rebuild_home_map",
+    "_MAX_CONTEXT_CHARS",
+    "_cap_exchanges",
+    "_format_exchanges_for_prompt",
+    "_repair_json",
     "_normalize_date",
 ]
 
@@ -62,10 +91,25 @@ async def rebuild_home_map(client: genai.Client, hass):
 
     relevant_domains = {"light", "climate", "cover", "media_player", "fan", "vacuum", "water_heater"}
     skip_keywords = {
-        "camera", "motion_detection", "microphone", "speaker", "audio_recording",
-        "pet_detection", "rtsp", "extra_dry", "child_lock", "notification", "backup_map",
-        "wetness_level", "suction_level", "mop_pad", "cleaning_mode", "cleaning_times",
-        "cleaning_route", "floor_material", "visibility",
+        "camera",
+        "motion_detection",
+        "microphone",
+        "speaker",
+        "audio_recording",
+        "pet_detection",
+        "rtsp",
+        "extra_dry",
+        "child_lock",
+        "notification",
+        "backup_map",
+        "wetness_level",
+        "suction_level",
+        "mop_pad",
+        "cleaning_mode",
+        "cleaning_times",
+        "cleaning_route",
+        "floor_material",
+        "visibility",
     }
     entities = []
     for state in hass.states.async_all():
@@ -115,11 +159,12 @@ def _call_with_retry(client: genai.Client, prompt: str, max_retries: int = 1):
         try:
             return client.models.generate_content(
                 model=GEMINI_MODEL_FAST,
-                contents="Analyze the conversation and respond with compact JSON ops.",
+                contents=prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=prompt,
                     max_output_tokens=4000,
                     temperature=0.3,
+                    response_mime_type="application/json",
+                    response_schema=_OPS_RESPONSE_SCHEMA,
                 ),
             )
         except Exception as e:
@@ -168,11 +213,7 @@ async def process_memory(
     snapshot = await backend.load_snapshot(user_name) if hasattr(backend, "load_snapshot") else {}
     persons = await structured.load_persons()
     prefs_map = await structured.load_all_preferences(min_confidence=0.3)
-    prefs_flat = [
-        {"person_name": p, **pref}
-        for p, prefs in prefs_map.items()
-        for pref in prefs
-    ]
+    prefs_flat = [{"person_name": p, **pref} for p, prefs in prefs_map.items() for pref in prefs]
 
     prompt = build_ops_prompt(capped, user_name, snapshot, prefs_flat, persons, PREFERENCE_KEY_TAXONOMY)
 
@@ -197,12 +238,18 @@ async def process_memory(
     session_id = capped[-1].get("conv_id") or f"adhoc-{int(time.time())}"
     applier = OpApplier(backend=backend, structured=structured, pg_pool=pg_pool)
     result = await applier.apply_all(
-        ops, user_name, session_id=session_id,
-        memory_snapshot=snapshot, raw_response=raw,
+        ops,
+        user_name,
+        session_id=session_id,
+        memory_snapshot=snapshot,
+        raw_response=raw,
     )
     _LOGGER.info(
         "Memory ops for %s (session=%s, %d ops): %s",
-        user_name, session_id, len(ops), result.summary(),
+        user_name,
+        session_id,
+        len(ops),
+        result.summary(),
     )
 
 

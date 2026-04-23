@@ -18,6 +18,17 @@ MAX_LLM_CALLS_PER_WINDOW = 3
 # Template thresholds
 MIN_EVENTS_FOR_EPISODE = 2  # Skip single-event clusters
 
+# JANE-84: schema-enforced JSON for episode summaries. See feedback_gemini_json_mode.md.
+_EPISODE_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+        "episode_type": {"type": "string"},
+    },
+    "required": ["title", "summary"],
+}
+
 
 class ConsolidationWorker:
     """Groups raw events into episodes and generates daily summaries."""
@@ -111,21 +122,15 @@ class ConsolidationWorker:
 
         try:
             response = await self._hass.async_add_executor_job(
-                lambda: _call_gemini(client, prompt)
+                lambda: _call_gemini(client, prompt, response_schema=_EPISODE_SUMMARY_SCHEMA)
             )
 
             if not response or not response.candidates:
                 return _template_summary(cluster)
 
+            # Schema-backed output is clean JSON (no code fences).
             raw = response.candidates[0].content.parts[0].text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-
-            return json.loads(raw.strip())
+            return json.loads(raw)
         except Exception as e:
             _LOGGER.debug("LLM episode summary failed, using template: %s", e)
             return _template_summary(cluster)
@@ -218,14 +223,11 @@ class ConsolidationWorker:
         prompt = (
             "אתה מסכם את היום של משפחה בבית חכם. תן סיכום טבעי בעברית, 2-4 משפטים.\n"
             "אל תשתמש באמוג'ים. תתאר את היום בצורה טבעית ותמציתית.\n\n"
-            f"סך הכל {event_count} אירועים, {len(episodes)} אפיזודות:\n"
-            + "\n".join(episode_lines)
+            f"סך הכל {event_count} אירועים, {len(episodes)} אפיזודות:\n" + "\n".join(episode_lines)
         )
 
         try:
-            response = await self._hass.async_add_executor_job(
-                lambda: _call_gemini(client, prompt)
-            )
+            response = await self._hass.async_add_executor_job(lambda: _call_gemini(client, prompt))
             if response and response.candidates:
                 return response.candidates[0].content.parts[0].text.strip()
         except Exception as e:
@@ -238,19 +240,27 @@ class ConsolidationWorker:
 # Module-level helpers
 # ------------------------------------------------------------------
 
-def _call_gemini(client, prompt: str):
-    """Synchronous Gemini Flash call with retry (runs in executor)."""
+
+def _call_gemini(client, prompt: str, response_schema: dict | None = None):
+    """Synchronous Gemini Flash call with retry (runs in executor).
+
+    When `response_schema` is passed, enforce JSON output (see JANE-84 /
+    feedback_gemini_json_mode.md — bare `response_mime_type` isn't enough
+    on Flash). When None, output is unconstrained (Hebrew prose etc.).
+    """
     from google.genai import types
+
+    config_kwargs = {"max_output_tokens": 300, "temperature": 0.3}
+    if response_schema is not None:
+        config_kwargs["response_mime_type"] = "application/json"
+        config_kwargs["response_schema"] = response_schema
 
     for attempt in range(2):
         try:
             return client.models.generate_content(
                 model=GEMINI_MODEL_FAST,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=300,
-                    temperature=0.3,
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
         except Exception as e:
             if attempt == 0 and ("503" in str(e) or "429" in str(e) or "UNAVAILABLE" in str(e)):
