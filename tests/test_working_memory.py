@@ -214,28 +214,28 @@ class TestConfig:
 class TestPresenceTracking:
     @pytest.mark.asyncio
     async def test_person_arrives_home(self, working_memory, redis_mock):
-        event = _make_state_event("person.yair", "not_home", "person.yair", "home", {"friendly_name": "Yair"})
+        event = _make_state_event("person.alice", "not_home", "person.alice", "home", {"friendly_name": "Alice"})
         await working_memory._on_state_changed(event)
-        assert await redis_mock.hget("jane:presence", "Yair") == "home"
+        assert await redis_mock.hget("jane:presence", "Alice") == "home"
 
     @pytest.mark.asyncio
     async def test_person_leaves_home(self, working_memory, redis_mock):
-        event = _make_state_event("person.yair", "home", "person.yair", "not_home", {"friendly_name": "Yair"})
+        event = _make_state_event("person.alice", "home", "person.alice", "not_home", {"friendly_name": "Alice"})
         await working_memory._on_state_changed(event)
-        assert await redis_mock.hget("jane:presence", "Yair") == "away"
+        assert await redis_mock.hget("jane:presence", "Alice") == "away"
 
     @pytest.mark.asyncio
     async def test_person_unknown(self, working_memory, redis_mock):
-        event = _make_state_event("person.efrat", "home", "person.efrat", "unknown", {"friendly_name": "Efrat"})
+        event = _make_state_event("person.bob", "home", "person.bob", "unknown", {"friendly_name": "Bob"})
         await working_memory._on_state_changed(event)
-        assert await redis_mock.hget("jane:presence", "Efrat") == "unknown"
+        assert await redis_mock.hget("jane:presence", "Bob") == "unknown"
 
     @pytest.mark.asyncio
     async def test_presence_since_tracked(self, working_memory, redis_mock):
-        event = _make_state_event("person.yair", "not_home", "person.yair", "home", {"friendly_name": "Yair"})
+        event = _make_state_event("person.alice", "not_home", "person.alice", "home", {"friendly_name": "Alice"})
         before = time.time()
         await working_memory._on_state_changed(event)
-        since = await redis_mock.hget("jane:presence:since", "Yair")
+        since = await redis_mock.hget("jane:presence:since", "Alice")
         assert since is not None
         assert float(since) >= before
 
@@ -419,10 +419,10 @@ class TestRecentChanges:
 class TestGetContext:
     @pytest.mark.asyncio
     async def test_context_includes_presence(self, working_memory, redis_mock):
-        await redis_mock.hset("jane:presence", "Yair", "home")
-        await redis_mock.hset("jane:presence:since", "Yair", str(time.time() - 120))
+        await redis_mock.hset("jane:presence", "Alice", "home")
+        await redis_mock.hset("jane:presence:since", "Alice", str(time.time() - 120))
         context = await working_memory.get_context()
-        assert "Yair" in context
+        assert "Alice" in context
         assert "home" in context
         assert "2 min ago" in context
 
@@ -472,8 +472,8 @@ class TestSnapshot:
     @pytest.mark.asyncio
     async def test_snapshot_populates_presence(self, working_memory, redis_mock):
         await working_memory._snapshot_current_state()
-        assert await redis_mock.hget("jane:presence", "יאיר") == "home"
-        assert await redis_mock.hget("jane:presence", "אפרת") == "away"
+        assert await redis_mock.hget("jane:presence", "Alice") == "home"
+        assert await redis_mock.hget("jane:presence", "Bob") == "away"
 
     @pytest.mark.asyncio
     async def test_snapshot_populates_active_with_rich_descriptions(self, working_memory, redis_mock):
@@ -551,9 +551,9 @@ class TestShouldTrackActive:
 class TestLastInteraction:
     @pytest.mark.asyncio
     async def test_record_and_read(self, working_memory, redis_mock):
-        await working_memory.record_interaction("Yair", "turn on the light", "done!")
+        await working_memory.record_interaction("Alice", "turn on the light", "done!")
         data = await redis_mock.hgetall("jane:last_interaction")
-        assert data["user"] == "Yair"
+        assert data["user"] == "Alice"
         assert data["text"] == "turn on the light"
         assert data["response"] == "done!"
 
@@ -566,10 +566,10 @@ class TestFallback:
     async def test_build_context_with_working_memory(self, working_memory, redis_mock):
         from jane_conversation.brain.context import build_context
 
-        await redis_mock.hset("jane:presence", "Yair", "home")
-        await redis_mock.hset("jane:presence:since", "Yair", str(time.time()))
+        await redis_mock.hset("jane:presence", "Alice", "home")
+        await redis_mock.hset("jane:presence:since", "Alice", str(time.time()))
         context = await build_context(MagicMock(), working_memory)
-        assert "Yair" in context
+        assert "Alice" in context
 
     @pytest.mark.asyncio
     async def test_build_context_fallback_without_working_memory(self, hass_mock):

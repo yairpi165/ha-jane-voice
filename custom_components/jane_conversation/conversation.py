@@ -160,6 +160,7 @@ class JaneConversationEntity(ConversationEntity):
                     "text": user_text,
                     "response": response_text,
                     "ts": time.time(),
+                    "conv_id": conversation_id,
                 }
             ]
             self.hass.async_create_task(

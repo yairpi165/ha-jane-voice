@@ -29,7 +29,7 @@ class TestE2ETurnOnLight:
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
             patch("jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="Success."),
         ):
-            result = await think(gemini_client_mock, "תדליק אור בסלון", "yair", hass_mock)
+            result = await think(gemini_client_mock, "תדליק אור בסלון", "alice", hass_mock)
 
         assert "הדלקתי" in result
         # Verify it was classified as command → Flash model
@@ -58,7 +58,7 @@ class TestE2EWeatherQuery:
                 return_value="Forecast Home: sunny, 25°C",
             ),
         ):
-            result = await think(gemini_client_mock, "מה מזג האוויר?", "yair", hass_mock)
+            result = await think(gemini_client_mock, "מה מזג האוויר?", "alice", hass_mock)
 
         assert "25" in result
 
@@ -92,7 +92,7 @@ class TestE2EGoodnightRoutine:
                 ],
             ),
         ):
-            result = await think(gemini_client_mock, "לילה טוב", "yair", hass_mock)
+            result = await think(gemini_client_mock, "לילה טוב", "alice", hass_mock)
 
         assert "לילה טוב" in result
         assert classify_request("לילה טוב") == "command"
@@ -134,7 +134,7 @@ class TestE2ECreateAutomation:
             result = await think(
                 gemini_client_mock,
                 "תיצרי אוטומציה שמדליקה את האור בסלון כל יום ב-18:00",
-                "yair",
+                "alice",
                 hass_mock,
             )
 
@@ -156,7 +156,7 @@ class TestE2EChatNoTools:
             ),
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
         ):
-            result = await think(gemini_client_mock, "מה שלומך", "yair", hass_mock)
+            result = await think(gemini_client_mock, "מה שלומך", "alice", hass_mock)
 
         assert len(result) > 0
         # Should be only 1 API call (no tools)
@@ -182,6 +182,6 @@ class TestE2EWebSearch:
                 "jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="USD to ILS: 3.06"
             ),
         ):
-            result = await think(gemini_client_mock, "מה שער הדולר?", "yair", hass_mock)
+            result = await think(gemini_client_mock, "מה שער הדולר?", "alice", hass_mock)
 
         assert "3.06" in result or "שקל" in result

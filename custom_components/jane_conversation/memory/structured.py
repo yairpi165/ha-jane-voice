@@ -82,6 +82,30 @@ class StructuredMemoryStore:
             result.setdefault(name, []).append(dict(r))
         return result
 
+    async def load_preference(self, person_name: str, key: str) -> dict | None:
+        """Load a single preference row by (person_name, key), or None if missing."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT key, value, confidence, inferred, source
+                   FROM preferences
+                   WHERE person_name = $1 AND key = $2""",
+                person_name,
+                key,
+            )
+            return dict(row) if row else None
+
+    async def delete_preference(self, person_name: str, key: str) -> dict | None:
+        """Delete a preference and return the deleted row (for before_state)."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """DELETE FROM preferences
+                   WHERE person_name = $1 AND key = $2
+                   RETURNING key, value, confidence, inferred, source""",
+                person_name,
+                key,
+            )
+            return dict(row) if row else None
+
     async def reinforce_preference(self, person_name: str, key: str) -> None:
         """Reset confidence and last_reinforced for a preference."""
         async with self._pool.acquire() as conn:
@@ -148,6 +172,15 @@ class StructuredMemoryStore:
                 "SELECT name, role, birth_date, metadata FROM persons ORDER BY id"
             )
             return [dict(r) for r in rows]
+
+    async def load_person(self, name: str) -> dict | None:
+        """Load a single person row by name, or None if missing."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT name, role, birth_date, metadata FROM persons WHERE name = $1",
+                name,
+            )
+            return dict(row) if row else None
 
     # ------------------------------------------------------------------
     # Relationships (populated in Phase E, not used before)

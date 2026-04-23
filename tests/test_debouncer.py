@@ -13,7 +13,7 @@ from jane_conversation.memory import debouncer as debouncer_mod  # noqa: E402
 from jane_conversation.memory.debouncer import ExtractionDebouncer  # noqa: E402
 
 ENTRY_ID = "test_entry"
-USER = "Yair"
+USER = "Alice"
 CONV = "conv-1"
 
 
@@ -177,6 +177,8 @@ class TestRedisLifecycle:
         data = json.loads(raw)
         assert len(data) == 1
         assert data[0]["text"] == "turn 1"
+        # A3: conv_id propagated into exchange dict for OpApplier session_id.
+        assert data[0]["conv_id"] == CONV
         debouncer._timers[_key()].cancel()
 
     @pytest.mark.asyncio
@@ -236,7 +238,7 @@ class TestLifecycle:
     async def test_flush_all_drains_every_queue(self, debouncer, process_memory_mock):
         await debouncer.schedule(USER, "conv-1", "t1", "r1")
         await debouncer.schedule(USER, "conv-2", "t2", "r2")
-        await debouncer.schedule("Efrat", "conv-3", "t3", "r3")
+        await debouncer.schedule("Bob", "conv-3", "t3", "r3")
         await debouncer.flush_all()
         assert process_memory_mock.await_count == 3
         assert not debouncer._pending

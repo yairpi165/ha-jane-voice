@@ -338,7 +338,7 @@ TOOL_SEND_NOTIFICATION = {
         "properties": {
             "target": {
                 "type": "string",
-                "description": "Who to notify — a person's name (e.g. 'yair') or 'all' for everyone",
+                "description": "Who to notify — a person's name or 'all' for everyone",
             },
             "message": {
                 "type": "string",
@@ -356,7 +356,7 @@ TOOL_SEND_NOTIFICATION = {
 TOOL_CHECK_PEOPLE = {
     "name": "check_people",
     "description": (
-        "Check who is home and where family members are. Use for 'who is home?', 'is Efrat home?', 'where is Yair?'"
+        "Check who is home and where family members are. Use for 'who is home?', 'is <person> home?', 'where is <person>?'"
     ),
     "parameters": {
         "type": "object",
@@ -398,7 +398,7 @@ TOOL_MANAGE_LIST = {
         "properties": {
             "list_name": {
                 "type": "string",
-                "description": "Which list — 'shopping', 'family', or a person's name (yair, efrat, etc.)",
+                "description": "Which list — 'shopping', 'family', or a person's name",
             },
             "action": {
                 "type": "string",

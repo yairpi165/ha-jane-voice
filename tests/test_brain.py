@@ -71,7 +71,7 @@ class TestClassifyRequest:
         assert classify_request("תוסיפי חלב לרשימת קניות") == "complex"
 
     def test_send_message(self):
-        assert classify_request("תשלחי הודעה ליאיר") == "complex"
+        assert classify_request("תשלחי הודעה לAlice") == "complex"
 
     # Default → complex
     def test_unknown_defaults_to_complex(self):
@@ -94,9 +94,9 @@ class TestBuildContext:
     @pytest.mark.asyncio
     async def test_includes_people(self, hass_mock):
         context = await build_context(hass_mock)
-        assert "יאיר" in context
+        assert "Alice" in context
         assert "home" in context
-        assert "אפרת" in context
+        assert "Bob" in context
         assert "away" in context
 
     @pytest.mark.asyncio

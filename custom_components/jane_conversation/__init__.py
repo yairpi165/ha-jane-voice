@@ -228,6 +228,44 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             "PostgreSQL connected: %s:%s/%s", data.get(CONF_PG_HOST), data.get(CONF_PG_PORT), data.get(CONF_PG_DATABASE)
         )
 
+        # A3: bootstrap memory_ops audit table (idempotent).
+        # Follow-up: move to memory/migrations.py with versioned migrations.
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_ops (
+                    id SERIAL PRIMARY KEY,
+                    op VARCHAR(20) NOT NULL,
+                    target_table VARCHAR(50),
+                    target_key JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    before_state JSONB,
+                    reason TEXT,
+                    confidence REAL,
+                    user_name VARCHAR(100),
+                    session_id VARCHAR(100),
+                    op_hash VARCHAR(32),
+                    raw_response TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    reverted_at TIMESTAMPTZ
+                )
+            """)
+            # If an older memory_ops exists without op_hash, add it — PR #44 review.
+            await conn.execute(
+                "ALTER TABLE memory_ops ADD COLUMN IF NOT EXISTS op_hash VARCHAR(32)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_ops_user ON memory_ops(user_name)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_ops_op_hash ON memory_ops(op_hash)"
+            )
+
         # Auto-migrate MD files on first PG connect
         await _auto_migrate(pool, hass)
 

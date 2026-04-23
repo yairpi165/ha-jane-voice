@@ -111,7 +111,7 @@ class TestNormalizeDate:
 
 
 def _mk(text: str, response: str) -> dict:
-    return {"user": "Yair", "text": text, "response": response, "ts": 0}
+    return {"user": "Alice", "text": text, "response": response, "ts": 0}
 
 
 class TestCapExchanges:
@@ -156,7 +156,7 @@ class TestProcessMemoryMultiExchange:
         """Empty list (post-cap edge case) returns without calling Gemini."""
         client = MagicMock()
         # No mocking of backend needed — we expect early exit before backend load.
-        await process_memory(client, "Yair", [], "tool", hass_mock)
+        await process_memory(client, "Alice", [], "tool", hass_mock)
         client.models.generate_content.assert_not_called()
 
     @pytest.mark.asyncio
@@ -164,41 +164,37 @@ class TestProcessMemoryMultiExchange:
         """A2 §3.3: 2-exchange burst with short responses must NOT skip."""
         client = MagicMock()
         with patch("jane_conversation.memory.extraction.get_backend") as gb:
-            backend = MagicMock()
-            backend.load_all = AsyncMock(return_value="")
-            backend.save = AsyncMock()
+            backend, structured, pool = _setup_jane_data(hass_mock)
             gb.return_value = backend
             hass_mock.async_add_executor_job = AsyncMock(
-                return_value=_fake_gemini_response('{"user": null}')
+                return_value=_fake_gemini_response('{"ops":[{"op":"NOOP","reason":"stub"}]}')
             )
 
             # Single short exchange with ha_service → skip (legacy behavior preserved).
             await process_memory(
-                client, "Yair", [_mk("turn off", "off")], "ha_service", hass_mock
+                client, "Alice", [_mk("turn off", "off")], "ha_service", hass_mock
             )
             hass_mock.async_add_executor_job.assert_not_called()
 
             # 2 short exchanges with ha_service → must NOT skip (multi-exchange).
             await process_memory(
-                client, "Yair", [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
+                client, "Alice", [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
                 "ha_service", hass_mock,
             )
             hass_mock.async_add_executor_job.assert_called()
 
     @pytest.mark.asyncio
     async def test_passes_multi_exchange_prompt_to_gemini(self, hass_mock):
-        """Prompt sent to Gemini must contain all exchanges with correct count."""
+        """A3: Gemini prompt contains ops schema + all exchanges + memory snapshot."""
         client = MagicMock()
         captured_prompts = []
 
         def _capture(fn, client_arg, prompt):
             captured_prompts.append(prompt)
-            return _fake_gemini_response('{"user": null}')
+            return _fake_gemini_response('{"ops":[{"op":"NOOP","reason":"stub"}]}')
 
         with patch("jane_conversation.memory.extraction.get_backend") as gb:
-            backend = MagicMock()
-            backend.load_all = AsyncMock(return_value="existing memory")
-            backend.save = AsyncMock()
+            backend, structured, pool = _setup_jane_data(hass_mock)
             gb.return_value = backend
             hass_mock.async_add_executor_job = AsyncMock(side_effect=_capture)
 
@@ -207,7 +203,7 @@ class TestProcessMemoryMultiExchange:
                 _mk("my birthday is June 15", "noted"),
                 _mk("thanks", "np"),
             ]
-            await process_memory(client, "Yair", exchanges, "tool", hass_mock)
+            await process_memory(client, "Alice", exchanges, "tool", hass_mock)
 
         assert len(captured_prompts) == 1
         prompt = captured_prompts[0]
@@ -215,6 +211,7 @@ class TestProcessMemoryMultiExchange:
         assert "turn 1" in prompt
         assert "my birthday is June 15" in prompt
         assert "thanks" in prompt
+        assert "ADD" in prompt and "NOOP" in prompt  # ops schema present
 
 
 def _fake_gemini_response(text: str):
@@ -228,3 +225,43 @@ def _fake_gemini_response(text: str):
     response = MagicMock()
     response.candidates = [candidate]
     return response
+
+
+def _setup_jane_data(hass_mock):
+    """Populate hass.data[DOMAIN] with structured + pg_pool stubs for A3 process_memory.
+
+    Returns (backend_mock, structured_mock, pool_mock) for further customisation.
+    """
+    from jane_conversation.const import DOMAIN
+
+    backend = MagicMock()
+    backend.load = AsyncMock(return_value="")
+    backend.load_all = AsyncMock(return_value="")
+    backend.load_snapshot = AsyncMock(return_value={})
+    backend.save = AsyncMock()
+    backend.delete_category = AsyncMock(return_value=None)
+    backend.append_event = AsyncMock()
+
+    structured = MagicMock()
+    structured.load_persons = AsyncMock(return_value=[])
+    structured.load_all_preferences = AsyncMock(return_value={})
+    structured.load_preference = AsyncMock(return_value=None)
+    structured.load_person = AsyncMock(return_value=None)
+    structured.save_preference = AsyncMock()
+    structured.save_person = AsyncMock()
+    structured.delete_preference = AsyncMock(return_value=None)
+
+    pool = MagicMock()
+    conn = MagicMock()
+    conn.fetchrow = AsyncMock(return_value=None)
+    conn.execute = AsyncMock()
+    acq_cm = MagicMock()
+    acq_cm.__aenter__ = AsyncMock(return_value=conn)
+    acq_cm.__aexit__ = AsyncMock(return_value=False)
+    pool.acquire = MagicMock(return_value=acq_cm)
+
+    jane = MagicMock()
+    jane.structured = structured
+    jane.pg_pool = pool
+    hass_mock.data = {DOMAIN: jane}
+    return backend, structured, pool
