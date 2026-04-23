@@ -12,6 +12,7 @@ from .definitions import (
     TOOL_CREATE_HELPER,
     TOOL_DEEP_SEARCH,
     TOOL_EVAL_TEMPLATE,
+    TOOL_FORGET_MEMORY,
     TOOL_GET_AUTOMATION_CONFIG,
     TOOL_GET_AUTOMATION_TRACES,
     TOOL_GET_CALENDAR_EVENTS,
@@ -77,6 +78,7 @@ _ALL_FUNCTION_DECLARATIONS = [
     TOOL_EVAL_TEMPLATE,
     TOOL_BULK_CONTROL,
     TOOL_SAVE_MEMORY,
+    TOOL_FORGET_MEMORY,
     TOOL_READ_MEMORY,
     TOOL_GET_DEVICE,
     TOOL_GET_CALENDAR_EVENTS,
@@ -151,6 +153,7 @@ _HANDLER_MAP = {
     "list_services": device.handle_list_services,
     "create_helper": device.handle_create_helper,
     "save_memory": memory_tools.handle_save_memory,
+    "forget_memory": memory_tools.handle_forget_memory,
     "read_memory": memory_tools.handle_read_memory,
     "query_history": memory_tools.handle_query_history,
     "eval_template": power.handle_eval_template,
@@ -161,6 +164,7 @@ _HANDLER_MAP = {
 # ---------------------------------------------------------------------------
 # Tool Execution
 # ---------------------------------------------------------------------------
+
 
 async def execute_tool(
     hass: HomeAssistant,

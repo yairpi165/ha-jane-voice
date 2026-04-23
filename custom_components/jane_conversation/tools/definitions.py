@@ -558,6 +558,40 @@ TOOL_SAVE_MEMORY = {
     },
 }
 
+TOOL_FORGET_MEMORY = {
+    "name": "forget_memory",
+    "description": (
+        "Forget one specific memory entry when the user explicitly asks "
+        "('תשכחי ש…' / 'תמחקי את…'). Soft-delete only — the entry is tombstoned "
+        "and auto-revives if the user restates the fact later. "
+        "Do NOT use for corrections or updates — let the post-turn extractor "
+        "emit UPDATE ops for those."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "target_table": {
+                "type": "string",
+                "enum": ["preferences", "memory_entries"],
+                "description": "Which table to forget from.",
+            },
+            "target_key": {
+                "type": "object",
+                "description": (
+                    'For preferences: {"person": "Yair Pinchasi", "key": "food_preferences"}. '
+                    'For memory_entries: {"category": "family"} or '
+                    '{"category": "user", "user_name": "Yair Pinchasi"}.'
+                ),
+            },
+            "reason": {
+                "type": "string",
+                "description": "Short rationale to log with the delete op.",
+            },
+        },
+        "required": ["target_table", "target_key", "reason"],
+    },
+}
+
 TOOL_READ_MEMORY = {
     "name": "read_memory",
     "description": (
