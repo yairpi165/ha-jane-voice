@@ -184,12 +184,22 @@ class TestConsolidationWorkerIdempotency:
 
         now = datetime.now().astimezone()
         events = [
-            {"id": 1, "timestamp": now - timedelta(minutes=5), "event_type": "state_change",
-             "user_name": None, "description": "Living Room: off → on",
-             "metadata": {"entity_id": "light.living_room"}},
-            {"id": 2, "timestamp": now - timedelta(minutes=4), "event_type": "state_change",
-             "user_name": None, "description": "Bedroom: off → on",
-             "metadata": {"entity_id": "light.bedroom"}},
+            {
+                "id": 1,
+                "timestamp": now - timedelta(minutes=5),
+                "event_type": "state_change",
+                "user_name": None,
+                "description": "Living Room: off → on",
+                "metadata": {"entity_id": "light.living_room"},
+            },
+            {
+                "id": 2,
+                "timestamp": now - timedelta(minutes=4),
+                "event_type": "state_change",
+                "user_name": None,
+                "description": "Bedroom: off → on",
+                "metadata": {"entity_id": "light.bedroom"},
+            },
         ]
 
         episodic = AsyncMock()
@@ -219,14 +229,16 @@ class TestMaxLLMCalls:
             base_time = now - timedelta(minutes=60 * (5 - cluster_idx))
             for i in range(6):
                 domain = "light" if i % 2 == 0 else "climate"
-                all_events.append({
-                    "id": cluster_idx * 6 + i,
-                    "timestamp": base_time + timedelta(minutes=i),
-                    "event_type": "state_change",
-                    "user_name": None,
-                    "description": f"Device {i}: off → on",
-                    "metadata": {"entity_id": f"{domain}.device_{i}"},
-                })
+                all_events.append(
+                    {
+                        "id": cluster_idx * 6 + i,
+                        "timestamp": base_time + timedelta(minutes=i),
+                        "event_type": "state_change",
+                        "user_name": None,
+                        "description": f"Device {i}: off → on",
+                        "metadata": {"entity_id": f"{domain}.device_{i}"},
+                    }
+                )
 
         episodic = AsyncMock()
         episodic.get_last_consolidation_ts.return_value = None
@@ -275,3 +287,35 @@ class TestDailySummaryGeneration:
         result = await worker.generate_daily_summary()
         assert result is True
         episodic.save_daily_summary.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# JANE-84 — JSON mode differentiation (episode summary = schema; daily = prose)
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiJsonMode:
+    def test_call_gemini_with_schema_enforces_json(self):
+        """_call_gemini(schema=...) must set response_mime_type + response_schema."""
+        from jane_conversation.memory.consolidation import _EPISODE_SUMMARY_SCHEMA, _call_gemini
+
+        client = MagicMock()
+        client.models.generate_content = MagicMock(return_value=MagicMock())
+        _call_gemini(client, "fake prompt", response_schema=_EPISODE_SUMMARY_SCHEMA)
+
+        config = client.models.generate_content.call_args.kwargs["config"]
+        assert getattr(config, "response_mime_type", None) == "application/json"
+        assert getattr(config, "response_schema", None) == _EPISODE_SUMMARY_SCHEMA
+
+    def test_call_gemini_without_schema_stays_unstructured(self):
+        """Daily-summary path: _call_gemini() with no schema must not set JSON mode."""
+        from jane_conversation.memory.consolidation import _call_gemini
+
+        client = MagicMock()
+        client.models.generate_content = MagicMock(return_value=MagicMock())
+        _call_gemini(client, "Hebrew prose prompt")
+
+        config = client.models.generate_content.call_args.kwargs["config"]
+        # None or unset — not "application/json".
+        assert getattr(config, "response_mime_type", None) != "application/json"
+        assert getattr(config, "response_schema", None) is None
