@@ -58,7 +58,8 @@ class PostgresBackend(StorageBackend):
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT content FROM memory_entries WHERE category = $1 AND "
-                "(user_name = $2 OR (user_name IS NULL AND $2 IS NULL))",
+                "(user_name = $2 OR (user_name IS NULL AND $2 IS NULL)) "
+                "AND deleted_at IS NULL",
                 category,
                 user_name,
             )
@@ -75,7 +76,7 @@ class PostgresBackend(StorageBackend):
         sql = """INSERT INTO memory_entries (category, user_name, content, updated_at)
                    VALUES ($1, $2, $3, NOW())
                    ON CONFLICT (category, user_name)
-                   DO UPDATE SET content = $3, updated_at = NOW()"""
+                   DO UPDATE SET content = $3, updated_at = NOW(), deleted_at = NULL"""
         if conn is not None:
             await conn.execute(sql, category, user_name, content)
             return
@@ -83,12 +84,18 @@ class PostgresBackend(StorageBackend):
             await c.execute(sql, category, user_name, content)
 
     async def delete_category(self, category: str, user_name: str | None = None) -> str | None:
-        """Delete by (category, user_name) and return prior content, or None if not present."""
+        """Soft-delete by (category, user_name) and return prior content, or None if not live.
+
+        A4: sets deleted_at = NOW(); rows stay for audit/revive. Double-delete is a no-op
+        because the WHERE guards on deleted_at IS NULL.
+        """
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                """DELETE FROM memory_entries
+                """UPDATE memory_entries
+                      SET deleted_at = NOW()
                    WHERE category = $1
                      AND (user_name = $2 OR (user_name IS NULL AND $2 IS NULL))
+                     AND deleted_at IS NULL
                    RETURNING content""",
                 category,
                 user_name,
@@ -155,7 +162,8 @@ class PostgresBackend(StorageBackend):
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT category, user_name, content FROM memory_entries
-                   WHERE user_name = $1 OR user_name IS NULL""",
+                   WHERE (user_name = $1 OR user_name IS NULL)
+                     AND deleted_at IS NULL""",
                 user_name,
             )
         snapshot: dict = {}

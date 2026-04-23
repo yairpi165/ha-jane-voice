@@ -250,20 +250,22 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
                 )
             """)
             # If an older memory_ops exists without op_hash, add it — PR #44 review.
+            await conn.execute("ALTER TABLE memory_ops ADD COLUMN IF NOT EXISTS op_hash VARCHAR(32)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_ops_user ON memory_ops(user_name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_ops_op_hash ON memory_ops(op_hash)")
+
+            # A4: soft-delete primitive — add deleted_at column + partial-live indexes.
+            await conn.execute("ALTER TABLE memory_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
+            await conn.execute("ALTER TABLE preferences ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
             await conn.execute(
-                "ALTER TABLE memory_ops ADD COLUMN IF NOT EXISTS op_hash VARCHAR(32)"
+                "CREATE INDEX IF NOT EXISTS idx_memory_entries_live "
+                "ON memory_entries(category, user_name) WHERE deleted_at IS NULL"
             )
             await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC)"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memory_ops_user ON memory_ops(user_name)"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id)"
-            )
-            await conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_memory_ops_op_hash ON memory_ops(op_hash)"
+                "CREATE INDEX IF NOT EXISTS idx_preferences_live "
+                "ON preferences(person_name, key) WHERE deleted_at IS NULL"
             )
 
         # Auto-migrate MD files on first PG connect

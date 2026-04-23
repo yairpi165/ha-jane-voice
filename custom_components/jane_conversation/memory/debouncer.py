@@ -159,7 +159,11 @@ class ExtractionDebouncer:
             self._burst_deadline.pop(key, None)
             await self._delete_persisted(key)
 
-        if timer and not timer.done():
+        # Don't cancel the timer if flush is running *inside* that timer's task —
+        # that would self-cancel and raise CancelledError at the next await inside
+        # process_memory. Only cancel stale timers that belong to a different task.
+        current = asyncio.current_task()
+        if timer and not timer.done() and timer is not current:
             timer.cancel()
 
         if not exchanges:
@@ -180,6 +184,13 @@ class ExtractionDebouncer:
         )
         try:
             await process_memory(client, user_name, exchanges, "tool", self._hass)
+        except asyncio.CancelledError:
+            _LOGGER.warning("Extraction flush CANCELLED for %s (%d exchanges) — re-queued", key, len(exchanges))
+            async with self._lock(key):
+                existing = self._pending.get(key, [])
+                self._pending[key] = exchanges + existing
+                await self._persist(key, self._pending[key])
+            raise
         except Exception as e:
             # Re-queue for retry on next burst or startup restore (A2 §2.1).
             # Re-acquire the lock and merge with any concurrent schedule()s that
@@ -197,7 +208,12 @@ class ExtractionDebouncer:
                 await self._persist(key, merged)
 
     async def flush_all(self) -> None:
-        """Drain every queue — for HA unload / shutdown."""
+        """Drain every queue — for HA unload / shutdown.
+
+        Catches CancelledError per-key so shutdown drain continues for the remaining
+        queues instead of aborting on the first cancelled flush. Data is safe in Redis
+        either way, but draining more buys cleaner post-shutdown state.
+        """
         keys = list(self._pending.keys())
         for key in keys:
             parsed = self._parse_key(key)
@@ -206,6 +222,9 @@ class ExtractionDebouncer:
             user_name, conv_id = parsed
             try:
                 await self.flush(user_name, conv_id)
+            except asyncio.CancelledError:
+                _LOGGER.warning("flush_all: CANCELLED for %s — remaining data persisted to Redis", key)
+                continue
             except Exception as e:
                 _LOGGER.warning("flush_all: failed for %s: %s", key, e)
 
