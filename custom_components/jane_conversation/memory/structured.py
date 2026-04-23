@@ -44,7 +44,8 @@ class StructuredMemoryStore:
                        END,
                        inferred = EXCLUDED.inferred,
                        last_reinforced = NOW(),
-                       updated_at = NOW()""",
+                       updated_at = NOW(),
+                       deleted_at = NULL""",
                 person_name,
                 key,
                 value,
@@ -60,6 +61,7 @@ class StructuredMemoryStore:
                 """SELECT key, value, confidence, inferred
                    FROM preferences
                    WHERE person_name = $1 AND confidence >= $2
+                     AND deleted_at IS NULL
                    ORDER BY inferred ASC, confidence DESC""",
                 person_name,
                 min_confidence,
@@ -73,6 +75,7 @@ class StructuredMemoryStore:
                 """SELECT person_name, key, value, confidence, inferred
                    FROM preferences
                    WHERE confidence >= $1
+                     AND deleted_at IS NULL
                    ORDER BY person_name, inferred ASC, confidence DESC""",
                 min_confidence,
             )
@@ -88,18 +91,25 @@ class StructuredMemoryStore:
             row = await conn.fetchrow(
                 """SELECT key, value, confidence, inferred, source
                    FROM preferences
-                   WHERE person_name = $1 AND key = $2""",
+                   WHERE person_name = $1 AND key = $2
+                     AND deleted_at IS NULL""",
                 person_name,
                 key,
             )
             return dict(row) if row else None
 
     async def delete_preference(self, person_name: str, key: str) -> dict | None:
-        """Delete a preference and return the deleted row (for before_state)."""
+        """Soft-delete a preference and return the pre-delete row (for before_state).
+
+        A4: sets deleted_at = NOW(); double-delete is a no-op (guarded by deleted_at IS NULL).
+        Re-saving the same (person_name, key) revives the row via save_preference's ON CONFLICT.
+        """
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                """DELETE FROM preferences
+                """UPDATE preferences
+                      SET deleted_at = NOW()
                    WHERE person_name = $1 AND key = $2
+                     AND deleted_at IS NULL
                    RETURNING key, value, confidence, inferred, source""",
                 person_name,
                 key,
@@ -112,7 +122,8 @@ class StructuredMemoryStore:
             await conn.execute(
                 """UPDATE preferences
                    SET confidence = 1.0, last_reinforced = NOW(), updated_at = NOW()
-                   WHERE person_name = $1 AND key = $2""",
+                   WHERE person_name = $1 AND key = $2
+                     AND deleted_at IS NULL""",
                 person_name,
                 key,
             )
@@ -126,7 +137,8 @@ class StructuredMemoryStore:
                        updated_at = NOW()
                    WHERE inferred = TRUE
                      AND confidence > 0.0
-                     AND last_reinforced < NOW() - INTERVAL '7 days'"""
+                     AND last_reinforced < NOW() - INTERVAL '7 days'
+                     AND deleted_at IS NULL"""
             )
             # asyncpg returns "UPDATE N"
             count = int(result.split()[-1]) if result else 0
@@ -168,9 +180,7 @@ class StructuredMemoryStore:
     async def load_persons(self) -> list[dict]:
         """Load all persons."""
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT name, role, birth_date, metadata FROM persons ORDER BY id"
-            )
+            rows = await conn.fetch("SELECT name, role, birth_date, metadata FROM persons ORDER BY id")
             return [dict(r) for r in rows]
 
     async def load_person(self, name: str) -> dict | None:

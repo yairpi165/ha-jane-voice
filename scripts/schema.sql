@@ -166,3 +166,12 @@ CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC)
 CREATE INDEX IF NOT EXISTS idx_memory_ops_user ON memory_ops(user_name);
 CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id);
 CREATE INDEX IF NOT EXISTS idx_memory_ops_op_hash ON memory_ops(op_hash);
+
+-- A4: Soft-delete primitive
+-- Deleted_at tombstone column on the two tables the op-extractor DELETEs from.
+-- Readers filter `WHERE deleted_at IS NULL`; save paths clear `deleted_at` on revive,
+-- which preserves the existing unique constraints (at most one row per key, live or tombstoned).
+ALTER TABLE memory_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE preferences    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_memory_entries_live ON memory_entries(category, user_name) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_preferences_live    ON preferences(person_name, key)       WHERE deleted_at IS NULL;
