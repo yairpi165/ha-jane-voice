@@ -20,7 +20,7 @@ from .const import (
     SILENT_PATTERNS,
     WHISPER_HALLUCINATIONS,
 )
-from .memory import async_append_action, async_append_history, track_response
+from .memory import async_append_action, async_append_history, process_memory, track_response
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,6 +150,11 @@ class JaneConversationEntity(ConversationEntity):
                 response_text,
                 is_silent=silent,
                 explicit_intent=explicit,
+            )
+        elif not silent:
+            # Fallback: debouncer unavailable (e.g. Redis down) — preserve pre-A1 behavior.
+            self.hass.async_create_task(
+                process_memory(client, user_name, user_text, response_text, "tool", self.hass)
             )
 
         # Return response for TTS

@@ -52,6 +52,15 @@ class ExtractionDebouncer:
     def _key(self, user_name: str, conv_id: str) -> str:
         return f"{self._entry_id}:{user_name}:{conv_id}"
 
+    def _parse_key(self, key: str) -> tuple[str, str] | None:
+        """Reverse _key() defensively via rsplit — safe if user_name contains colons."""
+        try:
+            prefix_user, conv_id = key.rsplit(":", 1)
+            _, user_name = prefix_user.rsplit(":", 1)
+        except ValueError:
+            return None
+        return user_name, conv_id
+
     def _redis_key(self, key: str) -> str:
         return f"{EXTRACTION_PENDING_REDIS_PREFIX}:{key}"
 
@@ -153,22 +162,34 @@ class ExtractionDebouncer:
         _LOGGER.info("Flushing %d exchanges for %s", len(exchanges), key)
         client = self._client_getter()
         if client is None:
-            _LOGGER.warning("Extraction flush skipped for %s: no Gemini client", key)
+            _LOGGER.warning(
+                "Extraction flush skipped for %s: no Gemini client. %d exchanges lost.",
+                key,
+                len(exchanges),
+            )
             return
-        for ex in exchanges:
+        # TODO(A2): retry failed exchanges instead of dropping them.
+        for i, ex in enumerate(exchanges):
             try:
                 await process_memory(client, ex["user"], ex["text"], ex["response"], "tool", self._hass)
             except Exception as e:
-                _LOGGER.warning("Extraction flush failed for %s: %s", key, e)
+                _LOGGER.warning(
+                    "Extraction flush failed for %s [%d/%d] (text=%s…): %s",
+                    key,
+                    i + 1,
+                    len(exchanges),
+                    ex["text"][:40],
+                    e,
+                )
 
     async def flush_all(self) -> None:
         """Drain every queue — for HA unload / shutdown."""
         keys = list(self._pending.keys())
         for key in keys:
-            parts = key.split(":", 2)
-            if len(parts) != 3:
+            parsed = self._parse_key(key)
+            if parsed is None:
                 continue
-            _, user_name, conv_id = parts
+            user_name, conv_id = parsed
             try:
                 await self.flush(user_name, conv_id)
             except Exception as e:
@@ -181,28 +202,32 @@ class ExtractionDebouncer:
         pattern = f"{EXTRACTION_PENDING_REDIS_PREFIX}:{self._entry_id}:*"
         count = 0
         try:
-            async for raw_key in self._redis.scan_iter(match=pattern):
-                key_full = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
-                data = await self._redis.get(key_full)
-                if not data:
-                    continue
-                if isinstance(data, bytes):
-                    data = data.decode()
-                try:
-                    exchanges = json.loads(data)
-                except (json.JSONDecodeError, TypeError):
-                    await self._redis.delete(key_full)
-                    continue
-                inner_key = key_full[len(EXTRACTION_PENDING_REDIS_PREFIX) + 1 :]
-                parts = inner_key.split(":", 2)
-                if len(parts) != 3:
-                    await self._redis.delete(key_full)
-                    continue
-                _, user_name, conv_id = parts
-                self._pending[inner_key] = exchanges
-                self._burst_deadline[inner_key] = time.time()
-                await self.flush(user_name, conv_id)
-                count += 1
+            async with asyncio.timeout(10):
+                async for raw_key in self._redis.scan_iter(match=pattern, count=100):
+                    key_full = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+                    data = await self._redis.get(key_full)
+                    if not data:
+                        continue
+                    if isinstance(data, bytes):
+                        data = data.decode()
+                    try:
+                        exchanges = json.loads(data)
+                    except (json.JSONDecodeError, TypeError):
+                        await self._redis.delete(key_full)
+                        continue
+                    inner_key = key_full[len(EXTRACTION_PENDING_REDIS_PREFIX) + 1 :]
+                    parsed = self._parse_key(inner_key)
+                    if parsed is None:
+                        await self._redis.delete(key_full)
+                        continue
+                    user_name, conv_id = parsed
+                    self._pending[inner_key] = exchanges
+                    self._burst_deadline[inner_key] = time.time()
+                    await self.flush(user_name, conv_id)
+                    count += 1
+        except TimeoutError:
+            _LOGGER.warning("restore_from_redis timed out after 10s (restored %d so far)", count)
+            return count
         except Exception as e:
             _LOGGER.warning("restore_from_redis failed: %s", e)
             return count
