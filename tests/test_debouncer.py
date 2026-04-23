@@ -132,11 +132,7 @@ class TestConcurrency:
         # Let the newly scheduled timer fire
         await asyncio.sleep(0.5)
         # Both turns must have been extracted (possibly across two flush calls).
-        extracted_texts = [
-            ex["text"]
-            for c in process_memory_mock.await_args_list
-            for ex in c.args[2]
-        ]
+        extracted_texts = [ex["text"] for c in process_memory_mock.await_args_list for ex in c.args[2]]
         assert "turn 1" in extracted_texts
         assert "turn 2" in extracted_texts
 
@@ -256,9 +252,7 @@ class TestLifecycle:
         assert debouncer._pending[_key()][0]["text"] == "t1"
 
     @pytest.mark.asyncio
-    async def test_flush_requeues_to_redis_on_process_memory_error(
-        self, debouncer, process_memory_mock, redis_mock
-    ):
+    async def test_flush_requeues_to_redis_on_process_memory_error(self, debouncer, process_memory_mock, redis_mock):
         """A2 §2.1: failed extraction re-persists to Redis for retry on next burst/startup."""
         process_memory_mock.side_effect = RuntimeError("Gemini 503")
         await debouncer.schedule(USER, CONV, "important fact", "ok")
@@ -271,9 +265,7 @@ class TestLifecycle:
         assert data[0]["text"] == "important fact"
 
     @pytest.mark.asyncio
-    async def test_requeue_merges_with_concurrent_schedule(
-        self, debouncer, process_memory_mock, redis_mock
-    ):
+    async def test_requeue_merges_with_concurrent_schedule(self, debouncer, process_memory_mock, redis_mock):
         """PR #43 review: re-queue must merge with new exchanges scheduled during the failed flush."""
 
         async def _slow_failing_extraction(*args, **kwargs):
@@ -297,3 +289,58 @@ class TestLifecycle:
         texts = [ex["text"] for ex in json.loads(raw)]
         assert "old fact" in texts
         assert "new fact" in texts
+
+    @pytest.mark.asyncio
+    async def test_flush_via_timer_does_not_self_cancel(self, debouncer, process_memory_mock):
+        """PR #45 regression guard: flush() runs inside _timer_fire's task.
+
+        Before the fix, flush() popped its own task from self._timers and called
+        timer.cancel() on it — CancelledError surfaced at the next await inside
+        process_memory, silently aborting extraction. Fix: skip cancel when
+        timer is asyncio.current_task().
+
+        Deterministic check: process_memory must complete (not be cancelled)
+        even though flush is invoked from within the timer's own task.
+        """
+        observed_cancelled = False
+
+        async def _yielding_extraction(*args, **kwargs):
+            nonlocal observed_cancelled
+            try:
+                # Multiple await points — plenty of chances for a stale self-cancel
+                # to fire if the fix is ever regressed.
+                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.02)
+            except asyncio.CancelledError:
+                observed_cancelled = True
+                raise
+
+        process_memory_mock.side_effect = _yielding_extraction
+
+        await debouncer.schedule(USER, CONV, "turn 1", "r1")
+        # Wait for _timer_fire to fire + flush to complete.
+        await asyncio.sleep(0.3)
+
+        assert process_memory_mock.await_count == 1
+        assert not observed_cancelled, "flush self-cancelled the timer task mid-extraction"
+        assert _key() not in debouncer._pending
+
+    @pytest.mark.asyncio
+    async def test_flush_all_continues_after_cancelled_flush(self, debouncer, process_memory_mock):
+        """flush_all must drain remaining queues even if one flush raises CancelledError."""
+        call_order = []
+
+        async def _first_cancelled(*args, **kwargs):
+            call_order.append(args[1])  # user_name
+            if args[1] == "Alice":
+                raise asyncio.CancelledError()
+
+        process_memory_mock.side_effect = _first_cancelled
+
+        await debouncer.schedule("Alice", "conv-a", "t1", "r1")
+        await debouncer.schedule("Bob", "conv-b", "t2", "r2")
+        await debouncer.flush_all()
+
+        # Both keys were attempted — Alice cancelled, Bob still ran.
+        assert "Alice" in call_order
+        assert "Bob" in call_order

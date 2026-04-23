@@ -208,7 +208,12 @@ class ExtractionDebouncer:
                 await self._persist(key, merged)
 
     async def flush_all(self) -> None:
-        """Drain every queue — for HA unload / shutdown."""
+        """Drain every queue — for HA unload / shutdown.
+
+        Catches CancelledError per-key so shutdown drain continues for the remaining
+        queues instead of aborting on the first cancelled flush. Data is safe in Redis
+        either way, but draining more buys cleaner post-shutdown state.
+        """
         keys = list(self._pending.keys())
         for key in keys:
             parsed = self._parse_key(key)
@@ -217,6 +222,9 @@ class ExtractionDebouncer:
             user_name, conv_id = parsed
             try:
                 await self.flush(user_name, conv_id)
+            except asyncio.CancelledError:
+                _LOGGER.warning("flush_all: CANCELLED for %s — remaining data persisted to Redis", key)
+                continue
             except Exception as e:
                 _LOGGER.warning("flush_all: failed for %s: %s", key, e)
 
