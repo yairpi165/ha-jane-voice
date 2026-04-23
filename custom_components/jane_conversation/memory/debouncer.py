@@ -91,7 +91,13 @@ class ExtractionDebouncer:
 
         key = self._key(user_name, conv_id)
         now = time.time()
-        exchange = {"user": user_name, "text": user_text, "response": jane_response, "ts": now}
+        exchange = {
+            "user": user_name,
+            "text": user_text,
+            "response": jane_response,
+            "ts": now,
+            "conv_id": conv_id,
+        }
 
         async with self._lock(key):
             self._pending.setdefault(key, []).append(exchange)

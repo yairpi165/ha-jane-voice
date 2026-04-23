@@ -177,6 +177,8 @@ class TestRedisLifecycle:
         data = json.loads(raw)
         assert len(data) == 1
         assert data[0]["text"] == "turn 1"
+        # A3: conv_id propagated into exchange dict for OpApplier session_id.
+        assert data[0]["conv_id"] == CONV
         debouncer._timers[_key()].cancel()
 
     @pytest.mark.asyncio

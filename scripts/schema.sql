@@ -141,3 +141,25 @@ CREATE TABLE IF NOT EXISTS response_tracking (
     opening TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- A3: Operations-based extraction audit log
+-- Every memory write emitted by the extractor lands here with before-state + reason.
+-- op VARCHAR(20) leaves room for future source tags (CONSOLIDATION/TOOL_WRITE/DECAY).
+CREATE TABLE IF NOT EXISTS memory_ops (
+    id SERIAL PRIMARY KEY,
+    op VARCHAR(20) NOT NULL,
+    target_table VARCHAR(50),
+    target_key JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    before_state JSONB,
+    reason TEXT,
+    confidence REAL,
+    user_name VARCHAR(100),
+    session_id VARCHAR(100),
+    raw_response TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    reverted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_ops_user ON memory_ops(user_name);
+CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id);
