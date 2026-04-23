@@ -5,8 +5,23 @@ list all preferences) don't fit the load(category)/save(category) interface.
 """
 
 import logging
+import re
 
 _LOGGER = logging.getLogger(__name__)
+
+_PREF_KEY_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_pref_key(key: str) -> str:
+    """B1 Stage 1 — canonical preference key.
+
+    Lowercased, underscore→space, whitespace collapsed, stripped. Catches the
+    pure-formatting dupes (``food_preferences`` vs ``food preferences``) at
+    write-time before they create separate rows.
+    """
+    if not key:
+        return key
+    return _PREF_KEY_WS_RE.sub(" ", str(key).replace("_", " ").lower()).strip()
 
 
 class StructuredMemoryStore:
@@ -31,6 +46,7 @@ class StructuredMemoryStore:
         """Upsert a preference. Explicit confirms inferred (confidence → 1.0)."""
         if confidence is None:
             confidence = 0.7 if inferred else 1.0
+        key = _normalize_pref_key(key)
 
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -87,6 +103,7 @@ class StructuredMemoryStore:
 
     async def load_preference(self, person_name: str, key: str) -> dict | None:
         """Load a single preference row by (person_name, key), or None if missing."""
+        key = _normalize_pref_key(key)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT key, value, confidence, inferred, source
@@ -104,6 +121,7 @@ class StructuredMemoryStore:
         A4: sets deleted_at = NOW(); double-delete is a no-op (guarded by deleted_at IS NULL).
         Re-saving the same (person_name, key) revives the row via save_preference's ON CONFLICT.
         """
+        key = _normalize_pref_key(key)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """UPDATE preferences
@@ -118,6 +136,7 @@ class StructuredMemoryStore:
 
     async def reinforce_preference(self, person_name: str, key: str) -> None:
         """Reset confidence and last_reinforced for a preference."""
+        key = _normalize_pref_key(key)
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """UPDATE preferences

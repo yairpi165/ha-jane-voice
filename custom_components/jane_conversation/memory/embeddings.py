@@ -42,7 +42,8 @@ async def store_episode_embedding(pool, episode_id: int, embedding: list[float])
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE episodes SET embedding = $1::vector WHERE id = $2",
-            _to_pg_vector(embedding), episode_id,
+            _to_pg_vector(embedding),
+            episode_id,
         )
 
 
@@ -51,7 +52,18 @@ async def store_summary_embedding(pool, summary_date, embedding: list[float]):
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE daily_summaries SET embedding = $1::vector WHERE summary_date = $2",
-            _to_pg_vector(embedding), summary_date,
+            _to_pg_vector(embedding),
+            summary_date,
+        )
+
+
+async def store_preference_embedding(pool, pref_id: int, embedding: list[float]):
+    """Store embedding vector for a preference row (B1 semantic dedup)."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE preferences SET embedding = $1::vector WHERE id = $2",
+            _to_pg_vector(embedding),
+            pref_id,
         )
 
 
@@ -65,12 +77,8 @@ async def backfill_embeddings(hass, pool, client) -> int:
 
     try:
         async with pool.acquire() as conn:
-            episodes = await conn.fetch(
-                "SELECT id, title, summary FROM episodes WHERE embedding IS NULL"
-            )
-            summaries = await conn.fetch(
-                "SELECT summary_date, summary FROM daily_summaries WHERE embedding IS NULL"
-            )
+            episodes = await conn.fetch("SELECT id, title, summary FROM episodes WHERE embedding IS NULL")
+            summaries = await conn.fetch("SELECT summary_date, summary FROM daily_summaries WHERE embedding IS NULL")
     except Exception as e:
         _LOGGER.warning("Backfill query failed: %s", e)
         return 0
@@ -89,6 +97,7 @@ async def backfill_embeddings(hass, pool, client) -> int:
             count += 1
 
     if count:
-        _LOGGER.info("Backfill: generated %d embeddings (%d episodes, %d summaries)",
-                      count, len(episodes), len(summaries))
+        _LOGGER.info(
+            "Backfill: generated %d embeddings (%d episodes, %d summaries)", count, len(episodes), len(summaries)
+        )
     return count
