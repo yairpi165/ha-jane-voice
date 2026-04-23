@@ -223,9 +223,10 @@ class TestApply:
         await applier.apply_all(ops, "Yair", "sess-abc")
         insert_call = pool_mock._conn.execute.await_args_list[0]
         args = insert_call.args
-        # positional: sql, op, table, key, payload, before, reason, confidence, user, session, raw
-        assert args[-3] == "Yair"  # user_name
-        assert args[-2] == "sess-abc"  # session_id
+        # positional: sql, op, table, key, payload, before, reason, confidence, user, session, op_hash, raw
+        assert args[-4] == "Yair"  # user_name
+        assert args[-3] == "sess-abc"  # session_id
+        assert len(args[-2]) == 32  # op_hash md5 hex
 
 
 # -------------------------------------------------------------------------

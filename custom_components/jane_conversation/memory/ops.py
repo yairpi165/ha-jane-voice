@@ -24,7 +24,7 @@ class MemoryOp:
 
     op: str                              # ADD | UPDATE | DELETE | NOOP
     target_table: str | None             # None for NOOP
-    target_key: dict                     # e.g. {"person": "Yair", "key": "beverage_preference"}
+    target_key: dict                     # e.g. {"person": "<name>", "key": "beverage_preference"}
     payload: dict                        # ADD/UPDATE only
     reason: str                          # required for non-NOOP
     confidence: float = 1.0              # 0.0-1.0 self-reported

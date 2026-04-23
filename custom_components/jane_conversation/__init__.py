@@ -243,11 +243,16 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
                     confidence REAL,
                     user_name VARCHAR(100),
                     session_id VARCHAR(100),
+                    op_hash VARCHAR(32),
                     raw_response TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     reverted_at TIMESTAMPTZ
                 )
             """)
+            # If an older memory_ops exists without op_hash, add it — PR #44 review.
+            await conn.execute(
+                "ALTER TABLE memory_ops ADD COLUMN IF NOT EXISTS op_hash VARCHAR(32)"
+            )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC)"
             )
@@ -256,6 +261,9 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_ops_op_hash ON memory_ops(op_hash)"
             )
 
         # Auto-migrate MD files on first PG connect

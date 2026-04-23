@@ -28,6 +28,28 @@ class OpApplier:
     structured: Any
     pg_pool: Any
     _raw_logged_for_session: set[str] = field(default_factory=set)
+    _person_cache: list[dict] = field(default_factory=list)
+
+    async def _resolve_person(self, name: str, fallback: str) -> str:
+        """Match Gemini's person name against the persons table (case-insensitive substring).
+
+        If Gemini emits a short name and the persons table holds the canonical full name,
+        returns the full name. Falls back to `fallback` if persons table is empty; otherwise
+        returns the input name unchanged. Cached per batch.
+        """
+        if not name:
+            return fallback
+        if not self._person_cache:
+            try:
+                self._person_cache = await self.structured.load_persons()
+            except Exception:
+                self._person_cache = []
+        needle = name.strip().lower()
+        for p in self._person_cache:
+            canon = p.get("name", "")
+            if canon and (needle == canon.lower() or needle in canon.lower()):
+                return canon
+        return name
 
     async def apply_all(
         self,
@@ -93,9 +115,7 @@ class OpApplier:
     async def _already_applied(self, op_hash: str) -> bool:
         async with self.pg_pool.acquire() as conn:
             row = await conn.fetchrow(
-                """SELECT id FROM memory_ops
-                   WHERE target_key @> jsonb_build_object('_op_hash', $1::text)
-                   LIMIT 1""",
+                "SELECT id FROM memory_ops WHERE op_hash = $1 LIMIT 1",
                 op_hash,
             )
             return row is not None
@@ -114,9 +134,11 @@ class OpApplier:
                 return {"content": content} if content else None
             return None
         if table == "preferences":
-            return await self.structured.load_preference(key.get("person"), key.get("key"))
+            person = await self._resolve_person(key.get("person", ""), user_name)
+            return await self.structured.load_preference(person, key.get("key"))
         if table == "persons":
-            row = await self.structured.load_person(key.get("name"))
+            person = await self._resolve_person(key.get("name", ""), user_name)
+            row = await self.structured.load_person(person)
             if row and isinstance(row.get("birth_date"), _dt.date):
                 row = {**row, "birth_date": row["birth_date"].isoformat()}
             return row
@@ -136,11 +158,12 @@ class OpApplier:
                 await self.backend.save(cat, payload.get("content", ""), user_key)
 
         elif table == "preferences":
+            person = await self._resolve_person(key.get("person", ""), user_name)
             if op.op == "DELETE":
-                await self.structured.delete_preference(key.get("person"), key.get("key"))
+                await self.structured.delete_preference(person, key.get("key"))
             else:
                 await self.structured.save_preference(
-                    person_name=key.get("person"),
+                    person_name=person,
                     key=key.get("key"),
                     value=payload.get("value", ""),
                     inferred=bool(payload.get("inferred", False)),
@@ -149,10 +172,11 @@ class OpApplier:
                 )
 
         elif table == "persons":
+            person = await self._resolve_person(key.get("name", ""), user_name)
             bd = payload.get("birth_date")
             bd_parsed = _parse_date(bd) if isinstance(bd, str) else bd
             await self.structured.save_person(
-                name=key.get("name"),
+                name=person,
                 role=payload.get("role"),
                 birth_date=bd_parsed,
                 metadata=payload.get("metadata"),
@@ -175,17 +199,16 @@ class OpApplier:
         op_hash: str,
         raw_response: str | None,
     ) -> None:
-        target_key_with_hash = {**op.target_key, "_op_hash": op_hash}
         try:
             async with self.pg_pool.acquire() as conn:
                 await conn.execute(
                     """INSERT INTO memory_ops
                        (op, target_table, target_key, payload, before_state, reason,
-                        confidence, user_name, session_id, raw_response)
-                       VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)""",
+                        confidence, user_name, session_id, op_hash, raw_response)
+                       VALUES ($1, $2, $3::jsonb, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11)""",
                     op.op,
                     op.target_table,
-                    json.dumps(target_key_with_hash, ensure_ascii=False, default=_json_default),
+                    json.dumps(op.target_key, ensure_ascii=False, default=_json_default),
                     json.dumps(op.payload, ensure_ascii=False, default=_json_default),
                     json.dumps(before_state, ensure_ascii=False, default=_json_default)
                     if before_state
@@ -194,6 +217,7 @@ class OpApplier:
                     op.confidence,
                     user_name,
                     session_id,
+                    op_hash,
                     raw_response,
                 )
         except Exception as e:

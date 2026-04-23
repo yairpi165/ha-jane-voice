@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS response_tracking (
 -- A3: Operations-based extraction audit log
 -- Every memory write emitted by the extractor lands here with before-state + reason.
 -- op VARCHAR(20) leaves room for future source tags (CONSOLIDATION/TOOL_WRITE/DECAY).
+-- op_hash is the B-tree-indexed idempotency key — same session_id + op + target ⇒ same hash.
 CREATE TABLE IF NOT EXISTS memory_ops (
     id SERIAL PRIMARY KEY,
     op VARCHAR(20) NOT NULL,
@@ -156,6 +157,7 @@ CREATE TABLE IF NOT EXISTS memory_ops (
     confidence REAL,
     user_name VARCHAR(100),
     session_id VARCHAR(100),
+    op_hash VARCHAR(32),
     raw_response TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     reverted_at TIMESTAMPTZ
@@ -163,3 +165,4 @@ CREATE TABLE IF NOT EXISTS memory_ops (
 CREATE INDEX IF NOT EXISTS idx_memory_ops_created ON memory_ops(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_ops_user ON memory_ops(user_name);
 CREATE INDEX IF NOT EXISTS idx_memory_ops_session ON memory_ops(session_id);
+CREATE INDEX IF NOT EXISTS idx_memory_ops_op_hash ON memory_ops(op_hash);

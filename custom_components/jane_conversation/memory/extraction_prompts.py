@@ -124,24 +124,24 @@ HARD RULES:
 ## Example 1 — New preference (ADD)
 Snapshot: (empty)
 Exchange: User: "I love black coffee"  Jane: "noted"
-Output: {{"ops":[{{"op":"ADD","target":{{"table":"preferences","key":{{"person":"Yair","key":"beverage_preference"}}}},"payload":{{"value":"black coffee","inferred":false}},"reason":"user stated preference","confidence":0.95}}]}}
+Output: {{"ops":[{{"op":"ADD","target":{{"table":"preferences","key":{{"person":"{user_name}","key":"beverage_preference"}}}},"payload":{{"value":"black coffee","inferred":false}},"reason":"user stated preference","confidence":0.95}}]}}
 
 ## Example 2 — Correction (UPDATE)
-Snapshot: preferences: Yair/beverage_preference="espresso"
+Snapshot: preferences: {user_name}/beverage_preference="espresso"
 Exchange: User: "actually I prefer filter coffee now"  Jane: "updated"
-Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"preferences","key":{{"person":"Yair","key":"beverage_preference"}}}},"payload":{{"value":"filter coffee"}},"reason":"user corrected prior preference","confidence":0.9}}]}}
+Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"preferences","key":{{"person":"{user_name}","key":"beverage_preference"}}}},"payload":{{"value":"filter coffee"}},"reason":"user corrected prior preference","confidence":0.9}}]}}
 
 ## Example 3 — Multi-turn fact (birthday)
-Snapshot: persons: Yair (no birth_date)
+Snapshot: persons: {user_name} (no birth_date)
 Exchanges: [1] "how are you?" / "good" [2] "my birthday is June 15" / "noted" [3] "turn on the light" / "done"
-Output: {{"ops":[{{"op":"ADD","target":{{"table":"persons","key":{{"name":"Yair"}}}},"payload":{{"birth_date":"2000-06-15"}},"reason":"user mentioned birthday in turn 2","confidence":0.9}}]}}
+Output: {{"ops":[{{"op":"ADD","target":{{"table":"persons","key":{{"name":"{user_name}"}}}},"payload":{{"birth_date":"2000-06-15"}},"reason":"user mentioned birthday in turn 2","confidence":0.9}}]}}
 
 ## Example 4 — Nothing durable (NOOP)
 Exchanges: [1] "what time is it?" / "14:30" [2] "turn off the light" / "done"
 Output: {{"ops":[{{"op":"NOOP","reason":"only commands and time queries, no durable facts"}}]}}
 
 ## Example 5 — Existing fact restated (NOOP, not re-ADD)
-Snapshot: persons: Yair birth_date=2000-06-15
+Snapshot: persons: {user_name} birth_date=2000-06-15
 Exchange: User: "my birthday is June 15, like I said"  Jane: "I remember"
 Output: {{"ops":[{{"op":"NOOP","reason":"birthday already in memory — no change"}}]}}
 
@@ -151,9 +151,9 @@ Exchange: User: "my little Yaara is 2 years old"  Jane: "cute"
 Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"memory_entries","key":{{"category":"family","user_name":null}}}},"payload":{{"content":"Efrat is my wife.\\nAlon is our son, 6 years old.\\nYaara is our daughter, 2 years old."}},"reason":"adding new family member while preserving existing entries","confidence":0.95}}]}}
 
 ## Example 7 — Conflicting fact (UPDATE not ADD)
-Snapshot: preferences: Yair/beverage_preference="coffee"
+Snapshot: preferences: {user_name}/beverage_preference="coffee"
 Exchange: User: "actually I only drink tea now"  Jane: "updated"
-Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"preferences","key":{{"person":"Yair","key":"beverage_preference"}}}},"payload":{{"value":"tea"}},"reason":"user switched preference from coffee to tea","confidence":0.95}}]}}
+Output: {{"ops":[{{"op":"UPDATE","target":{{"table":"preferences","key":{{"person":"{user_name}","key":"beverage_preference"}}}},"payload":{{"value":"tea"}},"reason":"user switched preference from coffee to tea","confidence":0.95}}]}}
 
 Respond with JSON only. No prose."""
 
@@ -166,13 +166,15 @@ def build_ops_prompt(
     persons: list[dict],
     preference_keys: str,
 ) -> str:
-    """Substitute placeholders in OPS_EXTRACTION_PROMPT. Returns the full system instruction."""
-    capped = cap_exchanges(exchanges)
+    """Substitute placeholders in OPS_EXTRACTION_PROMPT.
+
+    Caller must pass pre-capped `exchanges` — this helper does NOT re-cap (see PR #44 review §4).
+    """
     return (
         OPS_EXTRACTION_PROMPT.replace("{memory_state}", format_snapshot_for_prompt(snapshot, preferences, persons))
         .replace("{user_name}", user_name)
-        .replace("{n_exchanges}", str(len(capped)))
-        .replace("{exchanges_block}", format_exchanges_for_prompt(capped))
+        .replace("{n_exchanges}", str(len(exchanges)))
+        .replace("{exchanges_block}", format_exchanges_for_prompt(exchanges))
         .replace("{preference_keys}", preference_keys)
     )
 
