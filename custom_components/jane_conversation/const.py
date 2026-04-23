@@ -17,6 +17,7 @@ class JaneData:
     consolidation: object = None
     routines: object = None
     policies: object = None
+    extraction_debouncer: object = None
     # Unsubscribe callables for periodic tasks
     _unsubs: list = field(default_factory=list)
 
@@ -85,6 +86,27 @@ EPISODE_MAX_DURATION_MINUTES = 90
 # S1.5: Policy Memory
 POLICY_KEYS = {"role", "confirmation_threshold", "quiet_hours_start", "quiet_hours_end", "tts_enabled"}
 SENSITIVE_ACTIONS = {"set_automation", "remove_automation", "set_script", "remove_script", "bulk_control"}
+
+# Memory Optimization A1 — Extraction Debouncing
+EXTRACTION_BURST_CAP_SECONDS = 90
+EXTRACTION_MIN_DELAY_SECONDS = 5
+EXTRACTION_DEFAULT_DELAY_SECONDS = 30
+EXTRACTION_PENDING_TTL_SECONDS = 600
+EXTRACTION_PENDING_REDIS_PREFIX = "jane:pending_extraction"
+
+SILENT_PATTERNS = ("אל תזכרי", "אל תזכור", "מצב שקט")
+EXPLICIT_REMEMBER_PATTERNS = (
+    "תזכרי ש",
+    "תזכור ש",
+    "תשמרי ש",
+    "תשמור ש",
+    "זכרי ש",
+    "זכור ש",
+    "תרשמי ש",
+    "תרשום ש",
+    "אל תשכחי",
+    "אל תשכח",
+)
 
 # Common Whisper hallucinations — phantom phrases generated from silence/noise.
 # These are phrases Whisper invents when it gets silence or background noise.

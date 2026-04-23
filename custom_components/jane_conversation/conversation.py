@@ -12,8 +12,15 @@ from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .brain import think
-from .const import CONF_GEMINI_API_KEY, CONF_TAVILY_API_KEY, DOMAIN, WHISPER_HALLUCINATIONS
-from .memory import async_append_action, async_append_history, process_memory, track_response
+from .const import (
+    CONF_GEMINI_API_KEY,
+    CONF_TAVILY_API_KEY,
+    DOMAIN,
+    EXPLICIT_REMEMBER_PATTERNS,
+    SILENT_PATTERNS,
+    WHISPER_HALLUCINATIONS,
+)
+from .memory import async_append_action, async_append_history, track_response
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -131,10 +138,19 @@ class JaneConversationEntity(ConversationEntity):
         # Permanent history log
         self.hass.async_create_task(async_append_history(user_name, user_text, response_text))
 
-        # Memory extraction in background (async — runs on event loop)
-        silent = any(p in user_text for p in ["אל תזכרי", "אל תזכור", "מצב שקט"])
-        if not silent:
-            self.hass.async_create_task(process_memory(client, user_name, user_text, response_text, "tool", self.hass))
+        # Memory extraction via debouncer — coalesce bursts into a single extraction.
+        silent = any(p in user_text for p in SILENT_PATTERNS)
+        explicit = any(p in user_text for p in EXPLICIT_REMEMBER_PATTERNS)
+        debouncer = getattr(jane, "extraction_debouncer", None) if jane else None
+        if debouncer is not None:
+            await debouncer.schedule(
+                user_name,
+                conversation_id,
+                user_text,
+                response_text,
+                is_silent=silent,
+                explicit_intent=explicit,
+            )
 
         # Return response for TTS
         response = intent.IntentResponse(language=user_input.language or "he")
