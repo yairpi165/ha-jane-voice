@@ -18,6 +18,7 @@ from google.genai import types
 
 from ..const import GEMINI_MODEL_FAST
 from .embeddings import generate_embedding, store_preference_embedding
+from .preference_merge_helpers import merge_values, pick_winner
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +27,6 @@ ARBITRATE_THRESHOLD = 0.85
 MAX_PREFS_PER_PERSON = 200
 MIN_PREFS_TO_SWEEP = 4
 RECENT_SWEEP_HOURS = 1
-MAX_VALUE_LEN = 400
 
 _ARBITRATE_PROMPT = """You decide if two remembered preferences for the same person are duplicates.
 
@@ -232,8 +232,8 @@ async def _merge_pair(
         _LOGGER.info("Merge aborted: row tombstoned mid-sweep (a=%d, b=%d)", a_id, b_id)
         return False
 
-    winner, loser = _pick_winner(a, b)
-    merged_value = _merge_values(winner["value"], loser["value"])
+    winner, loser = pick_winner(a, b)
+    merged_value = merge_values(winner["value"], loser["value"])
     value_changed = merged_value != winner["value"]
 
     # Re-check winner is still live right before write (post-review §3.2).
@@ -284,28 +284,3 @@ async def _merge_pair(
         reason,
     )
     return True
-
-
-def _pick_winner(a: dict, b: dict) -> tuple[dict, dict]:
-    """Winner: higher confidence; tie-break by later last_reinforced."""
-    ac, bc = float(a.get("confidence") or 0), float(b.get("confidence") or 0)
-    if ac != bc:
-        return (a, b) if ac > bc else (b, a)
-    a_ts, b_ts = a.get("last_reinforced"), b.get("last_reinforced")
-    if a_ts and b_ts:
-        return (a, b) if a_ts >= b_ts else (b, a)
-    return (a, b)
-
-
-def _merge_values(winner: str, loser: str) -> str:
-    """Winner value + loser value concat (unless loser is already a substring)."""
-    w = (winner or "").strip()
-    lv = (loser or "").strip()
-    if not lv or lv.lower() in w.lower():
-        return w
-    if not w:
-        return lv
-    candidate = f"{w}; {lv}"
-    if len(candidate) > MAX_VALUE_LEN:
-        return w  # keep winner unchanged; reason row notes truncation
-    return candidate

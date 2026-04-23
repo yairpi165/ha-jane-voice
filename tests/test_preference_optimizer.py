@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from jane_conversation.memory import preference_optimizer as popt
-from jane_conversation.memory.preference_optimizer import (
-    _merge_values,
-    _pick_winner,
-    sweep_person,
+from jane_conversation.memory.preference_merge_helpers import (
+    merge_values as _merge_values,
 )
+from jane_conversation.memory.preference_merge_helpers import (
+    pick_winner as _pick_winner,
+)
+from jane_conversation.memory.preference_optimizer import sweep_person
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
