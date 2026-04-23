@@ -1,11 +1,21 @@
 """Tests for memory — anti-repetition tracking, date normalization."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from jane_conversation.memory import (
     _recent_responses,
     get_recent_responses,
     track_response,
 )
-from jane_conversation.memory.extraction import _normalize_date
+from jane_conversation.memory.extraction import (
+    _MAX_CONTEXT_CHARS,
+    _cap_exchanges,
+    _format_exchanges_for_prompt,
+    _normalize_date,
+    process_memory,
+)
 
 # ---------------------------------------------------------------------------
 # Anti-Repetition Tracking
@@ -93,3 +103,128 @@ class TestNormalizeDate:
         result = _normalize_date("2024-12-08")
         assert isinstance(result, date)
         assert not isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# A2 — Multi-exchange extraction helpers
+# ---------------------------------------------------------------------------
+
+
+def _mk(text: str, response: str) -> dict:
+    return {"user": "Yair", "text": text, "response": response, "ts": 0}
+
+
+class TestCapExchanges:
+    def test_keeps_all_within_limit(self):
+        exchanges = [_mk(f"q{i}", f"a{i}") for i in range(5)]
+        assert _cap_exchanges(exchanges) == exchanges
+
+    def test_keeps_recent_when_over_limit(self):
+        # 10 large exchanges, each ~1000 chars → total 10000 > 8000 cap
+        exchanges = [_mk("x" * 500, "y" * 500) for _ in range(10)]
+        capped = _cap_exchanges(exchanges)
+        assert len(capped) < len(exchanges)
+        # Latest kept (recency gives them priority — reversed iteration)
+        assert capped[-1] is exchanges[-1]
+
+    def test_single_giant_exchange_still_included(self):
+        """Never drop the latest turn, even if it alone exceeds the cap."""
+        huge = _mk("x" * (_MAX_CONTEXT_CHARS * 2), "y")
+        assert _cap_exchanges([huge]) == [huge]
+
+    def test_empty_input_returns_empty(self):
+        assert _cap_exchanges([]) == []
+
+
+class TestFormatExchanges:
+    def test_renders_chronologically_with_numbering(self):
+        exchanges = [_mk("hi", "hello"), _mk("what's up?", "not much")]
+        rendered = _format_exchanges_for_prompt(exchanges)
+        lines = rendered.splitlines()
+        assert lines[0] == "[1] User: hi"
+        assert lines[1] == "    Jane: hello"
+        assert lines[2] == "[2] User: what's up?"
+        assert lines[3] == "    Jane: not much"
+
+    def test_empty_list_returns_empty_string(self):
+        assert _format_exchanges_for_prompt([]) == ""
+
+
+class TestProcessMemoryMultiExchange:
+    @pytest.mark.asyncio
+    async def test_empty_exchanges_early_return(self, hass_mock):
+        """Empty list (post-cap edge case) returns without calling Gemini."""
+        client = MagicMock()
+        # No mocking of backend needed — we expect early exit before backend load.
+        await process_memory(client, "Yair", [], "tool", hass_mock)
+        client.models.generate_content.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ha_service_skip_only_when_single_exchange(self, hass_mock):
+        """A2 §3.3: 2-exchange burst with short responses must NOT skip."""
+        client = MagicMock()
+        with patch("jane_conversation.memory.extraction.get_backend") as gb:
+            backend = MagicMock()
+            backend.load_all = AsyncMock(return_value="")
+            backend.save = AsyncMock()
+            gb.return_value = backend
+            hass_mock.async_add_executor_job = AsyncMock(
+                return_value=_fake_gemini_response('{"user": null}')
+            )
+
+            # Single short exchange with ha_service → skip (legacy behavior preserved).
+            await process_memory(
+                client, "Yair", [_mk("turn off", "off")], "ha_service", hass_mock
+            )
+            hass_mock.async_add_executor_job.assert_not_called()
+
+            # 2 short exchanges with ha_service → must NOT skip (multi-exchange).
+            await process_memory(
+                client, "Yair", [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
+                "ha_service", hass_mock,
+            )
+            hass_mock.async_add_executor_job.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_passes_multi_exchange_prompt_to_gemini(self, hass_mock):
+        """Prompt sent to Gemini must contain all exchanges with correct count."""
+        client = MagicMock()
+        captured_prompts = []
+
+        def _capture(fn, client_arg, prompt):
+            captured_prompts.append(prompt)
+            return _fake_gemini_response('{"user": null}')
+
+        with patch("jane_conversation.memory.extraction.get_backend") as gb:
+            backend = MagicMock()
+            backend.load_all = AsyncMock(return_value="existing memory")
+            backend.save = AsyncMock()
+            gb.return_value = backend
+            hass_mock.async_add_executor_job = AsyncMock(side_effect=_capture)
+
+            exchanges = [
+                _mk("turn 1", "r1"),
+                _mk("my birthday is June 15", "noted"),
+                _mk("thanks", "np"),
+            ]
+            await process_memory(client, "Yair", exchanges, "tool", hass_mock)
+
+        assert len(captured_prompts) == 1
+        prompt = captured_prompts[0]
+        assert "3 total" in prompt
+        assert "turn 1" in prompt
+        assert "my birthday is June 15" in prompt
+        assert "thanks" in prompt
+
+
+def _fake_gemini_response(text: str):
+    """Build a fake Gemini API response with given .text."""
+    part = MagicMock()
+    part.text = text
+    content = MagicMock()
+    content.parts = [part]
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response

@@ -81,7 +81,11 @@ class TestSchedule:
         await debouncer.schedule(USER, CONV, "turn 3", "r3")
         # Wait past the burst cap
         await asyncio.sleep(0.5)
-        assert process_memory_mock.await_count == 3
+        # A2: single call with a list of all 3 exchanges (not one call per turn).
+        assert process_memory_mock.await_count == 1
+        exchanges_arg = process_memory_mock.await_args.args[2]
+        assert len(exchanges_arg) == 3
+        assert [ex["text"] for ex in exchanges_arg] == ["turn 1", "turn 2", "turn 3"]
         assert _key() not in debouncer._pending
 
     @pytest.mark.asyncio
@@ -89,6 +93,7 @@ class TestSchedule:
         await debouncer.schedule(USER, CONV, "תזכרי ש אני אוהב שקט", "בסדר", explicit_intent=True)
         # No sleep — explicit intent bypasses timer
         assert process_memory_mock.await_count == 1
+        assert len(process_memory_mock.await_args.args[2]) == 1
         assert _key() not in debouncer._pending
 
     @pytest.mark.asyncio
@@ -106,7 +111,9 @@ class TestSchedule:
         # Waiting should flush turn 1 only
         await asyncio.sleep(0.5)
         assert process_memory_mock.await_count == 1
-        assert process_memory_mock.await_args_list[0].args[2] == "turn 1"
+        exchanges_arg = process_memory_mock.await_args_list[0].args[2]
+        assert len(exchanges_arg) == 1
+        assert exchanges_arg[0]["text"] == "turn 1"
 
 
 # --- Concurrency ---
@@ -124,8 +131,12 @@ class TestConcurrency:
         await flush_task
         # Let the newly scheduled timer fire
         await asyncio.sleep(0.5)
-        # Both turns must have been extracted
-        extracted_texts = [c.args[2] for c in process_memory_mock.await_args_list]
+        # Both turns must have been extracted (possibly across two flush calls).
+        extracted_texts = [
+            ex["text"]
+            for c in process_memory_mock.await_args_list
+            for ex in c.args[2]
+        ]
         assert "turn 1" in extracted_texts
         assert "turn 2" in extracted_texts
 
@@ -184,7 +195,7 @@ class TestRedisLifecycle:
 
         assert count == 1
         assert process_memory_mock.await_count == 1
-        assert process_memory_mock.await_args.args[2] == "orphan turn"
+        assert process_memory_mock.await_args.args[2][0]["text"] == "orphan turn"
         # Redis key should be cleared
         assert await redis_mock.get(f"jane:pending_extraction:{_key()}") is None
 
@@ -231,10 +242,56 @@ class TestLifecycle:
         assert not debouncer._pending
 
     @pytest.mark.asyncio
-    async def test_process_memory_error_still_clears_queue(self, debouncer, process_memory_mock):
+    async def test_process_memory_error_requeues_in_memory(self, debouncer, process_memory_mock):
+        """On flush failure, exchanges are restored to _pending so the next flush sees them."""
         process_memory_mock.side_effect = RuntimeError("boom")
         await debouncer.schedule(USER, CONV, "t1", "r1")
         await debouncer.flush(USER, CONV)
-        assert _key() not in debouncer._pending
         # Attempted process_memory despite error
         assert process_memory_mock.await_count == 1
+        # Re-queued in-memory (not just Redis) so a subsequent flush retries them.
+        assert _key() in debouncer._pending
+        assert debouncer._pending[_key()][0]["text"] == "t1"
+
+    @pytest.mark.asyncio
+    async def test_flush_requeues_to_redis_on_process_memory_error(
+        self, debouncer, process_memory_mock, redis_mock
+    ):
+        """A2 §2.1: failed extraction re-persists to Redis for retry on next burst/startup."""
+        process_memory_mock.side_effect = RuntimeError("Gemini 503")
+        await debouncer.schedule(USER, CONV, "important fact", "ok")
+        await debouncer.flush(USER, CONV)
+        # Redis still has the queue — next restore_from_redis will retry.
+        raw = await redis_mock.get(f"jane:pending_extraction:{_key()}")
+        assert raw is not None
+        data = json.loads(raw)
+        assert len(data) == 1
+        assert data[0]["text"] == "important fact"
+
+    @pytest.mark.asyncio
+    async def test_requeue_merges_with_concurrent_schedule(
+        self, debouncer, process_memory_mock, redis_mock
+    ):
+        """PR #43 review: re-queue must merge with new exchanges scheduled during the failed flush."""
+
+        async def _slow_failing_extraction(*args, **kwargs):
+            # Simulate Gemini taking time, during which a new turn arrives.
+            await asyncio.sleep(0.05)
+            raise RuntimeError("Gemini 503")
+
+        process_memory_mock.side_effect = _slow_failing_extraction
+
+        await debouncer.schedule(USER, CONV, "old fact", "r1")
+        flush_task = asyncio.create_task(debouncer.flush(USER, CONV))
+        # Let flush enter and pop the queue, then start the slow process_memory.
+        await asyncio.sleep(0.01)
+        # Concurrent schedule arrives while process_memory is in flight.
+        await debouncer.schedule(USER, CONV, "new fact", "r2")
+        await flush_task
+
+        # After re-queue: both old (re-persisted) and new (concurrently scheduled) survive.
+        raw = await redis_mock.get(f"jane:pending_extraction:{_key()}")
+        assert raw is not None
+        texts = [ex["text"] for ex in json.loads(raw)]
+        assert "old fact" in texts
+        assert "new fact" in texts

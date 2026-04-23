@@ -1,6 +1,7 @@
 """Jane Conversation Entity — integrates with HA Assist pipeline."""
 
 import logging
+import time
 import uuid
 
 from google import genai
@@ -153,8 +154,16 @@ class JaneConversationEntity(ConversationEntity):
             )
         elif not silent:
             # Fallback: debouncer unavailable (e.g. Redis down) — preserve pre-A1 behavior.
+            single_exchange = [
+                {
+                    "user": user_name,
+                    "text": user_text,
+                    "response": response_text,
+                    "ts": time.time(),
+                }
+            ]
             self.hass.async_create_task(
-                process_memory(client, user_name, user_text, response_text, "tool", self.hass)
+                process_memory(client, user_name, single_exchange, "tool", self.hass)
             )
 
         # Return response for TTS

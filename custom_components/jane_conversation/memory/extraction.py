@@ -137,6 +137,35 @@ def _call_gemini_simple(client, system_prompt, user_msg, max_tokens):
     )
 
 
+_MAX_CONTEXT_CHARS = 8000  # ~2000 tokens (Hebrew+English, 4 chars/token)
+
+
+def _cap_exchanges(exchanges: list[dict]) -> list[dict]:
+    """Keep most-recent exchanges whose combined text fits the cap.
+
+    A single exchange that exceeds the cap is still included (the `and kept` guard),
+    so we never drop the latest turn.
+    """
+    total = 0
+    kept: list[dict] = []
+    for ex in reversed(exchanges):
+        size = len(ex.get("text", "")) + len(ex.get("response", ""))
+        if total + size > _MAX_CONTEXT_CHARS and kept:
+            break
+        total += size
+        kept.append(ex)
+    return list(reversed(kept))
+
+
+def _format_exchanges_for_prompt(exchanges: list[dict]) -> str:
+    """Render exchanges as a numbered oldest-first block for the extraction prompt."""
+    lines = []
+    for i, ex in enumerate(exchanges, start=1):
+        lines.append(f"[{i}] User: {ex.get('text', '')}")
+        lines.append(f"    Jane: {ex.get('response', '')}")
+    return "\n".join(lines)
+
+
 MEMORY_EXTRACTION_PROMPT = """You are the memory manager for Jane, a Hebrew smart home assistant.
 Analyze the conversation and decide what to remember.
 
@@ -145,9 +174,8 @@ Current memory:
 
 ---
 
-Latest exchange:
-User ({user_name}): {user_text}
-Jane: {jane_response}
+Recent exchanges from {user_name} (oldest first — {n_exchanges} total):
+{exchanges_block}
 
 ---
 
@@ -232,10 +260,25 @@ def _call_with_retry(client: genai.Client, prompt: str, max_retries: int = 1):
 
 
 async def process_memory(
-    client: genai.Client, user_name: str, user_text: str, jane_response: str, action: str, hass=None
+    client: genai.Client,
+    user_name: str,
+    exchanges: list[dict],
+    action: str,  # TODO(A3): action no longer meaningful per-turn in multi-exchange bursts
+    hass=None,
 ):
-    """Analyze conversation and update memory if needed. Async — runs on event loop."""
-    if action == "ha_service" and len(jane_response) < 30:
+    """Analyze burst of exchanges and update memory if needed. Async — runs on event loop.
+
+    exchanges: list of {"text": str, "response": str, "ts": float, "user": str}.
+    """
+    # Narrow single-exchange ha_service skip — multi-exchange always extracts
+    # (one turn may be a short device command while another carries durable facts).
+    if action == "ha_service" and len(exchanges) == 1:
+        if len(exchanges[0].get("response", "")) < 30:
+            return
+
+    capped = _cap_exchanges(exchanges)
+    if not capped:
+        _LOGGER.debug("process_memory: no exchanges after cap — skipping")
         return
 
     backend = get_backend()
@@ -244,8 +287,8 @@ async def process_memory(
     prompt = (
         MEMORY_EXTRACTION_PROMPT.replace("{memory_context}", memory_context)
         .replace("{user_name}", user_name)
-        .replace("{user_text}", user_text)
-        .replace("{jane_response}", jane_response)
+        .replace("{n_exchanges}", str(len(capped)))
+        .replace("{exchanges_block}", _format_exchanges_for_prompt(capped))
         .replace("{preference_keys}", PREFERENCE_KEY_TAXONOMY)
     )
 

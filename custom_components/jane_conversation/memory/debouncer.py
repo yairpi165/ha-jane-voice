@@ -168,19 +168,27 @@ class ExtractionDebouncer:
                 len(exchanges),
             )
             return
-        # TODO(A2): retry failed exchanges instead of dropping them.
-        for i, ex in enumerate(exchanges):
-            try:
-                await process_memory(client, ex["user"], ex["text"], ex["response"], "tool", self._hass)
-            except Exception as e:
-                _LOGGER.warning(
-                    "Extraction flush failed for %s [%d/%d] (text=%s…): %s",
-                    key,
-                    i + 1,
-                    len(exchanges),
-                    ex["text"][:40],
-                    e,
-                )
+        # Burst is single-user by construction (debouncer key includes user_name).
+        assert all(ex.get("user") == user_name for ex in exchanges), (
+            f"Mixed users in burst: {set(ex.get('user') for ex in exchanges)}"
+        )
+        try:
+            await process_memory(client, user_name, exchanges, "tool", self._hass)
+        except Exception as e:
+            # Re-queue for retry on next burst or startup restore (A2 §2.1).
+            # Re-acquire the lock and merge with any concurrent schedule()s that
+            # arrived during process_memory — otherwise we'd overwrite their writes.
+            _LOGGER.warning(
+                "Extraction flush failed for %s (%d exchanges): %s — re-queued for retry",
+                key,
+                len(exchanges),
+                e,
+            )
+            async with self._lock(key):
+                existing = self._pending.get(key, [])
+                merged = exchanges + existing
+                self._pending[key] = merged
+                await self._persist(key, merged)
 
     async def flush_all(self) -> None:
         """Drain every queue — for HA unload / shutdown."""
