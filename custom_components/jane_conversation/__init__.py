@@ -69,6 +69,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _get_jane(hass).gemini_client = client  # Store for backfill + consolidation
     await rebuild_home_map(client, hass)
 
+    # Extraction debouncer (A1) — coalesce per-turn memory extractions into bursts.
+    from .memory.debouncer import ExtractionDebouncer
+
+    jane.extraction_debouncer = ExtractionDebouncer(hass, jane.redis, lambda: jane.gemini_client, entry.entry_id)
+    await jane.extraction_debouncer.restore_from_redis()
+
+    async def _flush_debouncer_on_unload():
+        await jane.extraction_debouncer.flush_all()
+
+    entry.async_on_unload(_flush_debouncer_on_unload)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
