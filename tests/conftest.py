@@ -63,8 +63,8 @@ def hass_mock():
     )
 
     # People
-    person_yair = make_state("person.yair", "home", {"friendly_name": "יאיר"})
-    person_efrat = make_state("person.efrat", "not_home", {"friendly_name": "אפרת"})
+    person_alice = make_state("person.alice", "home", {"friendly_name": "Alice"})
+    person_bob = make_state("person.bob", "not_home", {"friendly_name": "Bob"})
 
     # Lights
     light_living = make_state("light.living_room", "on", {"friendly_name": "אור סלון", "brightness": 200})
@@ -85,8 +85,8 @@ def hass_mock():
 
     all_states = [
         weather,
-        person_yair,
-        person_efrat,
+        person_alice,
+        person_bob,
         light_living,
         light_bedroom,
         ac,

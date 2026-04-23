@@ -26,12 +26,12 @@ class TestSavePolicy:
     @pytest.mark.asyncio
     async def test_upserts_with_on_conflict(self, store, mock_pool):
         _, conn = mock_pool
-        await store.save_policy("יאיר", "role", "admin")
+        await store.save_policy("Alice", "role", "admin")
 
         sql = conn.execute.call_args[0][0]
         assert "INSERT INTO policies" in sql
         assert "ON CONFLICT (person_name, key) DO UPDATE" in sql
-        assert conn.execute.call_args[0][1] == "יאיר"
+        assert conn.execute.call_args[0][1] == "Alice"
         assert conn.execute.call_args[0][2] == "role"
         assert conn.execute.call_args[0][3] == "admin"
 
@@ -45,7 +45,7 @@ class TestLoadPolicies:
             {"key": "quiet_hours_start", "value": "23:00"},
         ]
 
-        result = await store.load_policies("יאיר")
+        result = await store.load_policies("Alice")
         assert result == {"role": "admin", "quiet_hours_start": "23:00"}
 
     @pytest.mark.asyncio
@@ -63,7 +63,7 @@ class TestCheckPermission:
         _, conn = mock_pool
         conn.fetch.return_value = [{"key": "role", "value": "admin"}]
 
-        result = await store.check_permission("יאיר", "set_automation")
+        result = await store.check_permission("Alice", "set_automation")
         assert result is None  # allowed
 
     @pytest.mark.asyncio
@@ -71,7 +71,7 @@ class TestCheckPermission:
         _, conn = mock_pool
         conn.fetch.return_value = [{"key": "role", "value": "child"}]
 
-        result = await store.check_permission("אלון", "set_automation")
+        result = await store.check_permission("Charlie", "set_automation")
         assert result is not None
         assert "אישור" in result
 
@@ -80,7 +80,7 @@ class TestCheckPermission:
         _, conn = mock_pool
         conn.fetch.return_value = [{"key": "role", "value": "child"}]
 
-        result = await store.check_permission("אלון", "get_entity_state")
+        result = await store.check_permission("Charlie", "get_entity_state")
         assert result is None  # allowed
 
     @pytest.mark.asyncio
@@ -92,7 +92,7 @@ class TestCheckPermission:
             {"key": "quiet_hours_end", "value": "23:59"},
         ]
 
-        result = await store.check_permission("יאיר", "tts")
+        result = await store.check_permission("Alice", "tts")
         assert result is not None
         assert "שקט" in result
 
@@ -115,7 +115,7 @@ class TestBuildPolicyContext:
             {"key": "quiet_hours_end", "value": "07:00"},
         ]
 
-        result = await store.build_policy_context("יאיר")
+        result = await store.build_policy_context("Alice")
         assert "admin" in result
         assert "23:00–07:00" in result
 
@@ -134,7 +134,7 @@ class TestSeedDefaults:
         _, conn = mock_pool
         conn.fetch.return_value = []  # no existing policies
 
-        persons = [{"name": "יאיר", "role": "parent"}, {"name": "אלון", "role": "child"}]
+        persons = [{"name": "Alice", "role": "parent"}, {"name": "Charlie", "role": "child"}]
         count = await store.seed_defaults(persons)
         assert count == 2
 
@@ -152,6 +152,6 @@ class TestSeedDefaults:
         _, conn = mock_pool
         conn.fetch.return_value = [{"key": "role", "value": "admin"}]
 
-        persons = [{"name": "יאיר", "role": "parent"}]
+        persons = [{"name": "Alice", "role": "parent"}]
         count = await store.seed_defaults(persons)
         assert count == 0  # already has role

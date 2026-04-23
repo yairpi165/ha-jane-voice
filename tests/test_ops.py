@@ -71,7 +71,7 @@ class TestParseOps:
         ops = parse_ops_json({
             "ops": [{
                 "op": "ADD",
-                "target": {"table": "preferences", "key": {"person": "Yair", "key": "coffee"}},
+                "target": {"table": "preferences", "key": {"person": "Alice", "key": "coffee"}},
                 "payload": {"value": "black", "inferred": False},
                 "reason": "user said so",
                 "confidence": 0.9,
@@ -86,8 +86,8 @@ class TestParseOps:
         ops = parse_ops_json({
             "ops": [{
                 "op": "UPDATE",
-                "target": {"table": "memory_entries", "key": {"category": "user", "user_name": "Yair"}},
-                "payload": {"content": "Name: Yair\nBirthday: Jun 15"},
+                "target": {"table": "memory_entries", "key": {"category": "user", "user_name": "Alice"}},
+                "payload": {"content": "Name: Alice\nBirthday: Jun 15"},
                 "reason": "update",
             }]
         })
@@ -157,9 +157,9 @@ class TestApply:
     @pytest.mark.asyncio
     async def test_apply_add_preference_calls_save_and_logs(self, applier, structured_mock, pool_mock):
         ops = parse_ops_json({"ops": [{"op": "ADD",
-            "target": {"table": "preferences", "key": {"person": "Yair", "key": "coffee"}},
+            "target": {"table": "preferences", "key": {"person": "Alice", "key": "coffee"}},
             "payload": {"value": "black"}, "reason": "new", "confidence": 0.9}]})
-        result = await applier.apply_all(ops, "Yair", "sess-1")
+        result = await applier.apply_all(ops, "Alice", "sess-1")
         assert result.added == 1
         structured_mock.save_preference.assert_awaited_once()
         # memory_ops INSERT recorded
@@ -170,7 +170,7 @@ class TestApply:
         ops = parse_ops_json({"ops": [{"op": "UPDATE",
             "target": {"table": "memory_entries", "key": {"category": "family"}},
             "payload": {"content": "two lines"}, "reason": "add member"}]})
-        result = await applier.apply_all(ops, "Yair", "sess-1",
+        result = await applier.apply_all(ops, "Alice", "sess-1",
                                           memory_snapshot={"family": "one line"})
         assert result.updated == 1
         backend_mock.save.assert_awaited_once_with("family", "two lines", None)
@@ -178,16 +178,16 @@ class TestApply:
     @pytest.mark.asyncio
     async def test_apply_delete_preference(self, applier, structured_mock):
         ops = parse_ops_json({"ops": [{"op": "DELETE",
-            "target": {"table": "preferences", "key": {"person": "Yair", "key": "coffee"}},
+            "target": {"table": "preferences", "key": {"person": "Alice", "key": "coffee"}},
             "reason": "forget"}]})
-        result = await applier.apply_all(ops, "Yair", "sess-1")
+        result = await applier.apply_all(ops, "Alice", "sess-1")
         assert result.deleted == 1
-        structured_mock.delete_preference.assert_awaited_once_with("Yair", "coffee")
+        structured_mock.delete_preference.assert_awaited_once_with("Alice", "coffee")
 
     @pytest.mark.asyncio
     async def test_apply_noop_logs_row_only(self, applier, backend_mock, structured_mock, pool_mock):
         ops = parse_ops_json({"ops": [{"op": "NOOP", "reason": "nothing"}]})
-        result = await applier.apply_all(ops, "Yair", "sess-1")
+        result = await applier.apply_all(ops, "Alice", "sess-1")
         assert result.nooped == 1
         backend_mock.save.assert_not_called()
         structured_mock.save_preference.assert_not_called()
@@ -197,9 +197,9 @@ class TestApply:
     @pytest.mark.asyncio
     async def test_apply_person_add_stores_birth_date(self, applier, structured_mock):
         ops = parse_ops_json({"ops": [{"op": "ADD",
-            "target": {"table": "persons", "key": {"name": "Yair"}},
+            "target": {"table": "persons", "key": {"name": "Alice"}},
             "payload": {"birth_date": "1991-04-19"}, "reason": "birthday"}]})
-        await applier.apply_all(ops, "Yair", "sess-1")
+        await applier.apply_all(ops, "Alice", "sess-1")
         call = structured_mock.save_person.await_args
         import datetime as _dt
         assert call.kwargs["birth_date"] == _dt.date(1991, 4, 19)
@@ -220,11 +220,11 @@ class TestApply:
     @pytest.mark.asyncio
     async def test_records_session_id_and_user_name(self, applier, pool_mock):
         ops = parse_ops_json({"ops": [{"op": "NOOP", "reason": "x"}]})
-        await applier.apply_all(ops, "Yair", "sess-abc")
+        await applier.apply_all(ops, "Alice", "sess-abc")
         insert_call = pool_mock._conn.execute.await_args_list[0]
         args = insert_call.args
         # positional: sql, op, table, key, payload, before, reason, confidence, user, session, op_hash, raw
-        assert args[-4] == "Yair"  # user_name
+        assert args[-4] == "Alice"  # user_name
         assert args[-3] == "sess-abc"  # session_id
         assert len(args[-2]) == 32  # op_hash md5 hex
 
@@ -239,14 +239,14 @@ class TestIdempotency:
     async def test_replay_same_ops_does_not_duplicate(self, applier, structured_mock, pool_mock):
         """Second apply_all with same session_id + ops detects replay and skips."""
         ops = parse_ops_json({"ops": [{"op": "ADD",
-            "target": {"table": "preferences", "key": {"person": "Yair", "key": "k"}},
+            "target": {"table": "preferences", "key": {"person": "Alice", "key": "k"}},
             "payload": {"value": "v"}, "reason": "r"}]})
 
-        await applier.apply_all(ops, "Yair", "sess-1")
+        await applier.apply_all(ops, "Alice", "sess-1")
         # After first apply, fetchrow should "find" the prior op_hash on replay.
         pool_mock._conn.fetchrow = AsyncMock(return_value={"id": 1})
 
-        result2 = await applier.apply_all(ops, "Yair", "sess-1")
+        result2 = await applier.apply_all(ops, "Alice", "sess-1")
         assert result2.skipped == 1
         assert result2.added == 0
 
@@ -286,7 +286,7 @@ class TestBeforeState:
         ops = parse_ops_json({"ops": [{"op": "UPDATE",
             "target": {"table": "memory_entries", "key": {"category": "family"}},
             "payload": {"content": "new"}, "reason": "r"}]})
-        await applier.apply_all(ops, "Yair", "sess-1",
+        await applier.apply_all(ops, "Alice", "sess-1",
                                  memory_snapshot={"family": "OLD CONTENT"})
         # memory_ops INSERT — before_state is positional arg index 5 (0-indexed after sql).
         insert_args = pool_mock._conn.execute.await_args_list[0].args

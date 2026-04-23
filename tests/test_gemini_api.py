@@ -30,7 +30,7 @@ class TestHistoryConversion:
             await think(
                 gemini_client_mock,
                 "מה שלומך",
-                "yair",
+                "alice",
                 hass_mock,
                 history=[{"role": "user", "content": "היי"}],
             )
@@ -57,7 +57,7 @@ class TestHistoryConversion:
             await think(
                 gemini_client_mock,
                 "תודה",
-                "yair",
+                "alice",
                 hass_mock,
                 history=[
                     {"role": "user", "content": "היי"},
@@ -91,7 +91,7 @@ class TestModelSelection:
             ),
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
         ):
-            await think(gemini_client_mock, "מה שלומך", "yair", hass_mock)
+            await think(gemini_client_mock, "מה שלומך", "alice", hass_mock)
 
         call_args = gemini_client_mock.models.generate_content.call_args
         model = call_args.kwargs.get("model", call_args[1].get("model") if len(call_args) > 1 else None)
@@ -108,7 +108,7 @@ class TestModelSelection:
             ),
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
         ):
-            await think(gemini_client_mock, "תדליק אור", "yair", hass_mock)
+            await think(gemini_client_mock, "תדליק אור", "alice", hass_mock)
 
         call_args = gemini_client_mock.models.generate_content.call_args
         model = call_args.kwargs.get("model", call_args[1].get("model") if len(call_args) > 1 else None)
@@ -125,7 +125,7 @@ class TestModelSelection:
             ),
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
         ):
-            await think(gemini_client_mock, "תיצרי אוטומציה שמדליקה אור", "yair", hass_mock)
+            await think(gemini_client_mock, "תיצרי אוטומציה שמדליקה אור", "alice", hass_mock)
 
         call_args = gemini_client_mock.models.generate_content.call_args
         model = call_args.kwargs.get("model", call_args[1].get("model") if len(call_args) > 1 else None)
@@ -152,7 +152,7 @@ class TestToolCallingLoop:
             ),
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
         ):
-            result = await think(gemini_client_mock, "מה הטמפרטורה?", "yair", hass_mock)
+            result = await think(gemini_client_mock, "מה הטמפרטורה?", "alice", hass_mock)
 
         assert "25" in result
         assert gemini_client_mock.models.generate_content.call_count == 1
@@ -176,7 +176,7 @@ class TestToolCallingLoop:
                 "jane_conversation.brain.engine.execute_tool", new_callable=AsyncMock, return_value="מזגן: cool, 24°C"
             ),
         ):
-            result = await think(gemini_client_mock, "מה מצב המזגן?", "yair", hass_mock)
+            result = await think(gemini_client_mock, "מה מצב המזגן?", "alice", hass_mock)
 
         assert "24" in result
         assert gemini_client_mock.models.generate_content.call_count == 2
@@ -194,6 +194,6 @@ class TestToolCallingLoop:
             ),
             patch("jane_conversation.brain.engine.get_recent_responses", return_value=""),
         ):
-            result = await think(gemini_client_mock, "בדיקה", "yair", hass_mock)
+            result = await think(gemini_client_mock, "בדיקה", "alice", hass_mock)
 
         assert result == ""

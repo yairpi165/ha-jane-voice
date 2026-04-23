@@ -91,9 +91,9 @@ class TestCheckPeople:
     @pytest.mark.asyncio
     async def test_people_status(self, hass_mock):
         result = await execute_tool(hass_mock, "check_people", {})
-        assert "יאיר" in result
+        assert "Alice" in result
         assert "home" in result or "at home" in result
-        assert "אפרת" in result
+        assert "Bob" in result
         assert "away" in result
 
 

@@ -111,7 +111,7 @@ class TestNormalizeDate:
 
 
 def _mk(text: str, response: str) -> dict:
-    return {"user": "Yair", "text": text, "response": response, "ts": 0}
+    return {"user": "Alice", "text": text, "response": response, "ts": 0}
 
 
 class TestCapExchanges:
@@ -156,7 +156,7 @@ class TestProcessMemoryMultiExchange:
         """Empty list (post-cap edge case) returns without calling Gemini."""
         client = MagicMock()
         # No mocking of backend needed — we expect early exit before backend load.
-        await process_memory(client, "Yair", [], "tool", hass_mock)
+        await process_memory(client, "Alice", [], "tool", hass_mock)
         client.models.generate_content.assert_not_called()
 
     @pytest.mark.asyncio
@@ -172,13 +172,13 @@ class TestProcessMemoryMultiExchange:
 
             # Single short exchange with ha_service → skip (legacy behavior preserved).
             await process_memory(
-                client, "Yair", [_mk("turn off", "off")], "ha_service", hass_mock
+                client, "Alice", [_mk("turn off", "off")], "ha_service", hass_mock
             )
             hass_mock.async_add_executor_job.assert_not_called()
 
             # 2 short exchanges with ha_service → must NOT skip (multi-exchange).
             await process_memory(
-                client, "Yair", [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
+                client, "Alice", [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
                 "ha_service", hass_mock,
             )
             hass_mock.async_add_executor_job.assert_called()
@@ -203,7 +203,7 @@ class TestProcessMemoryMultiExchange:
                 _mk("my birthday is June 15", "noted"),
                 _mk("thanks", "np"),
             ]
-            await process_memory(client, "Yair", exchanges, "tool", hass_mock)
+            await process_memory(client, "Alice", exchanges, "tool", hass_mock)
 
         assert len(captured_prompts) == 1
         prompt = captured_prompts[0]

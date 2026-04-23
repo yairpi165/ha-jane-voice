@@ -103,7 +103,7 @@ class TestTemplateSummary:
 
     def test_arrival_detection(self):
         cluster = [
-            _make_event(10, "Yair: not_home → home"),
+            _make_event(10, "Alice: not_home → home"),
             _make_event(8, "Living Room: off → on"),
         ]
         result = _template_summary(cluster)
@@ -112,7 +112,7 @@ class TestTemplateSummary:
 
     def test_conversation_type(self):
         cluster = [
-            _make_event(10, "שיחה עם יאיר", event_type="conversation"),
+            _make_event(10, "שיחה עם Alice", event_type="conversation"),
         ]
         # Single event skipped (MIN_EVENTS_FOR_EPISODE=2), but template_summary doesn't enforce that
         result = _template_summary(cluster)
@@ -123,7 +123,7 @@ class TestTemplateDailySummary:
     def test_with_episodes(self):
         episodes = [
             {"title": "ערב שקט", "summary": "נורות נדלקו"},
-            {"title": "שיחה עם יאיר", "summary": "דיבר על מזג אוויר"},
+            {"title": "שיחה עם Alice", "summary": "דיבר על מזג אוויר"},
         ]
         result = _template_daily_summary(episodes, 42)
         assert "42 אירועים" in result
