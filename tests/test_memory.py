@@ -319,8 +319,11 @@ class TestExtractionResponseSchema:
         _call_with_retry(client, "fake prompt")
 
         kwargs = client.models.generate_content.call_args.kwargs
-        assert kwargs["contents"] == "fake prompt"
+        # Prompt lives in system_instruction (stronger priority channel for long
+        # few-shot prompts); contents is a short directive telling Flash to emit JSON.
         config = kwargs["config"]
+        assert getattr(config, "system_instruction", None) == "fake prompt"
+        assert kwargs["contents"] == "Emit the ops JSON per the schema."
         # Gemini's types.GenerateContentConfig stores fields as attrs.
         assert getattr(config, "response_mime_type", None) == "application/json"
         assert getattr(config, "response_schema", None) == _OPS_RESPONSE_SCHEMA

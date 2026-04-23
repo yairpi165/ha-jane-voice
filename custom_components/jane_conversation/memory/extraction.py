@@ -42,9 +42,40 @@ _OPS_RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string"},
-                    "target": {"type": "object"},
-                    "payload": {"type": "object"},
+                    "op": {"type": "string", "enum": ["ADD", "UPDATE", "DELETE", "NOOP"]},
+                    "target": {
+                        "type": "object",
+                        "properties": {
+                            "table": {
+                                "type": "string",
+                                "enum": ["memory_entries", "preferences", "persons", "events"],
+                            },
+                            # key shape varies per table; keep keys permissive strings.
+                            "key": {
+                                "type": "object",
+                                "properties": {
+                                    "category": {"type": "string"},
+                                    "user_name": {"type": "string"},
+                                    "person": {"type": "string"},
+                                    "key": {"type": "string"},
+                                    "name": {"type": "string"},
+                                    "event_type": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
+                    "payload": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"},
+                            "value": {"type": "string"},
+                            "confidence": {"type": "number"},
+                            "inferred": {"type": "boolean"},
+                            "birth_date": {"type": "string"},
+                            "role": {"type": "string"},
+                            "description": {"type": "string"},
+                        },
+                    },
                     "reason": {"type": "string"},
                     "confidence": {"type": "number"},
                 },
@@ -159,8 +190,13 @@ def _call_with_retry(client: genai.Client, prompt: str, max_retries: int = 1):
         try:
             return client.models.generate_content(
                 model=GEMINI_MODEL_FAST,
-                contents=prompt,
+                # Long few-shot prompt stays in system_instruction (stronger priority
+                # channel). B1's note about "contents > system_instruction under JSON
+                # mode" was based on a ~300-char arbitration; for the 10k-char ops
+                # prompt with few-shots, system_instruction is the right home.
+                contents="Emit the ops JSON per the schema.",
                 config=types.GenerateContentConfig(
+                    system_instruction=prompt,
                     max_output_tokens=4000,
                     temperature=0.3,
                     response_mime_type="application/json",

@@ -122,17 +122,29 @@ class ConsolidationWorker:
 
         try:
             response = await self._hass.async_add_executor_job(
-                lambda: _call_gemini(client, prompt, response_schema=_EPISODE_SUMMARY_SCHEMA)
+                lambda: _call_gemini(client, prompt, response_schema=_EPISODE_SUMMARY_SCHEMA, max_output_tokens=500)
             )
-
-            if not response or not response.candidates:
-                return _template_summary(cluster)
-
-            # Schema-backed output is clean JSON (no code fences).
-            raw = response.candidates[0].content.parts[0].text.strip()
-            return json.loads(raw)
         except Exception as e:
-            _LOGGER.debug("LLM episode summary failed, using template: %s", e)
+            _LOGGER.debug("LLM episode summary call failed, using template: %s", e)
+            return _template_summary(cluster)
+
+        if not response or not response.candidates:
+            return _template_summary(cluster)
+
+        # Schema-backed output is clean JSON (no code fences).
+        raw = response.candidates[0].content.parts[0].text.strip()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            # Loud: schema-backed Gemini output should never fail to parse.
+            # If it does, we've silently regressed. Log WARNING with the raw
+            # snippet so it's visible without DEBUG.
+            _LOGGER.warning(
+                "Episode summary JSON parse failed (schema enforcement regressed?) — "
+                "falling back to template. err=%s raw=%r",
+                e,
+                raw[:200],
+            )
             return _template_summary(cluster)
 
     # ------------------------------------------------------------------
@@ -241,16 +253,20 @@ class ConsolidationWorker:
 # ------------------------------------------------------------------
 
 
-def _call_gemini(client, prompt: str, response_schema: dict | None = None):
+def _call_gemini(client, prompt: str, response_schema: dict | None = None, max_output_tokens: int = 300):
     """Synchronous Gemini Flash call with retry (runs in executor).
 
     When `response_schema` is passed, enforce JSON output (see JANE-84 /
     feedback_gemini_json_mode.md — bare `response_mime_type` isn't enough
     on Flash). When None, output is unconstrained (Hebrew prose etc.).
+
+    `max_output_tokens`: default 300 suits daily Hebrew prose. JSON-schema
+    episode summaries need ~500 to cover structure overhead + UTF-8 Hebrew
+    values without truncation (truncated JSON fails schema enforcement).
     """
     from google.genai import types
 
-    config_kwargs = {"max_output_tokens": 300, "temperature": 0.3}
+    config_kwargs = {"max_output_tokens": max_output_tokens, "temperature": 0.3}
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
         config_kwargs["response_schema"] = response_schema
