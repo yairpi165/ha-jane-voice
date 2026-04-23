@@ -175,3 +175,28 @@ ALTER TABLE memory_entries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE preferences    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_memory_entries_live ON memory_entries(category, user_name) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_preferences_live    ON preferences(person_name, key)       WHERE deleted_at IS NULL;
+
+-- B1: Semantic preference dedup
+-- Stage 2 embedding sweep stores one 768-dim vector per pref row, compares
+-- pairwise via cosine, merges >=0.95 auto + 0.85-0.95 via Gemini arbitration.
+-- Audit row per merge preserves both sides for manual revert.
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS embedding VECTOR(768);
+CREATE INDEX IF NOT EXISTS idx_preferences_embedding
+    ON preferences USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
+
+CREATE TABLE IF NOT EXISTS preference_merges (
+    id SERIAL PRIMARY KEY,
+    loser_id INT NOT NULL,
+    winner_id INT NOT NULL,
+    loser_key VARCHAR(200),
+    loser_value TEXT,
+    winner_key VARCHAR(200),
+    winner_value_before TEXT,
+    winner_value_after TEXT,
+    similarity REAL,
+    reason TEXT,
+    merged_at TIMESTAMPTZ DEFAULT NOW(),
+    reverted_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_preference_merges_merged_at ON preference_merges(merged_at DESC);
+CREATE INDEX IF NOT EXISTS idx_preference_merges_winner ON preference_merges(winner_id);

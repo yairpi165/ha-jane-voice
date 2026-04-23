@@ -33,7 +33,7 @@ class TestSavePreference:
         conn.execute.assert_called_once()
         args = conn.execute.call_args[0]
         assert args[1] == "Alice"
-        assert args[2] == "food_preferences"
+        assert args[2] == "food preferences"  # B1 Stage 1: key normalized at write-time
         assert args[3] == "pizza with olives"
         assert args[4] == 1.0  # confidence
         assert args[5] is False  # inferred

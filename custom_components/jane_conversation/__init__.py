@@ -111,6 +111,36 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
 
         jane.add_unsub(async_track_time_interval(hass, _decay_task, timedelta(hours=24)))
 
+        # B1: Daily semantic preference dedup sweep + one-shot on startup
+        async def _preference_dedup_task(_now):
+            try:
+                from .memory import preference_optimizer
+
+                client = jane.gemini_client
+                if not client or not jane.pg_pool:
+                    return
+                results = await preference_optimizer.sweep_all(
+                    jane.pg_pool,
+                    client,
+                    hass,
+                    jane.structured,
+                )
+                for person, r in results.items():
+                    if r.before_count != r.after_count:
+                        _LOGGER.info(
+                            "Preference dedup for %s: %d → %d (%d auto, %d arbitrated)",
+                            person,
+                            r.before_count,
+                            r.after_count,
+                            r.auto_merges,
+                            r.arbitrated_merges,
+                        )
+            except Exception as e:
+                _LOGGER.debug("Preference dedup failed: %s", e)
+
+        jane.add_unsub(async_track_time_interval(hass, _preference_dedup_task, timedelta(hours=24)))
+        hass.async_create_task(_preference_dedup_task(None))
+
     # S1.4: Consolidation + daily summary + cleanup
     if jane.episodic:
         from .memory.consolidation import ConsolidationWorker
@@ -266,6 +296,35 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_preferences_live "
                 "ON preferences(person_name, key) WHERE deleted_at IS NULL"
+            )
+
+            # B1: semantic preference dedup — embedding column + ivfflat index + audit table.
+            await conn.execute("ALTER TABLE preferences ADD COLUMN IF NOT EXISTS embedding VECTOR(768)")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_preferences_embedding "
+                "ON preferences USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10)"
+            )
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS preference_merges (
+                    id SERIAL PRIMARY KEY,
+                    loser_id INT NOT NULL,
+                    winner_id INT NOT NULL,
+                    loser_key VARCHAR(200),
+                    loser_value TEXT,
+                    winner_key VARCHAR(200),
+                    winner_value_before TEXT,
+                    winner_value_after TEXT,
+                    similarity REAL,
+                    reason TEXT,
+                    merged_at TIMESTAMPTZ DEFAULT NOW(),
+                    reverted_at TIMESTAMPTZ
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_preference_merges_merged_at ON preference_merges(merged_at DESC)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_preference_merges_winner ON preference_merges(winner_id)"
             )
 
         # Auto-migrate MD files on first PG connect

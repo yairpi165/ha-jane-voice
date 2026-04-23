@@ -171,15 +171,16 @@ class TestProcessMemoryMultiExchange:
             )
 
             # Single short exchange with ha_service → skip (legacy behavior preserved).
-            await process_memory(
-                client, "Alice", [_mk("turn off", "off")], "ha_service", hass_mock
-            )
+            await process_memory(client, "Alice", [_mk("turn off", "off")], "ha_service", hass_mock)
             hass_mock.async_add_executor_job.assert_not_called()
 
             # 2 short exchanges with ha_service → must NOT skip (multi-exchange).
             await process_memory(
-                client, "Alice", [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
-                "ha_service", hass_mock,
+                client,
+                "Alice",
+                [_mk("turn off", "off"), _mk("birthday 15/6", "rashamti")],
+                "ha_service",
+                hass_mock,
             )
             hass_mock.async_add_executor_job.assert_called()
 
@@ -265,3 +266,40 @@ def _setup_jane_data(hass_mock):
     jane.pg_pool = pool
     hass_mock.data = {DOMAIN: jane}
     return backend, structured, pool
+
+
+# ---------------------------------------------------------------------------
+# B1 — Stage 1 preference key normalization
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizePrefKey:
+    def test_lowercase_underscore_spaces_trim(self):
+        from jane_conversation.memory.structured import _normalize_pref_key
+
+        assert _normalize_pref_key("food_Preferences") == "food preferences"
+        assert _normalize_pref_key("  food preferences  ") == "food preferences"
+        assert _normalize_pref_key("FOOD  PREFERENCES") == "food preferences"
+        assert _normalize_pref_key("note_Travel_Plans") == "note travel plans"
+
+    def test_empty_and_none_safe(self):
+        from jane_conversation.memory.structured import _normalize_pref_key
+
+        assert _normalize_pref_key("") == ""
+        assert _normalize_pref_key(None) is None  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_save_preference_passes_normalized_key_to_sql(self):
+        from jane_conversation.memory.structured import StructuredMemoryStore
+
+        pool = MagicMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        acq = MagicMock()
+        acq.__aenter__ = AsyncMock(return_value=conn)
+        acq.__aexit__ = AsyncMock(return_value=False)
+        pool.acquire = MagicMock(return_value=acq)
+        store = StructuredMemoryStore(pool)
+        await store.save_preference("Alice", "Food_Preferences", "coffee")
+        # Second positional arg is the key
+        assert conn.execute.await_args.args[2] == "food preferences"
