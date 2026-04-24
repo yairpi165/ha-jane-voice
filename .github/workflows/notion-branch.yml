@@ -20,10 +20,11 @@ jobs:
     steps:
       - name: Extract JANE ID
         id: extract
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
-          BRANCH="${{ github.ref_name }}"
           JANE_ID=$(echo "$BRANCH" | grep -oP 'JANE-\d+' | head -1)
-          echo "jane_id=$JANE_ID" >> $GITHUB_OUTPUT
+          echo "jane_id=$JANE_ID" >> "$GITHUB_OUTPUT"
           echo "Branch: $BRANCH → $JANE_ID"
 
       - name: Update Notion Status to In Progress

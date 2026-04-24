@@ -9,12 +9,13 @@ jobs:
     steps:
       - name: Extract JANE ID from PR
         id: extract
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          BODY="${{ github.event.pull_request.body }}"
-          JANE_ID=$(echo "$TITLE $BODY" | grep -oP 'JANE-\d+' | head -1)
-          echo "jane_id=$JANE_ID" >> $GITHUB_OUTPUT
-          echo "PR: $TITLE → $JANE_ID"
+          JANE_ID=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" | grep -oP 'JANE-\d+' | head -1)
+          echo "jane_id=$JANE_ID" >> "$GITHUB_OUTPUT"
+          echo "PR: $PR_TITLE → $JANE_ID"
 
       - name: Update Notion Status to In Review
         if: steps.extract.outputs.jane_id != ''
