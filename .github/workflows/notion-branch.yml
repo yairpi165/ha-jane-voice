@@ -8,6 +8,9 @@ on:
       - 'improvement/JANE-*'
       - 'test/JANE-*'
       - 'docs/JANE-*'
+      - 'perf/JANE-*'
+      - 'chore/JANE-*'
+      - 'JANE-*'
 
 jobs:
   update-notion:
