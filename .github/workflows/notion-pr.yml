@@ -1,7 +1,7 @@
 name: Notion — PR to In Review
 on:
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, edited]
 
 jobs:
   update-notion:
@@ -44,6 +44,10 @@ jobs:
                 })
               }
             );
+            if (!search.ok) {
+              console.error(`Notion search failed: ${search.status} ${await search.text()}`);
+              return;
+            }
             const data = await search.json();
             const page = data.results?.[0];
             if (!page) {
@@ -51,7 +55,7 @@ jobs:
               return;
             }
 
-            await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+            const update = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
               method: 'PATCH',
               headers: {
                 'Authorization': `Bearer ${process.env.NOTION_TOKEN}`,
@@ -62,4 +66,8 @@ jobs:
                 properties: { Status: { select: { name: 'In Review' } } }
               })
             });
+            if (!update.ok) {
+              console.error(`Notion update failed: ${update.status} ${await update.text()}`);
+              return;
+            }
             console.log(`✅ ${janeId} → In Review`);
