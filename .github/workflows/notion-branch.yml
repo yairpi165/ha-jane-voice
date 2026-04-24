@@ -1,0 +1,70 @@
+name: Notion — Branch to In Progress
+on:
+  create:
+    branches:
+      - 'feature/JANE-*'
+      - 'bug/JANE-*'
+      - 'refactor/JANE-*'
+      - 'improvement/JANE-*'
+      - 'test/JANE-*'
+      - 'docs/JANE-*'
+
+jobs:
+  update-notion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract JANE ID
+        id: extract
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          JANE_ID=$(echo "$BRANCH" | grep -oP 'JANE-\d+' | head -1)
+          echo "jane_id=$JANE_ID" >> $GITHUB_OUTPUT
+          echo "Branch: $BRANCH → $JANE_ID"
+
+      - name: Update Notion Status to In Progress
+        if: steps.extract.outputs.jane_id != ''
+        uses: actions/github-script@v7
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+        with:
+          script: |
+            const janeId = '${{ steps.extract.outputs.jane_id }}';
+            const num = parseInt(janeId.split('-')[1]);
+
+            const search = await fetch(
+              `https://api.notion.com/v1/databases/${process.env.NOTION_DB_ID}/query`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.NOTION_TOKEN}`,
+                  'Notion-Version': '2022-06-28',
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  filter: {
+                    property: 'Task ID',
+                    unique_id: { equals: num }
+                  }
+                })
+              }
+            );
+            const data = await search.json();
+            const page = data.results?.[0];
+            if (!page) {
+              console.log(`Task ${janeId} not found in Notion`);
+              return;
+            }
+
+            await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${process.env.NOTION_TOKEN}`,
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                properties: { Status: { select: { name: 'In Progress' } } }
+              })
+            });
+            console.log(`✅ ${janeId} → In Progress`);
