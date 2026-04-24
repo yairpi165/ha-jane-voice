@@ -1,9 +1,10 @@
 name: Notion — Branch to In Progress
 on:
-  create:
+  push:
     branches:
       - 'feature/JANE-*'
       - 'bug/JANE-*'
+      - 'fix/JANE-*'
       - 'refactor/JANE-*'
       - 'improvement/JANE-*'
       - 'test/JANE-*'
@@ -14,14 +15,16 @@ on:
 
 jobs:
   update-notion:
+    if: github.event.created == true
     runs-on: ubuntu-latest
     steps:
       - name: Extract JANE ID
         id: extract
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
-          BRANCH="${{ github.ref_name }}"
           JANE_ID=$(echo "$BRANCH" | grep -oP 'JANE-\d+' | head -1)
-          echo "jane_id=$JANE_ID" >> $GITHUB_OUTPUT
+          echo "jane_id=$JANE_ID" >> "$GITHUB_OUTPUT"
           echo "Branch: $BRANCH → $JANE_ID"
 
       - name: Update Notion Status to In Progress
@@ -52,6 +55,10 @@ jobs:
                 })
               }
             );
+            if (!search.ok) {
+              console.error(`Notion search failed: ${search.status} ${await search.text()}`);
+              return;
+            }
             const data = await search.json();
             const page = data.results?.[0];
             if (!page) {
@@ -59,7 +66,7 @@ jobs:
               return;
             }
 
-            await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
+            const update = await fetch(`https://api.notion.com/v1/pages/${page.id}`, {
               method: 'PATCH',
               headers: {
                 'Authorization': `Bearer ${process.env.NOTION_TOKEN}`,
@@ -70,4 +77,8 @@ jobs:
                 properties: { Status: { select: { name: 'In Progress' } } }
               })
             });
+            if (!update.ok) {
+              console.error(`Notion update failed: ${update.status} ${await update.text()}`);
+              return;
+            }
             console.log(`✅ ${janeId} → In Progress`);
