@@ -82,28 +82,37 @@ Voice/Text → HA Assist Pipeline → conversation.py (ConversationEntity)
 ### memory/ — 7-Layer Memory System
 All memory subsystems are initialized in `__init__.py` (`async_setup_entry`) and stored on the `JaneData` dataclass in `const.py`.
 
-- **storage.py** — `StorageBackend` ABC with File, Postgres, DualWrite implementations. DualWrite writes to both PG and MD files for fallback.
-- **manager.py** — Load/save functions for MD-based memory files (user, family, habits, corrections, routines, actions). Anti-repetition tracking.
-- **structured.py** — `StructuredMemoryStore` — PG tables for `persons`, `relationships`, `preferences` with confidence scoring and TTL decay.
-- **episodic.py** — `EpisodicStore` — append-only `events` table + `episodes` + `daily_summaries`.
-- **consolidation.py** — `ConsolidationWorker` — periodic job: raw events → episodes → daily summaries. Uses Gemini for narrative generation. Generates embeddings after consolidation.
-- **embeddings.py** — pgvector integration. `gemini-embedding-001` model (768 dims). Backfill on startup.
-- **extraction.py** — Post-conversation memory extraction via Gemini. Parses JSON responses from LLM, includes `_repair_json()` for truncated output.
+- **storage.py** — `StorageBackend` ABC + `PostgresBackend`. **DualWrite was removed** in PR #39 (ADR-3) — the active write + read path is PG-only. MD files are kept as a read-time fallback through `manager.py` if PG is unavailable.
+- **manager.py** — MD-file read fallback path, anti-repetition tracking.
+- **structured.py** — `StructuredMemoryStore` — PG tables `persons`, `relationships`, `preferences` with confidence scoring + decay + soft-delete (`deleted_at`).
+- **episodic.py** — `EpisodicStore` — append-only `events` + `episodes` + `daily_summaries`.
+- **consolidation.py** — `ConsolidationWorker` — 6-hourly: raw events → episodes → daily summaries. Uses Gemini Flash for narrative generation. Generates embeddings after consolidation.
+- **embeddings.py** — pgvector integration. `gemini-embedding-001` (768 dims, reduced from 3072). Backfill on startup. Non-fatal failures.
+- **extraction.py** — Post-conversation memory extraction via Gemini Flash. **Ops-based** (A3): emits a list of `MemoryOp` objects parsed by `ops.py` and applied by `ops_applier.py`. Always uses `response_schema` (JANE-84 — `response_mime_type` alone is insufficient).
+- **ops.py** + **ops_applier.py** — `MemoryOp` / `OpResult` dataclasses + the applier that writes ops to PG (insert / update / delete / soft-delete).
+- **debouncer.py** — `ExtractionDebouncer` (A1). Batches multiple short turns into one extraction call. **Self-cancel-safe** — cancelling the timer task from inside its own coroutine no longer kills it.
+- **preference_optimizer.py** + **preference_merge_helpers.py** — B1 two-stage preference dedup: deterministic merge for clear winners, LLM fallback for ambiguous pairs.
 - **policy.py** — `PolicyStore` — permission rules, confirmation thresholds, quiet hours per user.
 - **routine_store.py** — `RoutineStore` — Smart Routines cached in PG with confidence scores.
 - **context_builder.py** — Formats episodic + memory context for system prompt injection.
 - **migrate_structured.py** — One-time MD → PG migration with sentinel pattern (`category='_migration'`).
+- **firebase.py** — Disaster-recovery backup (still active).
 
-### tools/ — 38 Tool Definitions
-- **definitions.py** — Gemini `function_declarations` (JSON schemas for all tools).
-- **registry.py** — Maps tool names → handler functions. `execute_tool()` dispatcher.
+### tools/ — 41 Tool Definitions
+- **definitions.py** — Gemini `function_declarations` (JSON schemas for all tools). Verify count with `grep -c "^TOOL_[A-Z_]* = " tools/definitions.py` (currently 41).
+- **registry.py** — Maps tool names → handler functions. `execute_tool()` dispatcher. Errors are caught and fed back to Gemini as the result string — never raised. Jane never crashes.
 - **handlers/** — Grouped by domain: `core.py`, `device.py`, `discovery.py`, `calendar.py`, `family.py`, `memory_tools.py`, `config.py`, `power.py`.
+- **`forget_memory` tool** (A5) — soft-deletes a row by routing the user's "תשכחי את X" through `memory_tools.py` → `structured.py` (`deleted_at = NOW()`).
 
 ### Key Patterns
-- **JaneData dataclass** (`const.py`) — typed container for all runtime state. Access via `hass.data[DOMAIN]`.
-- **DualWriteBackend** — all memory writes go to PG + MD files. Reads prefer PG.
-- **Executor wrapping** — blocking I/O (file reads, sync API calls) must use `hass.async_add_executor_job()`. `async_add_executor_job` does not support kwargs — wrap with lambda.
+- **JaneData dataclass** (`const.py`) — typed container for all runtime state. Access via `hass.data[DOMAIN]`. Fields: `entry`, `pg_pool`, `redis`, `working_memory`, `gemini_client`, `structured`, `episodic`, `consolidation`, `routines`, `policies`, `extraction_debouncer`, `_unsubs`.
+- **PG-only read path (ADR-3)** — all live reads hit PG via `PostgresBackend`. MD files are a fallback only when PG is down.
+- **Soft-delete (A4)** — `persons` / `preferences` / `relationships` carry `deleted_at`. All reads filter `deleted_at IS NULL`. Double-delete is a no-op.
+- **Ops-based extraction (A3)** — extraction emits structured `MemoryOp`s instead of free-form JSON. Defined in `memory/ops.py`.
+- **`response_schema` invariant (JANE-84)** — any Gemini structured-output call MUST pair `response_mime_type="application/json"` with a real `response_schema`. The mime type alone returns prose like "Here is the JSON...".
+- **Executor wrapping** — blocking I/O (file reads, sync API calls) must use `hass.async_add_executor_job()`. Does not accept kwargs — wrap with lambda.
 - **Whisper hallucination filter** — `WHISPER_HALLUCINATIONS` in const.py filters known STT artifacts.
+- **Personal names** — never appear in code or tests. Use placeholders Alice / Bob / Charlie / Daisy. Real names live only in the runtime `persons` table + the Notion Private/Household details page.
 
 ## Testing
 
