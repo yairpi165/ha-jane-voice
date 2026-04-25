@@ -2,7 +2,7 @@
 
 A private, Hebrew-speaking voice assistant for smart home control. Built on Gemini 2.5 Pro + Flash with Home Assistant integration, running on a Raspberry Pi 5.
 
-**Version:** 3.27.2 | **Tools:** 41 | **Tests:** 380
+**Version:** 3.27.2 | **Tools:** 41 | **Tests:** 290 (281 CI + 9 live)
 
 ## What Jane Does
 
