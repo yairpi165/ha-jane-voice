@@ -148,22 +148,24 @@ class StructuredMemoryStore:
             )
 
     async def decay_preferences(self) -> int:
-        """Decay inferred preferences not reinforced in 7+ days. Subtract 0.05 per run (daily)."""
-        async with self._pool.acquire() as conn:
-            result = await conn.execute(
-                """UPDATE preferences
-                   SET confidence = GREATEST(0.0, confidence - 0.05),
-                       updated_at = NOW()
-                   WHERE inferred = TRUE
-                     AND confidence > 0.0
-                     AND last_reinforced < NOW() - INTERVAL '7 days'
-                     AND deleted_at IS NULL"""
+        """Run B3 category-aware decay. Logs per-category counts. Returns total.
+
+        SQL bodies live in ``memory/decay.py`` to keep this file under the
+        300-line cap.
+        """
+        from .decay import decay_preferences as _decay
+
+        c_v, c_s, c_p = await _decay(self._pool)
+        total = c_v + c_s + c_p
+        if total:
+            _LOGGER.info(
+                "Decayed preferences: volatile=%d stable=%d permanent=%d (total=%d)",
+                c_v,
+                c_s,
+                c_p,
+                total,
             )
-            # asyncpg returns "UPDATE N"
-            count = int(result.split()[-1]) if result else 0
-            if count:
-                _LOGGER.info("Decayed %d inferred preferences", count)
-            return count
+        return total
 
     # ------------------------------------------------------------------
     # Persons

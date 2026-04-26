@@ -135,6 +135,7 @@ async def test_purge_removes_old_tombstones_via_returning_clause(monkeypatch):
     monkeypatch.setattr(cp, "preference_optimizer", MagicMock(sweep_all=AsyncMock(return_value={})))
     monkeypatch.setattr(cp, "collect_health_report", AsyncMock(return_value=MagicMock(extra={})))
     monkeypatch.setattr(cp, "persist_health_report", AsyncMock(return_value=42))
+    monkeypatch.setattr(cp, "correction_status_counts", AsyncMock(return_value={}))
 
     diff = await run_consolidation_pass(pool, redis, structured, MagicMock(), MagicMock(), trigger="manual")
 
@@ -159,6 +160,7 @@ async def test_purge_query_excludes_recently_referenced_loser_ids(monkeypatch):
     monkeypatch.setattr(cp, "preference_optimizer", MagicMock(sweep_all=AsyncMock(return_value={})))
     monkeypatch.setattr(cp, "collect_health_report", AsyncMock(return_value=MagicMock(extra={})))
     monkeypatch.setattr(cp, "persist_health_report", AsyncMock(return_value=1))
+    monkeypatch.setattr(cp, "correction_status_counts", AsyncMock(return_value={}))
 
     await run_consolidation_pass(pool, redis, _mk_structured(), MagicMock(), MagicMock(), trigger="weekly")
 
@@ -181,6 +183,7 @@ async def test_diff_captures_before_after_and_duration(monkeypatch):
     monkeypatch.setattr(cp, "preference_optimizer", MagicMock(sweep_all=AsyncMock(return_value={})))
     monkeypatch.setattr(cp, "collect_health_report", AsyncMock(return_value=MagicMock(extra={})))
     monkeypatch.setattr(cp, "persist_health_report", AsyncMock(return_value=1))
+    monkeypatch.setattr(cp, "correction_status_counts", AsyncMock(return_value={}))
 
     diff = await run_consolidation_pass(pool, _mk_redis(), _mk_structured(), MagicMock(), MagicMock(), trigger="weekly")
 
@@ -210,6 +213,7 @@ async def test_savepoint_isolates_purge_failure(monkeypatch):
     monkeypatch.setattr(cp, "preference_optimizer", MagicMock(sweep_all=sweep_mock))
     monkeypatch.setattr(cp, "collect_health_report", AsyncMock(return_value=MagicMock(extra={})))
     monkeypatch.setattr(cp, "persist_health_report", AsyncMock(return_value=1))
+    monkeypatch.setattr(cp, "correction_status_counts", AsyncMock(return_value={}))
 
     diff = await run_consolidation_pass(pool, redis, _mk_structured(), MagicMock(), MagicMock(), trigger="manual")
 
@@ -280,6 +284,7 @@ async def test_consolidation_trims_expired_zset_entries(monkeypatch):
     monkeypatch.setattr(cp, "preference_optimizer", MagicMock(sweep_all=AsyncMock(return_value={})))
     monkeypatch.setattr(cp, "collect_health_report", AsyncMock(return_value=MagicMock(extra={})))
     monkeypatch.setattr(cp, "persist_health_report", AsyncMock(return_value=1))
+    monkeypatch.setattr(cp, "correction_status_counts", AsyncMock(return_value={}))
 
     await run_consolidation_pass(pool, redis, _mk_structured(), MagicMock(), MagicMock(), trigger="weekly")
 
@@ -316,12 +321,15 @@ async def test_consolidation_writes_health_row_with_extra(monkeypatch):
     monkeypatch.setattr(cp, "collect_health_report", AsyncMock(return_value=fake_report))
     persist_mock = AsyncMock(return_value=99)
     monkeypatch.setattr(cp, "persist_health_report", persist_mock)
+    monkeypatch.setattr(cp, "correction_status_counts", AsyncMock(return_value={"open": 1}))
 
     await run_consolidation_pass(pool, _mk_redis(), _mk_structured(), MagicMock(), MagicMock(), trigger="manual")
 
     persist_mock.assert_awaited_once()
     written = persist_mock.await_args.args[1]
     assert "consolidation" in written.extra
+    # B4 (JANE-83): the same emission carries corrections_lifecycle counts.
+    assert written.extra.get("corrections_lifecycle") == {"open": 1}
     cd = written.extra["consolidation"]
     assert cd["trigger"] == "manual"
     assert cd["tombstones_purged_prefs"] == 1

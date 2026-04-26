@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from . import preference_optimizer
+from .correction_lifecycle import correction_status_counts
 from .health import collect_health_report, persist_health_report
 from .structured import _normalize_pref_key
 
@@ -197,10 +198,14 @@ async def run_consolidation_pass(
     diff.duration_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
 
     # Emit a fresh memory_health_samples row carrying the standard 5 metrics
-    # plus the consolidation diff in extra. The B5 collector handles the metrics.
+    # plus the consolidation diff and (B4 / JANE-83) corrections lifecycle counts
+    # in extra. The B5 collector handles the metrics.
     try:
         report = await collect_health_report(pool, days=7)
-        report.extra = {"consolidation": diff.to_extra_dict()}
+        report.extra = {
+            "consolidation": diff.to_extra_dict(),
+            "corrections_lifecycle": await correction_status_counts(pool),
+        }
         await persist_health_report(pool, report)
     except Exception as e:
         _LOGGER.warning("Failed to emit consolidation health row: %s", e)
