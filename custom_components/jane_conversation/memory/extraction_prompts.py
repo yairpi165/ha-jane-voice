@@ -165,13 +165,31 @@ def build_ops_prompt(
     preferences: list[dict],
     persons: list[dict],
     preference_keys: str,
+    recently_removed: list[str] | None = None,
 ) -> str:
     """Substitute placeholders in OPS_EXTRACTION_PROMPT.
 
     Caller must pass pre-capped `exchanges` — this helper does NOT re-cap (see PR #44 review §4).
+
+    `recently_removed` (B2 / JANE-81): list of "{person}:{normalized_key}" strings
+    the user explicitly forgot via the forget_memory tool. When non-empty, an
+    "DO NOT re-extract" block is prepended to the snapshot section so Gemini
+    doesn't re-emit ADD ops for these. Hard enforcement happens in OpApplier;
+    the prompt is purely a deterrent.
     """
+    snapshot_block = format_snapshot_for_prompt(snapshot, preferences, persons)
+    if recently_removed:
+        bullets = "\n".join(f"- {key}" for key in recently_removed)
+        snapshot_block = (
+            "[RECENTLY REMOVED FACTS — user explicitly asked to forget these]\n"
+            "The user used \"forget_memory\" to remove the following facts. They have\n"
+            "not re-stated them since. DO NOT emit ADD ops for these:\n"
+            f"{bullets}\n"
+            "[end of list]\n\n"
+        ) + snapshot_block
+
     return (
-        OPS_EXTRACTION_PROMPT.replace("{memory_state}", format_snapshot_for_prompt(snapshot, preferences, persons))
+        OPS_EXTRACTION_PROMPT.replace("{memory_state}", snapshot_block)
         .replace("{user_name}", user_name)
         .replace("{n_exchanges}", str(len(exchanges)))
         .replace("{exchanges_block}", format_exchanges_for_prompt(exchanges))

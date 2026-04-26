@@ -34,6 +34,9 @@ def _setup_jane(hass_mock):
         }
     )
     structured.load_persons = AsyncMock(return_value=[{"name": "Alice"}])
+    structured.canonical_person = AsyncMock(
+        side_effect=lambda name, fallback="", persons_cache=None: name or fallback
+    )
 
     pool = MagicMock()
     conn = MagicMock()
@@ -48,6 +51,7 @@ def _setup_jane(hass_mock):
     jane = MagicMock()
     jane.structured = structured
     jane.pg_pool = pool
+    jane.redis = None  # disable B2 ZSET write path in baseline tests
     hass_mock.data = {DOMAIN: jane}
     return structured, pool
 

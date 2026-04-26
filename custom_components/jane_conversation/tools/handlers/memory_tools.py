@@ -137,6 +137,30 @@ async def handle_forget_memory(hass: HomeAssistant, args: dict) -> str:
 
     if result.deleted:
         _LOGGER.info("forget_memory: deleted %s/%s", target_table, op_key)
+        # B2 (JANE-81): mark this fact as "recently removed" so the extractor's
+        # next ADD on the same key gets downgraded to NOOP. Populated AT
+        # forget time (not at later consolidation purge) because the soft-
+        # delete revives via ON CONFLICT — the tombstone alone gives no
+        # protection. ZSET TTL aligns with tombstone retention (30d).
+        if target_table == "preferences" and getattr(jane, "redis", None):
+            from ...memory.consolidation_pass import (
+                RECENTLY_REMOVED_KEY,
+                RECENTLY_REMOVED_TTL_SECONDS,
+            )
+            from ...memory.structured import _normalize_pref_key
+
+            try:
+                person = await jane.structured.canonical_person(
+                    op_key.get("person", ""), user_name
+                )
+                norm_key = _normalize_pref_key(op_key.get("key", ""))
+                score = int(time.time())
+                await jane.redis.zadd(
+                    RECENTLY_REMOVED_KEY, {f"{person}:{norm_key}": score}
+                )
+                await jane.redis.expire(RECENTLY_REMOVED_KEY, RECENTLY_REMOVED_TTL_SECONDS)
+            except Exception as e:
+                _LOGGER.debug("forget_memory: ZSET update failed (non-fatal): %s", e)
         return json.dumps({"status": "ok", "table": target_table, "key": op_key}, ensure_ascii=False)
     if result.failed:
         return _err("apply_failed")

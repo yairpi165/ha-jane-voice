@@ -211,6 +211,7 @@ class TestOpApplierSoftDeleteIntegration:
         )
         # Persons lookup used by _resolve_person
         structured.load_persons = AsyncMock(return_value=[{"name": "Alice"}])
+        structured.canonical_person = AsyncMock(side_effect=lambda name, fallback="", persons_cache=None: name or fallback)
 
         pool = _make_pool(fetchrow_return=None)  # no idempotency hit
         applier = OpApplier(backend=backend, structured=structured, pg_pool=pool)
@@ -256,6 +257,7 @@ class TestOpApplierSoftDeleteIntegration:
         )
         structured.save_preference = AsyncMock()
         structured.load_persons = AsyncMock(return_value=[{"name": "Alice"}])
+        structured.canonical_person = AsyncMock(side_effect=lambda name, fallback="", persons_cache=None: name or fallback)
 
         pool = _make_pool(fetchrow_return=None)
         applier = OpApplier(backend=backend, structured=structured, pg_pool=pool)
