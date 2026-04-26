@@ -150,14 +150,10 @@ async def handle_forget_memory(hass: HomeAssistant, args: dict) -> str:
             from ...memory.structured import _normalize_pref_key
 
             try:
-                person = await jane.structured.canonical_person(
-                    op_key.get("person", ""), user_name
-                )
+                person = await jane.structured.canonical_person(op_key.get("person", ""), user_name)
                 norm_key = _normalize_pref_key(op_key.get("key", ""))
                 score = int(time.time())
-                await jane.redis.zadd(
-                    RECENTLY_REMOVED_KEY, {f"{person}:{norm_key}": score}
-                )
+                await jane.redis.zadd(RECENTLY_REMOVED_KEY, {f"{person}:{norm_key}": score})
                 await jane.redis.expire(RECENTLY_REMOVED_KEY, RECENTLY_REMOVED_TTL_SECONDS)
             except Exception as e:
                 _LOGGER.debug("forget_memory: ZSET update failed (non-fatal): %s", e)

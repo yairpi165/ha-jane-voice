@@ -148,14 +148,11 @@ async def run_consolidation_pass(
                 diff.tombstones_purged_prefs = len(purged_rows)
                 diff.removed_keys_total = len(purged_rows)
                 diff.removed_keys_sample = [
-                    f"{r['person_name']}:{_normalize_pref_key(r['key'])}"
-                    for r in purged_rows[:100]
+                    f"{r['person_name']}:{_normalize_pref_key(r['key'])}" for r in purged_rows[:100]
                 ]
 
                 r = await conn.execute(
-                    "DELETE FROM memory_entries "
-                    "WHERE deleted_at IS NOT NULL "
-                    "  AND deleted_at < NOW() - $1::interval",
+                    "DELETE FROM memory_entries WHERE deleted_at IS NOT NULL   AND deleted_at < NOW() - $1::interval",
                     timedelta(days=TOMBSTONE_RETENTION_DAYS),
                 )
                 diff.tombstones_purged_entries = int(r.split()[-1]) if r else 0
@@ -227,9 +224,7 @@ async def should_trigger_threshold(redis) -> bool:
         last_ts_raw = None
     if last_ts_raw:
         try:
-            last_ts = datetime.fromisoformat(
-                last_ts_raw.decode() if isinstance(last_ts_raw, bytes) else last_ts_raw
-            )
+            last_ts = datetime.fromisoformat(last_ts_raw.decode() if isinstance(last_ts_raw, bytes) else last_ts_raw)
             if datetime.now(UTC) - last_ts < timedelta(hours=THRESHOLD_DEBOUNCE_HOURS):
                 return False
         except (ValueError, TypeError):
@@ -237,9 +232,7 @@ async def should_trigger_threshold(redis) -> bool:
     return True
 
 
-async def fetch_recently_removed_for_prompt(
-    redis, *, limit: int = RECENTLY_REMOVED_PROMPT_CAP
-) -> list[str]:
+async def fetch_recently_removed_for_prompt(redis, *, limit: int = RECENTLY_REMOVED_PROMPT_CAP) -> list[str]:
     """Top-N most-recently-removed keys (by score = unix_ts), capped at ``limit``."""
     try:
         rows = await redis.zrevrange(RECENTLY_REMOVED_KEY, 0, max(0, limit - 1))

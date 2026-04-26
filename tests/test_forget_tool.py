@@ -34,9 +34,7 @@ def _setup_jane(hass_mock):
         }
     )
     structured.load_persons = AsyncMock(return_value=[{"name": "Alice"}])
-    structured.canonical_person = AsyncMock(
-        side_effect=lambda name, fallback="", persons_cache=None: name or fallback
-    )
+    structured.canonical_person = AsyncMock(side_effect=lambda name, fallback="", persons_cache=None: name or fallback)
 
     pool = MagicMock()
     conn = MagicMock()

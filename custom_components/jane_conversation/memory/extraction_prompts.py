@@ -182,7 +182,7 @@ def build_ops_prompt(
         bullets = "\n".join(f"- {key}" for key in recently_removed)
         snapshot_block = (
             "[RECENTLY REMOVED FACTS — user explicitly asked to forget these]\n"
-            "The user used \"forget_memory\" to remove the following facts. They have\n"
+            'The user used "forget_memory" to remove the following facts. They have\n'
             "not re-stated them since. DO NOT emit ADD ops for these:\n"
             f"{bullets}\n"
             "[end of list]\n\n"

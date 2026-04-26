@@ -57,9 +57,7 @@ class OpApplier:
                 self._person_cache = await self.structured.load_persons()
             except Exception:
                 self._person_cache = []
-        return await self.structured.canonical_person(
-            name, fallback, persons_cache=self._person_cache
-        )
+        return await self.structured.canonical_person(name, fallback, persons_cache=self._person_cache)
 
     async def apply_all(
         self,
@@ -73,16 +71,16 @@ class OpApplier:
         snap = memory_snapshot or {}
         for op in ops:
             try:
-                applied = await self._apply_one(op, user_name, session_id, snap, raw_response)
-                if not applied:
+                final_kind = await self._apply_one(op, user_name, session_id, snap, raw_response)
+                if final_kind is None:
                     result.skipped += 1
-                elif op.op == "ADD":
+                elif final_kind == "ADD":
                     result.added += 1
-                elif op.op == "UPDATE":
+                elif final_kind == "UPDATE":
                     result.updated += 1
-                elif op.op == "DELETE":
+                elif final_kind == "DELETE":
                     result.deleted += 1
-                elif op.op == "NOOP":
+                elif final_kind == "NOOP":
                     result.nooped += 1
             except Exception as e:
                 _LOGGER.warning(
@@ -102,21 +100,24 @@ class OpApplier:
         session_id: str,
         snapshot: dict,
         raw_response: str | None,
-    ) -> bool:
-        """Returns True if the op was applied/logged, False if skipped as duplicate."""
+    ) -> str | None:
+        """Apply / log one op.
+
+        Returns the FINAL op kind that was applied (one of
+        ``"ADD"|"UPDATE"|"DELETE"|"NOOP"``) so the caller can count it
+        correctly even when the original op was downgraded by the
+        recently-removed guard. Returns ``None`` when the op was skipped
+        as an idempotency replay.
+        """
         op_hash = op.idempotency_hash(session_id)
         if await self._already_applied(op_hash):
             _LOGGER.debug("OpApplier: skip replay op=%s key=%s", op.op, op.target_key)
-            return False
+            return None
 
         # B2 (JANE-81): if the user just asked to forget Alice:coffee and the
         # extractor wants to re-learn it, downgrade to NOOP. The check callable
         # encapsulates the Redis ZSET lookup so OpApplier stays PG-only.
-        if (
-            op.op == "ADD"
-            and op.target_table == "preferences"
-            and self.recently_removed_check is not None
-        ):
+        if op.op == "ADD" and op.target_table == "preferences" and self.recently_removed_check is not None:
             from .structured import _normalize_pref_key
 
             person = await self._canonical(op.target_key.get("person", ""), user_name)
@@ -150,7 +151,7 @@ class OpApplier:
         self._raw_logged_for_session.add(session_id)
 
         await self._log_op(op, user_name, session_id, before_state, op_hash, raw_to_store)
-        return True
+        return op.op
 
     async def _already_applied(self, op_hash: str) -> bool:
         async with self.pg_pool.acquire() as conn:
@@ -160,9 +161,7 @@ class OpApplier:
             )
             return row is not None
 
-    async def _capture_before_state(
-        self, op: MemoryOp, user_name: str, snapshot: dict
-    ) -> dict | None:
+    async def _capture_before_state(self, op: MemoryOp, user_name: str, snapshot: dict) -> dict | None:
         table = op.target_table
         key = op.target_key
         if table == "memory_entries":
@@ -258,9 +257,7 @@ class OpApplier:
                     op.target_table,
                     json.dumps(op.target_key, ensure_ascii=False, default=_json_default),
                     json.dumps(op.payload, ensure_ascii=False, default=_json_default),
-                    json.dumps(before_state, ensure_ascii=False, default=_json_default)
-                    if before_state
-                    else None,
+                    json.dumps(before_state, ensure_ascii=False, default=_json_default) if before_state else None,
                     op.reason,
                     op.confidence,
                     user_name,
