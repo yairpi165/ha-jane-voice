@@ -71,6 +71,18 @@ async def test_collect_aggregates_prefs_per_person():
 
 
 @pytest.mark.asyncio
+async def test_prefs_query_excludes_soft_deleted():
+    """Soft-delete filter is load-bearing: tombstoned rows must not be counted."""
+    conn = _conn_with()
+    pool = _mock_pool(conn)
+
+    await collect_health_report(pool, days=7)
+
+    prefs_sql = conn.fetch.call_args_list[0].args[0]
+    assert "deleted_at IS NULL" in prefs_sql
+
+
+@pytest.mark.asyncio
 async def test_extraction_calls_uses_distinct_session_id_and_excludes_nulls():
     """SQL must count DISTINCT session_id, exclude NULL, exclude tool-forget."""
     conn = _conn_with()
