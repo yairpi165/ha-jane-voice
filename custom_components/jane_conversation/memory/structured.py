@@ -211,6 +211,34 @@ class StructuredMemoryStore:
             )
             return dict(row) if row else None
 
+    async def canonical_person(
+        self,
+        name: str,
+        fallback: str = "",
+        persons_cache: list[dict] | None = None,
+    ) -> str:
+        """Resolve a name to its canonical form from the persons table.
+
+        Case-insensitive substring match. Returns ``fallback`` when ``name`` is
+        empty; returns the input ``name`` unchanged if no match.
+
+        ``persons_cache`` is an optional pre-loaded list (e.g. from a per-batch
+        cache in the caller). When omitted, this method fetches fresh.
+        """
+        if not name:
+            return fallback
+        if persons_cache is None:
+            try:
+                persons_cache = await self.load_persons()
+            except Exception:
+                persons_cache = []
+        needle = name.strip().lower()
+        for p in persons_cache:
+            canon = p.get("name", "")
+            if canon and (needle == canon.lower() or needle in canon.lower()):
+                return canon
+        return name
+
     # ------------------------------------------------------------------
     # Relationships (populated in Phase E, not used before)
     # ------------------------------------------------------------------
