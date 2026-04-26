@@ -32,19 +32,20 @@ class TestSweepCorrections:
 
         await sweep_corrections(pool)
 
-        # Order: applied→resolved (1), open→applied (2), force-close (3), DELETE (4).
-        # Order matters so a row advances by at most one state per pass.
+        # Order: applied→resolved (1), force-close (2), open→applied (3), DELETE (4).
+        # Force-close MUST precede open→applied so a 91 d-old open hits the
+        # 90 d cap and becomes resolved/auto_close, not transitioned to applied.
         assert conn.execute.call_count == 4
         sqls = [call[0][0] for call in conn.execute.call_args_list]
         # Statement 1 = applied → resolved (37 d window).
         assert "INTERVAL '37 days'" in sqls[0]
         assert "auto_close" not in sqls[0]
-        # Statement 2 = open → applied (NOT EXISTS recurrence anti-join).
-        assert "NOT EXISTS" in sqls[1]
-        assert "INTERVAL '7 days'" in sqls[1]
-        # Statement 3 = force-close at 90 d, tagged auto_close.
-        assert "INTERVAL '90 days'" in sqls[2]
-        assert "auto_close" in sqls[2]
+        # Statement 2 = force-close at 90 d, tagged auto_close.
+        assert "INTERVAL '90 days'" in sqls[1]
+        assert "auto_close" in sqls[1]
+        # Statement 3 = open → applied (NOT EXISTS recurrence anti-join).
+        assert "NOT EXISTS" in sqls[2]
+        assert "INTERVAL '7 days'" in sqls[2]
         # Statement 4 = DELETE resolved older than 30 d.
         assert sqls[3].lstrip().startswith("DELETE")
 
@@ -52,15 +53,15 @@ class TestSweepCorrections:
     async def test_sweep_returns_summary_with_correct_counts(self, mock_pool):
         pool, conn = mock_pool
         # Order matches the SQL order in sweep_corrections:
-        # applied→resolved, open→applied, force-close, delete.
-        conn.execute.side_effect = ["UPDATE 2", "UPDATE 5", "UPDATE 1", "DELETE 3"]
+        # applied→resolved, force-close, open→applied, delete.
+        conn.execute.side_effect = ["UPDATE 2", "UPDATE 1", "UPDATE 5", "DELETE 3"]
 
         summary = await sweep_corrections(pool)
 
         assert isinstance(summary, LifecycleSummary)
         assert summary.transitioned_to_resolved == 2
-        assert summary.transitioned_to_applied == 5
         assert summary.force_closed == 1
+        assert summary.transitioned_to_applied == 5
         assert summary.deleted == 3
 
     @pytest.mark.asyncio
@@ -82,8 +83,8 @@ class TestSweepCorrections:
         conn.execute.return_value = "UPDATE 0"
         await sweep_corrections(pool)
 
-        # Statement 2 = open → applied.
-        sql = conn.execute.call_args_list[1][0][0]
+        # Statement 3 = open → applied.
+        sql = conn.execute.call_args_list[2][0][0]
         assert "INTERVAL '7 days'" in sql
         assert "NOT EXISTS" in sql
         assert "IS NOT DISTINCT FROM" in sql  # NULL-safe user_name match
@@ -106,7 +107,7 @@ class TestSweepCorrections:
         conn.execute.return_value = "UPDATE 0"
         await sweep_corrections(pool)
 
-        sql = conn.execute.call_args_list[2][0][0]  # statement 3
+        sql = conn.execute.call_args_list[1][0][0]  # statement 2 (force-close runs before open→applied)
         assert "INTERVAL '90 days'" in sql
         assert '"auto_close": true' in sql
         # `||` does shallow merge so coexisting metadata keys survive.

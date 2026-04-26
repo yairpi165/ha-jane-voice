@@ -103,18 +103,25 @@ def _count(result: str) -> int:
 async def sweep_corrections(pool) -> LifecycleSummary:
     """Run the four lifecycle transitions in order. Returns row counts.
 
-    Order matters: we run ``applied → resolved`` BEFORE ``open → applied`` so a
-    given pass advances each row by at most one state. Reversing would let a
-    fresh open jump straight to resolved if the timing aligned. Force-close runs
-    after the natural transitions, and DELETE runs last so it picks up rows
-    just-resolved by the previous statement (their ``resolved_at`` is now, so
-    they won't be deleted today, but the ordering is the safe one).
+    Order matters and is non-obvious:
+
+    1. ``applied → resolved`` first — most-aged advance first, no clobbering.
+    2. ``open → resolved`` (force-close at 90 d) — must run BEFORE open→applied
+       so a 91 d-old open isn't first transitioned to ``applied`` (which would
+       leave it stuck for another 30 d before applied→resolved catches it).
+    3. ``open → applied`` — natural transition after the cap is enforced.
+    4. ``DELETE`` resolved older than 30 d — last so the just-emitted rows from
+       (1) and (2) keep their ``resolved_at = NOW()`` and aren't deleted today.
+
+    Caught in dev VM E2E (JANE-83): with naïve ordering (force-close after
+    open→applied) a 91 d open transitioned to ``applied`` instead of
+    ``resolved/auto_close``.
     """
     summary = LifecycleSummary()
     async with pool.acquire() as conn:
         r_app_to_res = await conn.execute(_SQL_APPLIED_TO_RESOLVED)
-        r_open_to_app = await conn.execute(_SQL_OPEN_TO_APPLIED)
         r_force = await conn.execute(_SQL_FORCE_CLOSE)
+        r_open_to_app = await conn.execute(_SQL_OPEN_TO_APPLIED)
         r_delete = await conn.execute(_SQL_DELETE_RESOLVED)
     summary.transitioned_to_applied = _count(r_open_to_app)
     summary.transitioned_to_resolved = _count(r_app_to_res)
