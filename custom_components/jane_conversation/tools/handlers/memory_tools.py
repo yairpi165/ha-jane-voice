@@ -156,7 +156,17 @@ async def handle_forget_memory(hass: HomeAssistant, args: dict) -> str:
                 await jane.redis.zadd(RECENTLY_REMOVED_KEY, {f"{person}:{norm_key}": score})
                 await jane.redis.expire(RECENTLY_REMOVED_KEY, RECENTLY_REMOVED_TTL_SECONDS)
             except Exception as e:
-                _LOGGER.debug("forget_memory: ZSET update failed (non-fatal): %s", e)
+                # WARNING (not DEBUG): forget_memory is a synchronous user-facing
+                # tool and the ZSET write is part of its success contract — if it
+                # fails, the soft-delete will revive via ON CONFLICT on the next
+                # ADD and Jane will silently "remember" something the user
+                # explicitly forgot. Make the breakage visible at default HA logs.
+                _LOGGER.warning(
+                    "forget_memory: recently_removed ZSET write failed for %s/%s: %s",
+                    target_table,
+                    op_key,
+                    e,
+                )
         return json.dumps({"status": "ok", "table": target_table, "key": op_key}, ensure_ascii=False)
     if result.failed:
         return _err("apply_failed")

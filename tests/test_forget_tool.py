@@ -120,6 +120,103 @@ class TestForgetHappyPath:
 
 
 # ---------------------------------------------------------------------------
+# B2 (JANE-81) — recently_removed ZSET write on successful forget
+# ---------------------------------------------------------------------------
+
+
+class TestForgetPopulatesRecentlyRemovedZset:
+    """If someone deletes the ZSET write block in memory_tools.py, these tests
+    catch it. Without these, the existing baseline suite has jane.redis=None
+    and silently skips the most important new write in JANE-81."""
+
+    @pytest.mark.asyncio
+    async def test_forget_preference_populates_recently_removed_zset(self, hass_mock):
+        from jane_conversation.const import DOMAIN
+
+        structured, _pool = _setup_jane(hass_mock)
+        # Re-enable the B2 path for this specific test by attaching a redis mock.
+        jane = hass_mock.data[DOMAIN]
+        jane.redis = MagicMock(zadd=AsyncMock(), expire=AsyncMock())
+
+        backend = _mk_backend()
+        with patch("jane_conversation.memory.manager.get_backend", return_value=backend):
+            result = await handle_forget_memory(
+                hass_mock,
+                {
+                    "target_table": "preferences",
+                    "target_key": {"person": "Alice", "key": "food_preferences"},
+                    "reason": "user asked",
+                },
+            )
+
+        assert json.loads(result)["status"] == "ok"
+        # ZADD called with the canonical key + a unix-ts score
+        jane.redis.zadd.assert_awaited_once()
+        zadd_args = jane.redis.zadd.await_args.args
+        assert zadd_args[0] == "jane:recently_removed_facts"
+        # _normalize_pref_key replaces _ with space, lowercases, etc.
+        assert "Alice:food preferences" in zadd_args[1]
+        # EXPIRE called with the 30-day TTL
+        jane.redis.expire.assert_awaited_once_with("jane:recently_removed_facts", 30 * 86400)
+
+    @pytest.mark.asyncio
+    async def test_forget_memory_entries_does_not_populate_zset(self, hass_mock):
+        """The ZSET is preferences-only; forgetting a memory_entries category must NOT zadd."""
+        from jane_conversation.const import DOMAIN
+
+        _setup_jane(hass_mock)
+        jane = hass_mock.data[DOMAIN]
+        jane.redis = MagicMock(zadd=AsyncMock(), expire=AsyncMock())
+
+        backend = _mk_backend()
+        with patch("jane_conversation.memory.manager.get_backend", return_value=backend):
+            await handle_forget_memory(
+                hass_mock,
+                {
+                    "target_table": "memory_entries",
+                    "target_key": {"category": "family", "user_name": "Alice"},
+                    "reason": "no longer applies",
+                },
+            )
+
+        jane.redis.zadd.assert_not_called()
+        jane.redis.expire.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_forget_zset_write_failure_is_logged_as_warning_not_silent(self, hass_mock, caplog):
+        """If ZADD raises, the response is still ok BUT a WARNING is logged so
+        operators can detect the silent-revival risk. Bug fix from PR #53 review."""
+        import logging
+
+        from jane_conversation.const import DOMAIN
+
+        _setup_jane(hass_mock)
+        jane = hass_mock.data[DOMAIN]
+        jane.redis = MagicMock(
+            zadd=AsyncMock(side_effect=RuntimeError("redis flaky")),
+            expire=AsyncMock(),
+        )
+
+        backend = _mk_backend()
+        with (
+            caplog.at_level(logging.WARNING, logger="custom_components.jane_conversation.tools.handlers.memory_tools"),
+            patch("jane_conversation.memory.manager.get_backend", return_value=backend),
+        ):
+            result = await handle_forget_memory(
+                hass_mock,
+                {
+                    "target_table": "preferences",
+                    "target_key": {"person": "Alice", "key": "food_preferences"},
+                    "reason": "user asked",
+                },
+            )
+
+        assert json.loads(result)["status"] == "ok"
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("recently_removed ZSET write failed" in r.message for r in warnings)
+
+
+# ---------------------------------------------------------------------------
 # Validation errors (structured JSON returned)
 # ---------------------------------------------------------------------------
 
