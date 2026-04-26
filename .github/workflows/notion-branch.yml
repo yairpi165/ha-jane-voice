@@ -2,15 +2,23 @@ name: Notion — Branch to In Progress
 on:
   push:
     branches:
+      # Conventional Commits prefixes
+      - 'feat/JANE-*'
+      - 'fix/JANE-*'
+      - 'docs/JANE-*'
+      - 'style/JANE-*'
+      - 'refactor/JANE-*'
+      - 'perf/JANE-*'
+      - 'test/JANE-*'
+      - 'chore/JANE-*'
+      - 'ci/JANE-*'
+      - 'build/JANE-*'
+      - 'revert/JANE-*'
+      # Legacy / non-standard prefixes kept for backward compatibility
       - 'feature/JANE-*'
       - 'bug/JANE-*'
-      - 'fix/JANE-*'
-      - 'refactor/JANE-*'
       - 'improvement/JANE-*'
-      - 'test/JANE-*'
-      - 'docs/JANE-*'
-      - 'perf/JANE-*'
-      - 'chore/JANE-*'
+      # Bare ticket-key branch
       - 'JANE-*'
 
 jobs:
