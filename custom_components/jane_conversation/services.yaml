@@ -15,6 +15,14 @@ consolidate_memory_now:
     and writes a memory_health_samples row with extra.consolidation = {...}
     carrying the diff. Useful for testing without waiting 7 days.
 
+corrections_sweep_now:
+  name: Corrections lifecycle sweep (now)
+  description: >-
+    Manually trigger the B4 daily corrections lifecycle sweep — JANE-83.
+    Transitions correction events open → applied → resolved by age, force-
+    closes anything still open at 90 d, and DELETEs resolved rows older than
+    30 d. Useful for testing without waiting 24 hours.
+
 clear_recently_removed:
   name: Clear recently-removed guard
   description: >-

@@ -133,6 +133,25 @@ PREFERENCE_KEY_TAXONOMY = """Known preference keys — use EXACTLY these:
   screen_time_rules, tami4_reminder_preference
 If no known key fits, use: note_<short_slug>"""
 
+# B3 (JANE-83): category-aware staleness rates for `decay_preferences`.
+# Anything NOT in either list is treated as volatile (catch-all, including
+# `note_*` slugs). Lists must stay disjoint.
+STABLE_KEYS: tuple[str, ...] = (
+    "morning_routine",
+    "bedtime_routine",
+    "screen_time_rules",
+    "tami4_reminder_preference",
+    "morning_greeting_style",
+    "goodnight_style",
+)
+PERMANENT_KEYS: tuple[str, ...] = (
+    "football_teams",
+    "action_style",
+    "tool_usage_policy",
+    "explanation_preference",
+    "emoji_preference",
+)
+
 SYSTEM_PROMPT = """You are Jane — a warm, curious AI who lives in this family's smart home.
 You are part of the family. You know them, care about them, and enjoy talking with them.
 

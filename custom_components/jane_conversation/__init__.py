@@ -190,6 +190,33 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
 
         hass.async_create_task(_backfill_embeddings())
 
+    # B4: daily corrections lifecycle sweep + manual trigger service (JANE-83).
+    # Same daily cadence as the decay task; each row advances at most one state
+    # per pass.
+    if jane.pg_pool:
+        from .memory.correction_lifecycle import sweep_corrections
+
+        async def _corrections_sweep_task(_now=None):
+            try:
+                summary = await sweep_corrections(jane.pg_pool)
+                if summary.any():
+                    _LOGGER.info(
+                        "Corrections lifecycle: applied=%d resolved=%d force_closed=%d deleted=%d",
+                        summary.transitioned_to_applied,
+                        summary.transitioned_to_resolved,
+                        summary.force_closed,
+                        summary.deleted,
+                    )
+            except Exception as e:
+                _LOGGER.debug("Corrections sweep failed: %s", e)
+
+        jane.add_unsub(async_track_time_interval(hass, _corrections_sweep_task, timedelta(hours=24)))
+
+        async def _corrections_sweep_service(_call):
+            await _corrections_sweep_task()
+
+        hass.services.async_register(DOMAIN, "corrections_sweep_now", _corrections_sweep_service)
+
     # B5: weekly memory health report + manual trigger service (JANE-82).
     if jane.pg_pool:
 
@@ -434,6 +461,25 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             # Helper for metric (3): consolidations PRODUCED in the window
             # (not whose content is from the window — start_ts is event-time).
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_episodes_created_at ON episodes(created_at DESC)")
+
+            # B4: corrections lifecycle (JANE-83). `status` lives on every event row but
+            # only carries semantics for event_type='correction'. Daily sweep transitions
+            # open → applied → resolved → DELETE.
+            await conn.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'open'")
+            await conn.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ")
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_status_type "
+                "ON events(event_type, status, timestamp DESC) "
+                "WHERE event_type = 'correction'"
+            )
+            # Idempotent backfill: catches genuinely-historical correction rows on first
+            # migration. 30d cut-off (not 7d) so the daily sweep retains first-crack
+            # semantics on the 7-30d band even after an HA-offline window of >7d.
+            await conn.execute(
+                "UPDATE events SET status = 'resolved', resolved_at = COALESCE(timestamp, NOW()) "
+                "WHERE event_type = 'correction' AND status = 'open' "
+                "AND timestamp < NOW() - INTERVAL '30 days'"
+            )
 
         # Auto-migrate MD files on first PG connect
         await _auto_migrate(pool, hass)

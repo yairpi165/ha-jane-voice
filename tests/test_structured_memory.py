@@ -120,33 +120,86 @@ class TestLoadAllPreferences:
 
 
 class TestDecayPreferences:
-    @pytest.mark.asyncio
-    async def test_decay_returns_count(self, store, mock_pool):
-        _, conn = mock_pool
-        conn.execute.return_value = "UPDATE 3"
+    """B3 / JANE-83 — category-aware multiplicative decay.
 
-        count = await store.decay_preferences()
-        assert count == 3
+    Three disjoint UPDATEs per call: volatile (catch-all), stable, permanent.
+    Each row decays multiplicatively (``confidence × (1 − rate)``) with a
+    ``confidence > 0.05`` floor. Tests assert SQL shape + rate + grace per
+    category; the actual decay arithmetic is exercised in the dev VM E2E.
+    """
 
     @pytest.mark.asyncio
-    async def test_decay_applies_correct_formula(self, store, mock_pool):
+    async def test_decay_runs_three_updates(self, store, mock_pool):
         _, conn = mock_pool
         conn.execute.return_value = "UPDATE 0"
         await store.decay_preferences()
-        sql = conn.execute.call_args[0][0]
-        assert "confidence - 0.05" in sql
-        assert "1.0 -" not in sql  # guard against the reset formula
+        # One UPDATE per category — volatile, stable, permanent.
+        assert conn.execute.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_decay_sql_filters_inferred_and_old(self, store, mock_pool):
+    async def test_decay_sums_counts_across_categories(self, store, mock_pool):
+        _, conn = mock_pool
+        conn.execute.side_effect = ["UPDATE 5", "UPDATE 2", "UPDATE 1"]
+        total = await store.decay_preferences()
+        assert total == 8
+
+    @pytest.mark.asyncio
+    async def test_decay_volatile_uses_3pct_rate_and_7d_grace(self, store, mock_pool):
         _, conn = mock_pool
         conn.execute.return_value = "UPDATE 0"
-
         await store.decay_preferences()
-        sql = conn.execute.call_args[0][0]
-        assert "inferred = TRUE" in sql
-        assert "INTERVAL '7 days'" in sql
-        assert "GREATEST(0.0" in sql
+        # First UPDATE = volatile (catch-all).
+        sql_v = conn.execute.call_args_list[0][0][0]
+        assert "1 - 0.03" in sql_v
+        assert "INTERVAL '7 days'" in sql_v
+        assert "key != ALL($1::text[])" in sql_v
+        assert "confidence > 0.05" in sql_v
+
+    @pytest.mark.asyncio
+    async def test_decay_stable_uses_1pct_rate_and_14d_grace(self, store, mock_pool):
+        _, conn = mock_pool
+        conn.execute.return_value = "UPDATE 0"
+        await store.decay_preferences()
+        sql_s = conn.execute.call_args_list[1][0][0]
+        assert "1 - 0.01" in sql_s
+        assert "INTERVAL '14 days'" in sql_s
+        assert "key = ANY($1::text[])" in sql_s
+
+    @pytest.mark.asyncio
+    async def test_decay_permanent_uses_0_2pct_rate_and_30d_grace(self, store, mock_pool):
+        _, conn = mock_pool
+        conn.execute.return_value = "UPDATE 0"
+        await store.decay_preferences()
+        sql_p = conn.execute.call_args_list[2][0][0]
+        assert "1 - 0.002" in sql_p
+        assert "INTERVAL '30 days'" in sql_p
+        assert "key = ANY($1::text[])" in sql_p
+
+    @pytest.mark.asyncio
+    async def test_decay_sql_filters_inferred_and_live(self, store, mock_pool):
+        _, conn = mock_pool
+        conn.execute.return_value = "UPDATE 0"
+        await store.decay_preferences()
+        # Each of the three UPDATEs must constrain to inferred + non-deleted.
+        for call in conn.execute.call_args_list:
+            sql = call[0][0]
+            assert "inferred = TRUE" in sql
+            assert "deleted_at IS NULL" in sql
+
+    @pytest.mark.asyncio
+    async def test_decay_volatile_excludes_stable_and_permanent_keys(self, store, mock_pool):
+        from jane_conversation.const import PERMANENT_KEYS, STABLE_KEYS
+
+        _, conn = mock_pool
+        conn.execute.return_value = "UPDATE 0"
+        await store.decay_preferences()
+        # Volatile UPDATE's $1 param = STABLE ∪ PERMANENT (excluded list).
+        excluded = conn.execute.call_args_list[0][0][1]
+        assert set(excluded) == set(STABLE_KEYS) | set(PERMANENT_KEYS)
+        # Stable UPDATE's $1 = STABLE_KEYS.
+        assert list(conn.execute.call_args_list[1][0][1]) == list(STABLE_KEYS)
+        # Permanent UPDATE's $1 = PERMANENT_KEYS.
+        assert list(conn.execute.call_args_list[2][0][1]) == list(PERMANENT_KEYS)
 
 
 class TestSavePerson:

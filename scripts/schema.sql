@@ -222,3 +222,24 @@ CREATE INDEX IF NOT EXISTS idx_memory_health_period ON memory_health_samples(per
 -- Helper for B5 metric (3): consolidations PRODUCED in the window
 -- (not whose content is from the window — start_ts is event-time).
 CREATE INDEX IF NOT EXISTS idx_episodes_created_at ON episodes(created_at DESC);
+
+-- B4: Corrections lifecycle (JANE-83).
+-- `status` lives on every event row but only carries semantics for event_type='correction'.
+-- The daily sweep transitions open → applied → resolved → DELETE.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'open';
+ALTER TABLE events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_events_status_type
+    ON events(event_type, status, timestamp DESC)
+    WHERE event_type = 'correction';
+
+-- Idempotent backfill: catches genuinely-historical correction rows on first
+-- migration. Cut-off is 30d (not 7d) so the daily sweep retains first-crack
+-- semantics on the 7-30d band even after an HA-offline window of >7d.
+-- After first run, every >30d correction is `resolved`, so re-runs (HA restart
+-- replays schema.sql) catch only the much smaller set of 30+d rows that crossed
+-- the cliff between restarts.
+UPDATE events
+   SET status = 'resolved', resolved_at = COALESCE(timestamp, NOW())
+ WHERE event_type = 'correction'
+   AND status = 'open'
+   AND timestamp < NOW() - INTERVAL '30 days';
