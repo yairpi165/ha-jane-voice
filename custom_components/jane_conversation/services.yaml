@@ -1,0 +1,7 @@
+health_report_now:
+  name: Memory health report (now)
+  description: >-
+    Manually trigger a weekly memory health snapshot — JANE-82 / B5
+    observability. Inserts one row into memory_health_samples covering the
+    last 7 days and emits a single INFO log line. Useful for testing without
+    waiting for the 7-day periodic timer.
