@@ -5,3 +5,35 @@ health_report_now:
     observability. Inserts one row into memory_health_samples covering the
     last 7 days and emits a single INFO log line. Useful for testing without
     waiting for the 7-day periodic timer.
+
+consolidate_memory_now:
+  name: Consolidate memory (now)
+  description: >-
+    Manually trigger the B2 weekly memory consolidation pass — JANE-81.
+    Purges tombstones older than 30 days, trims expired recently-removed
+    ZSET entries, re-runs the daily B1 dedup at its existing thresholds,
+    and writes a memory_health_samples row with extra.consolidation = {...}
+    carrying the diff. Useful for testing without waiting 7 days.
+
+clear_recently_removed:
+  name: Clear recently-removed guard
+  description: >-
+    Remove a single ({person}, {key}) entry from the
+    jane:recently_removed_facts ZSET so the extractor is allowed to
+    re-learn it. Use when the user changes their mind ("actually
+    re-add coffee") and the JANE-81 guard is silently dropping ADDs.
+  fields:
+    person:
+      name: Person
+      description: Canonical person name (e.g. Alice).
+      required: true
+      example: "Alice"
+      selector:
+        text:
+    key:
+      name: Preference key
+      description: Preference key (will be normalized to lowercase + spaces).
+      required: true
+      example: "coffee_brand"
+      selector:
+        text:

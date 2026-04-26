@@ -210,6 +210,69 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
 
         hass.services.async_register(DOMAIN, "health_report_now", _health_report_service)
 
+    # B2: weekly memory consolidation pass + threshold-trigger + manual services (JANE-81).
+    if jane.pg_pool and jane.redis and jane.structured:
+        from .memory.consolidation_pass import (
+            RECENTLY_REMOVED_KEY,
+            backfill_last_consolidation_ts,
+            run_consolidation_pass,
+            should_trigger_threshold,
+        )
+        from .memory.structured import _normalize_pref_key
+
+        # Recovery from Redis flush: rehydrate LAST_CONSOLIDATION_KEY from PG if missing.
+        hass.async_create_task(backfill_last_consolidation_ts(jane.pg_pool, jane.redis))
+
+        async def _consolidation_pass_task(_now=None, *, trigger="weekly"):
+            try:
+                diff = await run_consolidation_pass(
+                    jane.pg_pool,
+                    jane.redis,
+                    jane.structured,
+                    hass,
+                    jane.gemini_client,
+                    trigger=trigger,
+                )
+                _LOGGER.info("Consolidation pass (%s): %s", trigger, diff.summary())
+            except Exception as e:
+                _LOGGER.debug("Consolidation pass failed: %s", e)
+
+        async def _threshold_check_task(_now):
+            try:
+                if await should_trigger_threshold(jane.redis):
+                    await _consolidation_pass_task(trigger="threshold")
+            except Exception as e:
+                _LOGGER.debug("Threshold check failed: %s", e)
+
+        jane.add_unsub(async_track_time_interval(hass, _consolidation_pass_task, timedelta(days=7)))
+        jane.add_unsub(async_track_time_interval(hass, _threshold_check_task, timedelta(hours=1)))
+
+        async def _consolidate_service(_call):
+            await _consolidation_pass_task(trigger="manual")
+
+        hass.services.async_register(DOMAIN, "consolidate_memory_now", _consolidate_service)
+
+        async def _clear_recently_removed_service(call):
+            person = (call.data.get("person") or "").strip()
+            key = (call.data.get("key") or "").strip()
+            if not person or not key:
+                _LOGGER.warning(
+                    "clear_recently_removed: missing person or key (got person=%r, key=%r)",
+                    person,
+                    key,
+                )
+                return
+            try:
+                removed = await jane.redis.zrem(RECENTLY_REMOVED_KEY, f"{person}:{_normalize_pref_key(key)}")
+                if removed:
+                    _LOGGER.info("Cleared recently_removed guard for %s:%s", person, key)
+                else:
+                    _LOGGER.info("clear_recently_removed: no entry found for %s:%s", person, key)
+            except Exception as e:
+                _LOGGER.warning("clear_recently_removed failed: %s", e)
+
+        hass.services.async_register(DOMAIN, "clear_recently_removed", _clear_recently_removed_service)
+
 
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
     """Create Redis client and start Working Memory listener."""

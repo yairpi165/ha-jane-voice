@@ -72,8 +72,8 @@ _SQL_INSERT_SAMPLE = """
     INSERT INTO memory_health_samples
         (period_start, period_end, prefs_per_person, prefs_total,
          extraction_calls, consolidation_ops, corrections,
-         forget_invocations, schema_version)
-    VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9)
+         forget_invocations, extra, schema_version)
+    VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb, $10)
     RETURNING id
 """
 
@@ -90,6 +90,11 @@ class HealthReport:
     consolidation_ops: int = 0
     corrections: int = 0
     forget_invocations: int = 0
+    # Forward-compat additive slot used by B2 (JANE-81) for the consolidation
+    # diff (under the "consolidation" key) and reserved for future per-user
+    # breakdowns, latency percentiles, etc. Default {} keeps the existing
+    # B5 path identical to v3.28 behavior.
+    extra: dict = field(default_factory=dict)
     generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     schema_version: int = 1
 
@@ -142,6 +147,7 @@ async def persist_health_report(pool, report: HealthReport) -> int:
             report.consolidation_ops,
             report.corrections,
             report.forget_invocations,
+            json.dumps(report.extra, ensure_ascii=False),
             report.schema_version,
         )
 

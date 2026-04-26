@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,20 +23,32 @@ class OpApplier:
     """Applies a batch of MemoryOps: writes target row(s) + writes audit row(s).
 
     Not thread-safe within a single instance; construct per batch.
+
+    The two optional callables (default ``None`` = no-op) allow the caller to plug
+    in B2 (JANE-81) behavior without making OpApplier import the Redis client:
+
+    - ``recently_removed_check(person, normalized_key) -> bool``: when True for
+      an ADD on ``preferences``, the op is downgraded to NOOP with reason
+      ``recently_removed_guard``.
+    - ``on_pref_add()``: invoked after every successful ADD on ``preferences``
+      (used for the threshold counter).
     """
 
     backend: Any
     structured: Any
     pg_pool: Any
+    recently_removed_check: Callable[[str, str], Awaitable[bool]] | None = None
+    on_pref_add: Callable[[], Awaitable[None]] | None = None
     _raw_logged_for_session: set[str] = field(default_factory=set)
     _person_cache: list[dict] = field(default_factory=list)
 
-    async def _resolve_person(self, name: str, fallback: str) -> str:
-        """Match Gemini's person name against the persons table (case-insensitive substring).
+    async def _canonical(self, name: str, fallback: str) -> str:
+        """Resolve a name to its canonical persons-table form, batch-cached.
 
-        If Gemini emits a short name and the persons table holds the canonical full name,
-        returns the full name. Falls back to `fallback` if persons table is empty; otherwise
-        returns the input name unchanged. Cached per batch.
+        Thin wrapper that delegates to ``StructuredMemoryStore.canonical_person``
+        (the single source of truth for person canonicalization) while keeping
+        ``self._person_cache`` populated lazily once per OpApplier instance to
+        avoid N round-trips on a multi-op batch.
         """
         if not name:
             return fallback
@@ -44,12 +57,7 @@ class OpApplier:
                 self._person_cache = await self.structured.load_persons()
             except Exception:
                 self._person_cache = []
-        needle = name.strip().lower()
-        for p in self._person_cache:
-            canon = p.get("name", "")
-            if canon and (needle == canon.lower() or needle in canon.lower()):
-                return canon
-        return name
+        return await self.structured.canonical_person(name, fallback, persons_cache=self._person_cache)
 
     async def apply_all(
         self,
@@ -63,16 +71,16 @@ class OpApplier:
         snap = memory_snapshot or {}
         for op in ops:
             try:
-                applied = await self._apply_one(op, user_name, session_id, snap, raw_response)
-                if not applied:
+                final_kind = await self._apply_one(op, user_name, session_id, snap, raw_response)
+                if final_kind is None:
                     result.skipped += 1
-                elif op.op == "ADD":
+                elif final_kind == "ADD":
                     result.added += 1
-                elif op.op == "UPDATE":
+                elif final_kind == "UPDATE":
                     result.updated += 1
-                elif op.op == "DELETE":
+                elif final_kind == "DELETE":
                     result.deleted += 1
-                elif op.op == "NOOP":
+                elif final_kind == "NOOP":
                     result.nooped += 1
             except Exception as e:
                 _LOGGER.warning(
@@ -92,12 +100,45 @@ class OpApplier:
         session_id: str,
         snapshot: dict,
         raw_response: str | None,
-    ) -> bool:
-        """Returns True if the op was applied/logged, False if skipped as duplicate."""
+    ) -> str | None:
+        """Apply / log one op.
+
+        Returns the FINAL op kind that was applied (one of
+        ``"ADD"|"UPDATE"|"DELETE"|"NOOP"``) so the caller can count it
+        correctly even when the original op was downgraded by the
+        recently-removed guard. Returns ``None`` when the op was skipped
+        as an idempotency replay.
+        """
         op_hash = op.idempotency_hash(session_id)
         if await self._already_applied(op_hash):
             _LOGGER.debug("OpApplier: skip replay op=%s key=%s", op.op, op.target_key)
-            return False
+            return None
+
+        # B2 (JANE-81): if the user just asked to forget Alice:coffee and the
+        # extractor wants to re-learn it, downgrade to NOOP. The check callable
+        # encapsulates the Redis ZSET lookup so OpApplier stays PG-only.
+        if op.op == "ADD" and op.target_table == "preferences" and self.recently_removed_check is not None:
+            from .structured import _normalize_pref_key
+
+            person = await self._canonical(op.target_key.get("person", ""), user_name)
+            norm_key = _normalize_pref_key(op.target_key.get("key", ""))
+            try:
+                if await self.recently_removed_check(person, norm_key):
+                    _LOGGER.info(
+                        "Recently-removed guard: skipping ADD %s:%s (downgrading to NOOP)",
+                        person,
+                        norm_key,
+                    )
+                    op = MemoryOp(
+                        op="NOOP",
+                        target_table=op.target_table,
+                        target_key=op.target_key,
+                        payload=op.payload,
+                        reason="recently_removed_guard",
+                        confidence=op.confidence,
+                    )
+            except Exception as e:
+                _LOGGER.debug("recently_removed_check failed (non-fatal): %s", e)
 
         before_state: dict | None = None
         if op.op in ("UPDATE", "DELETE"):
@@ -110,7 +151,7 @@ class OpApplier:
         self._raw_logged_for_session.add(session_id)
 
         await self._log_op(op, user_name, session_id, before_state, op_hash, raw_to_store)
-        return True
+        return op.op
 
     async def _already_applied(self, op_hash: str) -> bool:
         async with self.pg_pool.acquire() as conn:
@@ -120,9 +161,7 @@ class OpApplier:
             )
             return row is not None
 
-    async def _capture_before_state(
-        self, op: MemoryOp, user_name: str, snapshot: dict
-    ) -> dict | None:
+    async def _capture_before_state(self, op: MemoryOp, user_name: str, snapshot: dict) -> dict | None:
         table = op.target_table
         key = op.target_key
         if table == "memory_entries":
@@ -134,10 +173,10 @@ class OpApplier:
                 return {"content": content} if content else None
             return None
         if table == "preferences":
-            person = await self._resolve_person(key.get("person", ""), user_name)
+            person = await self._canonical(key.get("person", ""), user_name)
             return await self.structured.load_preference(person, key.get("key"))
         if table == "persons":
-            person = await self._resolve_person(key.get("name", ""), user_name)
+            person = await self._canonical(key.get("name", ""), user_name)
             row = await self.structured.load_person(person)
             if row and isinstance(row.get("birth_date"), _dt.date):
                 row = {**row, "birth_date": row["birth_date"].isoformat()}
@@ -158,7 +197,7 @@ class OpApplier:
                 await self.backend.save(cat, payload.get("content", ""), user_key)
 
         elif table == "preferences":
-            person = await self._resolve_person(key.get("person", ""), user_name)
+            person = await self._canonical(key.get("person", ""), user_name)
             if op.op == "DELETE":
                 await self.structured.delete_preference(person, key.get("key"))
             else:
@@ -170,9 +209,17 @@ class OpApplier:
                     confidence=payload.get("confidence"),
                     source="extraction_ops",
                 )
+                # B2 (JANE-81): increment threshold counter on actual ADDs.
+                # UPDATEs reuse the same upsert path but shouldn't bump the
+                # "new prefs since consolidation" counter.
+                if op.op == "ADD" and self.on_pref_add is not None:
+                    try:
+                        await self.on_pref_add()
+                    except Exception as e:
+                        _LOGGER.debug("on_pref_add callback failed (non-fatal): %s", e)
 
         elif table == "persons":
-            person = await self._resolve_person(key.get("name", ""), user_name)
+            person = await self._canonical(key.get("name", ""), user_name)
             bd = payload.get("birth_date")
             bd_parsed = _parse_date(bd) if isinstance(bd, str) else bd
             await self.structured.save_person(
@@ -210,9 +257,7 @@ class OpApplier:
                     op.target_table,
                     json.dumps(op.target_key, ensure_ascii=False, default=_json_default),
                     json.dumps(op.payload, ensure_ascii=False, default=_json_default),
-                    json.dumps(before_state, ensure_ascii=False, default=_json_default)
-                    if before_state
-                    else None,
+                    json.dumps(before_state, ensure_ascii=False, default=_json_default) if before_state else None,
                     op.reason,
                     op.confidence,
                     user_name,

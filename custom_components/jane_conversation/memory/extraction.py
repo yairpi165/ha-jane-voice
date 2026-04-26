@@ -251,7 +251,27 @@ async def process_memory(
     prefs_map = await structured.load_all_preferences(min_confidence=0.3)
     prefs_flat = [{"person_name": p, **pref} for p, prefs in prefs_map.items() for pref in prefs]
 
-    prompt = build_ops_prompt(capped, user_name, snapshot, prefs_flat, persons, PREFERENCE_KEY_TAXONOMY)
+    # B2 (JANE-81): inject "DO NOT re-extract" block for facts the user just
+    # asked to forget. Soft signal in the prompt; hard gate in OpApplier.
+    redis = getattr(jane, "redis", None) if jane else None
+    recently_removed: list[str] = []
+    if redis is not None:
+        try:
+            from .consolidation_pass import fetch_recently_removed_for_prompt
+
+            recently_removed = await fetch_recently_removed_for_prompt(redis)
+        except Exception as e:
+            _LOGGER.debug("fetch_recently_removed_for_prompt failed (non-fatal): %s", e)
+
+    prompt = build_ops_prompt(
+        capped,
+        user_name,
+        snapshot,
+        prefs_flat,
+        persons,
+        PREFERENCE_KEY_TAXONOMY,
+        recently_removed=recently_removed,
+    )
 
     try:
         response = await hass.async_add_executor_job(_call_with_retry, client, prompt)
@@ -272,7 +292,33 @@ async def process_memory(
 
     ops = parse_ops_json(data)
     session_id = capped[-1].get("conv_id") or f"adhoc-{int(time.time())}"
-    applier = OpApplier(backend=backend, structured=structured, pg_pool=pg_pool)
+
+    # B2 (JANE-81): callables that close over the Redis client so OpApplier
+    # stays PG-only. No-op when redis is unavailable.
+    async def _recently_removed_check(person: str, norm_key: str) -> bool:
+        if redis is None:
+            return False
+        from .consolidation_pass import is_recently_removed
+
+        return await is_recently_removed(redis, person, norm_key)
+
+    async def _on_pref_add() -> None:
+        if redis is None:
+            return
+        try:
+            from .consolidation_pass import PREFS_ADDED_COUNTER_KEY
+
+            await redis.incr(PREFS_ADDED_COUNTER_KEY)
+        except Exception:
+            pass
+
+    applier = OpApplier(
+        backend=backend,
+        structured=structured,
+        pg_pool=pg_pool,
+        recently_removed_check=_recently_removed_check,
+        on_pref_add=_on_pref_add,
+    )
     result = await applier.apply_all(
         ops,
         user_name,
