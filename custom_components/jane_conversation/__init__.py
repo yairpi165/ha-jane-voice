@@ -190,6 +190,26 @@ def _register_periodic_tasks(hass: HomeAssistant, jane: JaneData) -> None:
 
         hass.async_create_task(_backfill_embeddings())
 
+    # B5: weekly memory health report + manual trigger service (JANE-82).
+    if jane.pg_pool:
+
+        async def _health_report_task(_now=None):
+            try:
+                from .memory.health import collect_health_report, format_for_log, persist_health_report
+
+                report = await collect_health_report(jane.pg_pool, days=7)
+                await persist_health_report(jane.pg_pool, report)
+                _LOGGER.info("Memory health: %s", format_for_log(report))
+            except Exception as e:
+                _LOGGER.debug("Memory health report failed: %s", e)
+
+        jane.add_unsub(async_track_time_interval(hass, _health_report_task, timedelta(days=7)))
+
+        async def _health_report_service(_call):
+            await _health_report_task()
+
+        hass.services.async_register(DOMAIN, "health_report_now", _health_report_service)
+
 
 async def _create_working_memory(hass: HomeAssistant, entry: ConfigEntry, pg_host: str):
     """Create Redis client and start Working Memory listener."""
@@ -326,6 +346,31 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_preference_merges_winner ON preference_merges(winner_id)"
             )
+
+            # B5: weekly memory health snapshots (JANE-82). No unique index —
+            # every run inserts a row; restart-induced double-rows are information.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_health_samples (
+                    id SERIAL PRIMARY KEY,
+                    period_start TIMESTAMPTZ NOT NULL,
+                    period_end TIMESTAMPTZ NOT NULL,
+                    prefs_per_person JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    prefs_total INT NOT NULL DEFAULT 0,
+                    extraction_calls INT NOT NULL DEFAULT 0,
+                    consolidation_ops INT NOT NULL DEFAULT 0,
+                    corrections INT NOT NULL DEFAULT 0,
+                    forget_invocations INT NOT NULL DEFAULT 0,
+                    extra JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    schema_version INT NOT NULL DEFAULT 1,
+                    generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_health_period ON memory_health_samples(period_end DESC)"
+            )
+            # Helper for metric (3): consolidations PRODUCED in the window
+            # (not whose content is from the window — start_ts is event-time).
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_episodes_created_at ON episodes(created_at DESC)")
 
         # Auto-migrate MD files on first PG connect
         await _auto_migrate(pool, hass)
