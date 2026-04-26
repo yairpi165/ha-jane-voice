@@ -202,6 +202,33 @@ class TestDecayPreferences:
         assert list(conn.execute.call_args_list[2][0][1]) == list(PERMANENT_KEYS)
 
 
+class TestStalenessCategoryInvariants:
+    """Locks the contract `decay_preferences` relies on.
+
+    Without these tests, an accidental key-overlap between STABLE_KEYS and
+    PERMANENT_KEYS would cause the same row to match two of the three
+    UPDATEs in one decay pass — silently doubling the actual decay rate.
+    The volatile catch-all (`key != ALL(STABLE ∪ PERMANENT)`) absorbs
+    duplicates by construction; the bug is between stable and permanent.
+    """
+
+    def test_stable_and_permanent_are_disjoint(self):
+        from jane_conversation.const import PERMANENT_KEYS, STABLE_KEYS
+
+        overlap = set(STABLE_KEYS) & set(PERMANENT_KEYS)
+        assert not overlap, f"keys appear in both STABLE_KEYS and PERMANENT_KEYS: {overlap}"
+
+    def test_stable_keys_have_no_within_list_duplicates(self):
+        from jane_conversation.const import STABLE_KEYS
+
+        assert len(STABLE_KEYS) == len(set(STABLE_KEYS))
+
+    def test_permanent_keys_have_no_within_list_duplicates(self):
+        from jane_conversation.const import PERMANENT_KEYS
+
+        assert len(PERMANENT_KEYS) == len(set(PERMANENT_KEYS))
+
+
 class TestSavePerson:
     @pytest.mark.asyncio
     async def test_save_person_basic(self, store, mock_pool):

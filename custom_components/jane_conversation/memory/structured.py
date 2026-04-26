@@ -148,55 +148,14 @@ class StructuredMemoryStore:
             )
 
     async def decay_preferences(self) -> int:
-        """Category-aware multiplicative decay (B3 / JANE-83).
+        """Run B3 category-aware decay. Logs per-category counts. Returns total.
 
-        Three disjoint UPDATEs per run:
-        - **volatile** (catch-all incl. ``note_*``): rate 3% / day after 7d grace.
-        - **stable** (routines, screen time, greeting/goodnight styles): 1% / day after 14d grace.
-        - **permanent** (football_teams, action_style, ...): 0.2% / day after 30d grace.
-
-        ``confidence`` decays multiplicatively (``confidence × (1 − rate)``) so
-        the curve is smooth and never reaches 0; the ``confidence > 0.05`` floor
-        in the WHERE clause stops further decay once a row is effectively gone.
-        Visibility cliff at ``min_confidence=0.5`` (in ``load_preferences``) is a
-        separate read-path concern — see plan in ``sequential-wishing-whisper.md``.
-
-        Returns total rows touched across all three categories.
+        SQL bodies live in ``memory/decay.py`` to keep this file under the
+        300-line cap.
         """
-        from ..const import PERMANENT_KEYS, STABLE_KEYS
+        from .decay import decay_preferences as _decay
 
-        excluded = list(STABLE_KEYS) + list(PERMANENT_KEYS)
-        sql_volatile = """
-            UPDATE preferences
-               SET confidence = confidence * (1 - 0.03), updated_at = NOW()
-             WHERE inferred = TRUE AND confidence > 0.05 AND deleted_at IS NULL
-               AND last_reinforced < NOW() - INTERVAL '7 days'
-               AND key != ALL($1::text[])
-        """
-        sql_stable = """
-            UPDATE preferences
-               SET confidence = confidence * (1 - 0.01), updated_at = NOW()
-             WHERE inferred = TRUE AND confidence > 0.05 AND deleted_at IS NULL
-               AND last_reinforced < NOW() - INTERVAL '14 days'
-               AND key = ANY($1::text[])
-        """
-        sql_permanent = """
-            UPDATE preferences
-               SET confidence = confidence * (1 - 0.002), updated_at = NOW()
-             WHERE inferred = TRUE AND confidence > 0.05 AND deleted_at IS NULL
-               AND last_reinforced < NOW() - INTERVAL '30 days'
-               AND key = ANY($1::text[])
-        """
-
-        async with self._pool.acquire() as conn:
-            r_v = await conn.execute(sql_volatile, excluded)
-            r_s = await conn.execute(sql_stable, list(STABLE_KEYS))
-            r_p = await conn.execute(sql_permanent, list(PERMANENT_KEYS))
-
-        def _count(result: str) -> int:
-            return int(result.split()[-1]) if result else 0
-
-        c_v, c_s, c_p = _count(r_v), _count(r_s), _count(r_p)
+        c_v, c_s, c_p = await _decay(self._pool)
         total = c_v + c_s + c_p
         if total:
             _LOGGER.info(
