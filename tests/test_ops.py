@@ -38,6 +38,10 @@ def structured_mock():
     s.delete_preference = AsyncMock(return_value={"key": "x", "value": "y", "confidence": 1.0, "inferred": False, "source": "extraction"})
     s.load_preference = AsyncMock(return_value=None)
     s.load_person = AsyncMock(return_value=None)
+    s.load_persons = AsyncMock(return_value=[])
+    # canonical_person echoes the input by default — matches behavior when
+    # persons table is empty / no match. Tests can override via side_effect.
+    s.canonical_person = AsyncMock(side_effect=lambda name, fallback="", persons_cache=None: name or fallback)
     return s
 
 
