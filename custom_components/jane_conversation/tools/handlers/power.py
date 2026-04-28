@@ -15,6 +15,7 @@ async def handle_eval_template(hass: HomeAssistant, args: dict) -> str:
 
     try:
         from homeassistant.helpers.template import Template
+
         tpl = Template(template_str, hass)
         result = tpl.async_render()
         return str(result)

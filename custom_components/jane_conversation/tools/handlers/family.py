@@ -86,16 +86,26 @@ async def handle_set_timer(hass: HomeAssistant, args: dict) -> str:
         try:
             await asyncio.sleep(minutes * 60)
             # Send persistent notification (always visible on dashboard)
-            await hass.services.async_call("notify", "persistent_notification", {
-                "message": message,
-                "title": "Jane Timer",
-            }, blocking=True)
-            # Also try push notification
-            try:
-                await hass.services.async_call("notify", "notify", {
+            await hass.services.async_call(
+                "notify",
+                "persistent_notification",
+                {
                     "message": message,
                     "title": "Jane Timer",
-                }, blocking=True)
+                },
+                blocking=True,
+            )
+            # Also try push notification
+            try:
+                await hass.services.async_call(
+                    "notify",
+                    "notify",
+                    {
+                        "message": message,
+                        "title": "Jane Timer",
+                    },
+                    blocking=True,
+                )
             except Exception:
                 pass
             _LOGGER.info("Timer %s completed: %s", timer_id, message)
@@ -120,25 +130,24 @@ async def handle_manage_list(hass: HomeAssistant, args: dict) -> str:
     for state in hass.states.async_all("todo"):
         name = (state.attributes.get("friendly_name") or "").lower()
         eid = state.entity_id.lower()
-        if list_name in name or list_name in eid or (
-            list_name in ("shopping", "קניות") and "qnyvt" in eid
-        ):
+        if list_name in name or list_name in eid or (list_name in ("shopping", "קניות") and "qnyvt" in eid):
             entity_id = state.entity_id
             break
 
     if not entity_id:
         lists = [
-            f"{s.attributes.get('friendly_name', s.entity_id)} ({s.entity_id})"
-            for s in hass.states.async_all("todo")
+            f"{s.attributes.get('friendly_name', s.entity_id)} ({s.entity_id})" for s in hass.states.async_all("todo")
         ]
         return f"List '{list_name}' not found. Available:\n" + "\n".join(lists)
 
     try:
         if action == "view":
             result = await hass.services.async_call(
-                "todo", "get_items",
+                "todo",
+                "get_items",
                 {"entity_id": entity_id},
-                blocking=True, return_response=True,
+                blocking=True,
+                return_response=True,
             )
             if result and entity_id in result:
                 items = result[entity_id].get("items", [])
@@ -155,7 +164,8 @@ async def handle_manage_list(hass: HomeAssistant, args: dict) -> str:
             if not item:
                 return "Error: item text is required for add."
             await hass.services.async_call(
-                "todo", "add_item",
+                "todo",
+                "add_item",
                 {"entity_id": entity_id, "item": item},
                 blocking=True,
             )
@@ -165,7 +175,8 @@ async def handle_manage_list(hass: HomeAssistant, args: dict) -> str:
             if not item:
                 return "Error: item text is required for remove."
             await hass.services.async_call(
-                "todo", "remove_item",
+                "todo",
+                "remove_item",
                 {"entity_id": entity_id, "item": item},
                 blocking=True,
             )
@@ -208,11 +219,16 @@ async def handle_tts_announce(hass: HomeAssistant, args: dict) -> str:
         return "No speaker found to announce on."
 
     try:
-        await hass.services.async_call("tts", "speak", {
-            "entity_id": tts_entity,
-            "media_player_entity_id": target_player,
-            "message": message,
-        }, blocking=True)
+        await hass.services.async_call(
+            "tts",
+            "speak",
+            {
+                "entity_id": tts_entity,
+                "media_player_entity_id": target_player,
+                "message": message,
+            },
+            blocking=True,
+        )
         return f"Announced on {target_player}."
     except Exception as e:
         return f"TTS announce failed: {e}"

@@ -22,12 +22,12 @@ TARGET_TABLES = ("memory_entries", "preferences", "persons", "events")
 class MemoryOp:
     """A single memory operation emitted by the extractor."""
 
-    op: str                              # ADD | UPDATE | DELETE | NOOP
-    target_table: str | None             # None for NOOP
-    target_key: dict                     # e.g. {"person": "<name>", "key": "beverage_preference"}
-    payload: dict                        # ADD/UPDATE only
-    reason: str                          # required for non-NOOP
-    confidence: float = 1.0              # 0.0-1.0 self-reported
+    op: str  # ADD | UPDATE | DELETE | NOOP
+    target_table: str | None  # None for NOOP
+    target_key: dict  # e.g. {"person": "<name>", "key": "beverage_preference"}
+    payload: dict  # ADD/UPDATE only
+    reason: str  # required for non-NOOP
+    confidence: float = 1.0  # 0.0-1.0 self-reported
 
     def idempotency_hash(self, session_id: str) -> str:
         """Stable hash of (session_id, op, target_table, target_key) for replay detection."""
@@ -47,7 +47,7 @@ class OpResult:
     updated: int = 0
     deleted: int = 0
     nooped: int = 0
-    skipped: int = 0          # duplicate / invalid after parse
+    skipped: int = 0  # duplicate / invalid after parse
     failed: int = 0
 
     def summary(self) -> str:

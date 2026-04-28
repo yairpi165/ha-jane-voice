@@ -88,7 +88,7 @@ class JaneConversationEntity(ConversationEntity):
         # Get conversation history
         conversation_id, history = self._get_history(user_input.conversation_id)
 
-        # S3.0 Step 4 — pending-ask read side. If a previous turn asked
+        # S3.0 Step 4 — pending-ask read side. If a previous turn answered
         # "מי מדבר?" and this turn's reply matches a known person, recover
         # speaker identity at confidence 0.85 and replay the original request.
         pending = await check_pending_ask(self.hass, device_id)
@@ -102,13 +102,13 @@ class JaneConversationEntity(ConversationEntity):
                 user_text = pending.get("original_request") or user_text
                 await clear_pending_ask(self.hass, device_id)
                 _LOGGER.info(
-                    "Jane received (pending-ask recovered): %s (user: %s, conf=%.2f)",
+                    "Jane received (Step 4 recovered): %s (user: %s, conf=%.2f)",
                     user_text,
                     user_name,
                     confidence,
                 )
             else:
-                # Unknown reply — drop the pending key, treat as fresh turn.
+                # Unknown / ambiguous reply — drop the pending key, treat as fresh turn.
                 await clear_pending_ask(self.hass, device_id)
                 user_name, confidence, layer = await resolve_speaker(
                     self.hass, device_id, conversation_id, user_input.context.user_id
@@ -158,6 +158,8 @@ class JaneConversationEntity(ConversationEntity):
             self.tavily_api_key,
             working_memory,
             confidence=confidence,
+            device_id=device_id,
+            conversation_id=conversation_id,
         )
 
         # S3.0 — refresh the speaker session for the next turn from this device.

@@ -37,6 +37,7 @@ def _slugify(text: str) -> str:
 # Auth — internal Long-Lived Access Token
 # ---------------------------------------------------------------------------
 
+
 async def _get_api_token(hass: HomeAssistant) -> str:
     """Get or create an internal API access token for Config Store calls."""
     domain_data = hass.data.get(DOMAIN, {})
@@ -67,6 +68,7 @@ async def _get_api_token(hass: HomeAssistant) -> str:
 # ---------------------------------------------------------------------------
 # HTTP — authenticated requests to HA's Config Store REST API
 # ---------------------------------------------------------------------------
+
 
 async def ha_config_request(
     hass: HomeAssistant,
@@ -105,9 +107,8 @@ async def ha_config_request(
 # Resolve — entity_id -> unique_id
 # ---------------------------------------------------------------------------
 
-async def resolve_config_id(
-    hass: HomeAssistant, resource: str, identifier: str
-) -> str:
+
+async def resolve_config_id(hass: HomeAssistant, resource: str, identifier: str) -> str:
     """Convert entity_id to unique_id/storage_key if needed."""
     if not identifier.startswith(f"{resource}."):
         return identifier
@@ -141,9 +142,8 @@ async def resolve_config_id(
 # Poll — verify entity was created
 # ---------------------------------------------------------------------------
 
-async def poll_for_entity(
-    hass: HomeAssistant, resource: str, unique_id: str
-) -> str | None:
+
+async def poll_for_entity(hass: HomeAssistant, resource: str, unique_id: str) -> str | None:
     """Poll HA states to find the entity_id assigned to a newly created item."""
     for attempt in range(3):
         await asyncio.sleep(1 * (attempt + 1))
@@ -159,6 +159,7 @@ async def poll_for_entity(
 # ---------------------------------------------------------------------------
 # High-level operations
 # ---------------------------------------------------------------------------
+
 
 async def set_config(
     hass: HomeAssistant,
@@ -200,7 +201,8 @@ async def set_config(
         config.pop("id", None)
 
     await ha_config_request(
-        hass, "POST",
+        hass,
+        "POST",
         f"/config/{resource}/config/{unique_id}",
         json_data=config,
     )
@@ -224,9 +226,7 @@ async def get_config(
 ) -> dict:
     """Read config of an automation/script/scene via Config Store API."""
     unique_id = await resolve_config_id(hass, resource, identifier)
-    config = await ha_config_request(
-        hass, "GET", f"/config/{resource}/config/{unique_id}"
-    )
+    config = await ha_config_request(hass, "GET", f"/config/{resource}/config/{unique_id}")
     return normalize_config_for_roundtrip(config)
 
 
@@ -237,9 +237,7 @@ async def remove_config(
 ) -> dict:
     """Delete an automation/script/scene via Config Store API."""
     unique_id = await resolve_config_id(hass, resource, identifier)
-    await ha_config_request(
-        hass, "DELETE", f"/config/{resource}/config/{unique_id}"
-    )
+    await ha_config_request(hass, "DELETE", f"/config/{resource}/config/{unique_id}")
     _LOGGER.info("Deleted %s '%s' via Config Store API", resource, unique_id)
     return {"unique_id": unique_id, "operation": "deleted"}
 

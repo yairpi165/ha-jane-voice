@@ -12,6 +12,7 @@ from jane_conversation.brain.engine import _extract_text
 # Request Classification
 # ---------------------------------------------------------------------------
 
+
 class TestClassifyRequest:
     """Test classify_request categorizes Hebrew input correctly."""
 
@@ -82,6 +83,7 @@ class TestClassifyRequest:
 # Context Building
 # ---------------------------------------------------------------------------
 
+
 class TestBuildContext:
     """Test build_context generates concise home awareness."""
 
@@ -120,6 +122,7 @@ class TestBuildContext:
 # ---------------------------------------------------------------------------
 # Text Extraction
 # ---------------------------------------------------------------------------
+
 
 class TestExtractText:
     def test_extracts_text_from_parts(self):

@@ -213,27 +213,6 @@ class StructuredMemoryStore:
             )
             return dict(row) if row else None
 
-    async def set_primary_user(self, name: str) -> None:
-        """Mark a person as primary (S3.0 D8). Atomic: clears `is_primary`
-        from all OTHER persons in the same transaction so at most one is flagged.
-        """
-        if not name:
-            return
-        async with self._pool.acquire() as conn, conn.transaction():
-            await conn.execute(
-                "UPDATE persons SET metadata = metadata - 'is_primary', updated_at = NOW() "
-                "WHERE name != $1 AND metadata ? 'is_primary'",
-                name,
-            )
-            await conn.execute(
-                """INSERT INTO persons (name, metadata)
-                   VALUES ($1, '{"is_primary": true}'::jsonb)
-                   ON CONFLICT (name) DO UPDATE SET
-                       metadata = persons.metadata || '{"is_primary": true}'::jsonb,
-                       updated_at = NOW()""",
-                name,
-            )
-
     async def canonical_person(
         self,
         name: str,

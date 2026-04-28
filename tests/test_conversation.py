@@ -6,6 +6,7 @@ from jane_conversation.const import WHISPER_HALLUCINATIONS
 # Hallucination Filter
 # ---------------------------------------------------------------------------
 
+
 class TestHallucinationFilter:
     def test_hebrew_hallucinations_detected(self):
         assert "תודה רבה" in WHISPER_HALLUCINATIONS

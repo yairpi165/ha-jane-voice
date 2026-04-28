@@ -4,6 +4,7 @@ import logging
 
 from homeassistant.core import HomeAssistant
 
+from ..const import DOMAIN, PERSONAL_DATA_ACTIONS, SENSITIVE_ACTIONS
 from .definitions import (
     TOOL_BULK_CONTROL,
     TOOL_CALL_HA_SERVICE,
@@ -171,8 +172,56 @@ async def execute_tool(
     tool_name: str,
     arguments: dict,
     tavily_api_key: str | None = None,
+    user_name: str = "default",
+    confidence: float = 1.0,
+    device_id: str | None = None,
+    conversation_id: str | None = None,
+    original_request: str = "",
 ) -> str:
-    """Execute a tool and return the result as a string for GPT."""
+    """Execute a tool and return the result as a string for GPT.
+
+    `user_name` + `confidence` are the resolved-speaker context (S3.0).
+    Tools in SENSITIVE_ACTIONS / PERSONAL_DATA_ACTIONS pass through
+    `policies.check_permission` first; a deny string is returned as the tool
+    result so the LLM can phrase a Hebrew response.
+
+    Step 4 trigger: when the gate would deny + `device_id` is known, we set a
+    pending-ask payload in Redis (with `original_request` for replay) and
+    raise `SpeakerAskRequired` instead of returning the deny string. The
+    engine catches it and the user hears "מי מדבר?".
+    """
+    # S3.0 — confidence-aware policy gate. Runs before dispatch so blocked
+    # tools never execute. Failure-closed: any error in the gate path is
+    # treated as "allow" (we don't want a buggy gate to brick all tools).
+    if tool_name in SENSITIVE_ACTIONS or tool_name in PERSONAL_DATA_ACTIONS:
+        policy_store = getattr(hass.data.get(DOMAIN), "policies", None)
+        if policy_store is not None:
+            try:
+                deny = await policy_store.check_permission(user_name, tool_name, confidence=confidence)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug("Policy gate errored for %s — allowing: %s", tool_name, e)
+                deny = None
+            if deny is not None:
+                _LOGGER.info(
+                    "Policy gate denied %s for %s (conf=%.2f): %s",
+                    tool_name,
+                    user_name,
+                    confidence,
+                    deny,
+                )
+                # Step 4 trigger: low confidence + device_id known → ask flow.
+                # Without device_id we have no Redis key for the next-turn
+                # replay, so fall back to the deny string.
+                if device_id:
+                    from ..brain.speaker_pending_ask import (
+                        SpeakerAskRequired,
+                        set_pending_ask,
+                    )
+
+                    await set_pending_ask(hass, device_id, conversation_id, original_request)
+                    raise SpeakerAskRequired()
+                return deny
+
     try:
         # Config-resource tools that need a resource type parameter
         if tool_name == "get_automation_config":

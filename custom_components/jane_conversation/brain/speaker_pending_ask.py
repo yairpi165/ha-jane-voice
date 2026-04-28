@@ -1,24 +1,22 @@
 """S3.0 (JANE-71) — Step 4 pending-ask state machine.
 
-⚠ New scope beyond the v2 lockdown — apply higher review scrutiny here.
+Spans two turns. Triggered from `tools/registry.py:execute_tool` when:
+  policy gate denies + device_id known + no active speaker session ≥ 0.7
+  + multiple persons home → write pending-ask + raise `SpeakerAskRequired`,
+  which `brain/engine.py:think()` catches and turns into the Hebrew
+  response "מי מדבר?".
 
-Flow (per Notion §"Pending-ask State Machine"):
-  1. Triggering action satisfies SENSITIVE/PERSONAL_DATA + no session ≥ 0.7
-     + multiple home → Jane responds "מי מדבר?" (no tool calls).
-  2. `set_pending_ask` persists `{conversation_id, original_request, ts}`
-     under `jane:pending_speaker_ask:{device_id}` with TTL 60s.
-  3. Next turn: `check_pending_ask` is called from `conversation.py` BEFORE
-     `resolve_speaker`. If the user reply matches a known person name
-     (`match_known_person`), resolve at confidence 0.85, store the speaker
-     session, and re-execute the original request.
-  4. TTL expiry / unknown reply → drop pending, treat as fresh turn at
-     fallback confidence 0.3.
+Next turn: `conversation.py:async_process` reads the pending payload, matches
+the user's reply to a known person via `match_known_person` (word-boundary
+regex, ambiguous → None), recovers identity at confidence 0.85, replays the
+original_request through `think()`.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 
 from homeassistant.core import HomeAssistant
@@ -31,6 +29,20 @@ from ..const import (
 from .speaker_helpers import get_redis
 
 _LOGGER = logging.getLogger(__name__)
+
+# What execute_tool emits as the tool result when raising SpeakerAskRequired
+# would lose information (we still want a deterministic string for the LLM).
+ASK_RESPONSE_HEBREW = "מי מדבר?"
+
+
+class SpeakerAskRequired(Exception):
+    """Raised by `execute_tool` when a low-confidence sensitive call should
+    convert into a "מי מדבר?" turn instead of a deny.
+
+    `brain/engine.py:think()` catches this exception, abandons the current
+    tool-call iteration, and returns `ASK_RESPONSE_HEBREW` directly to
+    `conversation.py`. The pending payload is already in Redis at raise time.
+    """
 
 
 async def check_pending_ask(hass: HomeAssistant, device_id: str | None) -> dict | None:
@@ -94,11 +106,13 @@ async def clear_pending_ask(hass: HomeAssistant, device_id: str | None) -> None:
 
 
 async def match_known_person(hass: HomeAssistant, reply_text: str) -> str | None:
-    """If reply_text contains a known person name, return that name.
+    """Match `reply_text` against persons.name with word-boundary semantics.
 
-    Used by `conversation.py` to recover speaker identity after the user
-    answers 'מי מדבר?'. Case-insensitive substring match against
-    `persons.name` from the structured store.
+    Returns the canonical name iff EXACTLY ONE known name appears as a whole
+    word in the reply. Multiple matches → None (ambiguous; caller re-asks).
+    Zero matches → None. Word-boundary prevents `"Al"` matching inside
+    `"alice"`. Hebrew names work because `\\b` in Python regex tokenizes on
+    Unicode word characters.
     """
     if not reply_text:
         return None
@@ -110,8 +124,14 @@ async def match_known_person(hass: HomeAssistant, reply_text: str) -> str | None
     except Exception:  # noqa: BLE001
         return None
     text_lower = reply_text.lower()
+    candidates: list[str] = []
     for person in persons:
-        name = person.get("name", "")
-        if name and name.lower() in text_lower:
-            return name
-    return None
+        name = person.get("name", "") or ""
+        if not name:
+            continue
+        pattern = rf"(?:^|\W){re.escape(name.lower())}(?:$|\W)"
+        if re.search(pattern, text_lower):
+            candidates.append(name)
+    if len(candidates) == 1:
+        return candidates[0]
+    return None  # 0 matches OR ambiguous (>1) → caller re-asks

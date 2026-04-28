@@ -18,9 +18,11 @@ JANE-71 closes both halves of JANE-62:
 | 0 | HA `context.user_id` (filtered against `"default"`) | 1.0 |
 | 1 | `device_id` → device registry → area → sole resident | 0.85 |
 | 2 | Exactly one person home (`jane:presence`) | 0.95 |
-| 3 | Active `jane:session:{device_id}` (TTL 15m) | inherited × 0.95<sup>min</sup>, floor 0.5 |
+| 3 | Active `jane:session:{device_id}` (TTL 15m) | 0.8 fixed |
 | 4 | Pending-ask flow ("מי מדבר?" + re-execute) | 0.85 after known reply |
-| 5 | Fallback to `primary_user` | 0.3 |
+| 5 | Fallback to `primary_user` | 0.5 |
+
+Step numbering above follows the design doc / code (Steps 0–5). The Notion source-of-truth page numbers them 1–5; the mapping is: Notion 1↔code 0, Notion 2↔code 2, Notion 3↔code 1, Notion 4↔code 3, Notion 5↔code 5. Step 4 (pending-ask) is shared across both numberings.
 
 Full rationale, per-step notes, confidence-aware policy, JANE-62 absorption per-field tier table, Redis-down degraded mode, and PR sequence — all in the Notion page.
 
@@ -51,19 +53,21 @@ These retire the original R1 risk ("Q1 fails — `device_id` doesn't map to area
 
 ## Implementation roadmap
 
+All five PR slices below shipped together as PR #55 (one branch, one merge):
+
 | PR | What ships |
 |----|-----------|
 | **#1** | This pointer + the Notion update. No code. **Gate.** |
 | **#2** | `brain/speaker.py` (`resolve_speaker` Steps 0/1/3 + Redis session) + `conversation.py` glue + tests. |
 | **#3** | `working_memory.is_exactly_one_home()` + Step 2 + Redis-down fallback + tests. |
-| **#4** | `check_permission(confidence=)` + `context_builder` tiers + `SENSITIVE_ACTIONS`/`PERSONAL_DATA_ACTIONS` + tests. **Closes JANE-62.** |
-| **#5** | Step 4 pending-ask state machine + tests. (Higher review scrutiny — new scope beyond v2.) |
+| **#4** | `check_permission(confidence=)` wired at the `execute_tool` boundary + `context_builder` tiers + `SENSITIVE_ACTIONS`/`PERSONAL_DATA_ACTIONS` + tests. **Closes JANE-62.** |
+| **#5** | Step 4 pending-ask state machine + `SpeakerAskRequired` exception caught by `engine.think()` + word-boundary `match_known_person` + integration tests. |
 
 ## Files this work touches
 
-**New:** `brain/speaker.py`, this file.
+**New:** `brain/speaker.py`, `brain/speaker_helpers.py`, `brain/speaker_pending_ask.py`, this file.
 
-**Modified:** `conversation.py`, `memory/policy.py`, `memory/context_builder.py`, `brain/working_memory.py`, `memory/structured.py`, `const.py`.
+**Modified:** `conversation.py`, `brain/engine.py`, `tools/registry.py`, `memory/policy.py`, `memory/context_builder.py`, `const.py`.
 
 No DB schema migration — `is_primary` lives in `persons.metadata` JSONB, `routines.scope` deferred to S3.1.
 

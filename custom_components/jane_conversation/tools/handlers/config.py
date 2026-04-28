@@ -41,8 +41,7 @@ async def handle_set_config(hass: HomeAssistant, args: dict, resource: str) -> s
             f"To create new, remove 'id' from config."
         )
 
-    _LOGGER.info("set_%s called: identifier=%s, config_keys=%s",
-                 resource, identifier, list(config.keys()))
+    _LOGGER.info("set_%s called: identifier=%s, config_keys=%s", resource, identifier, list(config.keys()))
 
     try:
         result = await set_config(hass, resource, config, identifier)
@@ -152,9 +151,7 @@ async def handle_deep_search(hass: HomeAssistant, args: dict) -> str:
             if not unique_id:
                 continue
             try:
-                config = await ha_config_request(
-                    hass, "GET", f"/config/{domain}/config/{unique_id}"
-                )
+                config = await ha_config_request(hass, "GET", f"/config/{domain}/config/{unique_id}")
                 config_str = json.dumps(config, ensure_ascii=False, default=str).lower()
                 if query in config_str:
                     alias = config.get("alias") or state.attributes.get("friendly_name", "?")

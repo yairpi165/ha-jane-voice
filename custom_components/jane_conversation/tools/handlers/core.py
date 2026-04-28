@@ -20,8 +20,15 @@ async def handle_get_entity_state(hass: HomeAssistant, args: dict) -> str:
     lines = [f"{name} ({entity_id}): {state.state}"]
 
     # Include useful attributes
-    skip = {"friendly_name", "supported_features", "icon", "entity_picture",
-            "attribution", "supported_color_modes", "color_mode"}
+    skip = {
+        "friendly_name",
+        "supported_features",
+        "icon",
+        "entity_picture",
+        "attribution",
+        "supported_color_modes",
+        "color_mode",
+    }
     for key, value in state.attributes.items():
         if key not in skip and value is not None:
             lines.append(f"  {key}: {value}")
@@ -49,15 +56,21 @@ async def handle_call_ha_service(hass: HomeAssistant, args: dict) -> str:
     try:
         if (domain, service) in services_with_response:
             result = await hass.services.async_call(
-                domain, service, service_data,
-                blocking=True, return_response=True,
+                domain,
+                service,
+                service_data,
+                blocking=True,
+                return_response=True,
             )
             if result:
                 return json.dumps(result, ensure_ascii=False, indent=2, default=str)
             return "Service returned no data."
         else:
             await hass.services.async_call(
-                domain, service, service_data, blocking=True,
+                domain,
+                service,
+                service_data,
+                blocking=True,
             )
             return "Success."
     except Exception as e:

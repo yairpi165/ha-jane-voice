@@ -4,13 +4,15 @@ The ladder, per the Notion design page (D1–D12 + V1–V4):
   Step 0  HA context.user_id (filtered against "default")    → 1.0
   Step 1  device_id → device_registry → area → sole resident → 0.85
   Step 2  exactly one person home (jane:presence)            → 0.95
-  Step 3  active jane:session:{device_id} (TTL 15m)          → recency-decayed
+  Step 3  active jane:session:{device_id} (TTL 15m)          → 0.8 fixed
   Step 4  pending-ask flow ("מי מדבר?" + re-execute)         → see speaker_pending_ask.py
-  Step 5  fallback to primary_user                           → 0.3
+  Step 5  fallback to primary_user                           → 0.5
 
-Step 4 lives in `speaker_pending_ask.py` because it spans two turns and is
-driven from `conversation.py` directly (it short-circuits `think`). Internal
-helpers live in `speaker_helpers.py` to keep this file under the 300-line cap.
+Step 4 lives in `speaker_pending_ask.py` because it spans two turns: the
+ask response is emitted from `engine.think()` after `execute_tool` raises
+`SpeakerAskRequired`, and the next turn replays the original_request through
+`conversation.py` at confidence 0.85. Internal helpers live in
+`speaker_helpers.py` to keep this file under the 300-line cap.
 """
 
 from __future__ import annotations
@@ -37,9 +39,9 @@ from .speaker_helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_USER_NAME = "default"
-FALLBACK_CONFIDENCE = 0.3
-SESSION_RECENCY_DECAY_FLOOR = 0.5
-SESSION_REFRESH_THRESHOLD = 0.7
+FALLBACK_CONFIDENCE = 0.5  # Notion S3.0: Step 5 fallback to primary_user → 0.5.
+SESSION_FIXED_CONFIDENCE = 0.8  # Notion S3.0: room session in Redis (<TTL) → 0.8 fixed.
+SESSION_REFRESH_THRESHOLD = 0.7  # Don't poison the session with sub-0.7 guesses.
 
 
 @dataclass
@@ -83,8 +85,9 @@ async def resolve_speaker(
 ) -> tuple[str, float, str]:
     """Resolve the current speaker. Returns (user_name, confidence, layer).
 
-    `layer` is one of "step_0" / "step_1" / "step_2" / "step_3" / "step_5"
-    (Step 4 short-circuits `think` from `conversation.py`). Never raises.
+    `layer` is one of "step_0" / "step_1" / "step_2" / "step_3" / "step_5".
+    Step 4 is set in `conversation.py` after a pending-ask reply is matched.
+    Never raises.
     """
     name = await _step_0_ha_context(hass, ha_user_id)
     if name is not None:
@@ -139,10 +142,10 @@ async def _step_2_presence(hass: HomeAssistant) -> str | None:
 
 
 async def _step_3_speaker_session(hass: HomeAssistant, device_id: str) -> SpeakerSession | None:
-    """Step 3 — read jane:session:{device_id} and apply recency decay.
+    """Step 3 — read jane:session:{device_id} and return at fixed 0.8 within TTL.
 
-    Decay: stored_confidence × (0.95 ** minutes_since_last_update), floor 0.5.
-    Redis TTL handles hard expiry at 15m.
+    Per Notion S3.0: a recent room session (<15m, enforced by Redis TTL)
+    yields confidence 0.8. No recency decay — TTL is the cliff.
     """
     redis = get_redis(hass)
     if redis is None:
@@ -157,9 +160,7 @@ async def _step_3_speaker_session(hass: HomeAssistant, device_id: str) -> Speake
     session = SpeakerSession.from_json(raw)
     if session is None:
         return None
-    minutes_elapsed = max(0.0, (time.time() - session.ts) / 60.0)
-    decayed = session.confidence * (0.95**minutes_elapsed)
-    session.confidence = max(decayed, SESSION_RECENCY_DECAY_FLOOR)
+    session.confidence = SESSION_FIXED_CONFIDENCE
     return session
 
 

@@ -1,11 +1,12 @@
 """S3.0 (JANE-71) — speaker resolution tests.
 
-Covers:
-- Layered resolve_speaker() ladder (Steps 0/1/2/3/5).
-- Recency decay on Step 3 sessions.
+Covers the full Notion S3.0 ladder:
+- Layered resolve_speaker() Steps 0/1/2/3/5 — confidence values per Notion
+  (1.0 / 0.85 / 0.95 / 0.8 / 0.5).
 - Redis-down fallback for Step 2 (presence).
 - write_speaker_session refresh threshold (only at confidence ≥ 0.7).
-- Pending-ask state machine read/write/clear + match_known_person.
+- Step 4 pending-ask state machine: round-trip + word-boundary match
+  + ambiguous → None + integration ask→replay through execute_tool.
 - Confidence-aware check_permission gates.
 - Confidence-aware build_memory_context per-field tiers.
 """
@@ -87,6 +88,120 @@ class TestStep0HAContext:
 
 
 # ---------------------------------------------------------------------------
+# Step 1 — Device area → sole resident
+# ---------------------------------------------------------------------------
+
+
+def _make_device(area_id):
+    d = MagicMock()
+    d.area_id = area_id
+    return d
+
+
+def _make_entity_entry(area_id=None, device_id=None):
+    e = MagicMock()
+    e.area_id = area_id
+    e.device_id = device_id
+    return e
+
+
+class TestStep1DeviceArea:
+    """D9 — `device_id → device_registry → area → sole resident` (confidence 0.85).
+
+    Manually verified V4 on dev VM, but unit tests lock the layer against
+    HA registry refactors.
+    """
+
+    @pytest.mark.asyncio
+    async def test_device_in_area_with_sole_resident_resolves_at_0_85(self):
+        from jane_conversation.brain import speaker, speaker_helpers
+
+        device = _make_device(area_id="salon")
+        dr_mock = MagicMock()
+        dr_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=device))
+        ar_mock = MagicMock()
+        ar_mock.async_get.return_value = MagicMock(async_get_area=MagicMock(return_value=MagicMock()))
+        # Entity registry: person.alice has area="salon".
+        ent_entry = _make_entity_entry(area_id="salon")
+        er_mock = MagicMock()
+        er_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=ent_entry))
+
+        alice = _make_person_state("person.alice", "home", "Alice")
+        hass = _make_hass(jane_data=_make_jane_data(redis=None), person_states=[alice])
+        with (
+            patch.object(speaker, "dr", dr_mock),
+            patch.object(speaker_helpers, "dr", dr_mock),
+            patch.object(speaker_helpers, "ar", ar_mock),
+            patch.object(speaker_helpers, "er", er_mock),
+        ):
+            name, conf, layer = await speaker.resolve_speaker(hass, "device-X", "conv-1", None)
+        assert (name, conf, layer) == ("Alice", 0.85, "step_1")
+
+    @pytest.mark.asyncio
+    async def test_device_with_no_area_falls_through(self):
+        from jane_conversation.brain import speaker
+
+        device = _make_device(area_id=None)
+        dr_mock = MagicMock()
+        dr_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=device))
+        # No one home → fall through past Step 2 to Step 5.
+        hass = _make_hass(jane_data=_make_jane_data(redis=None), person_states=[])
+        with patch.object(speaker, "dr", dr_mock):
+            name, conf, layer = await speaker.resolve_speaker(hass, "device-X", "conv-1", None)
+        assert layer != "step_1"
+
+    @pytest.mark.asyncio
+    async def test_area_with_multiple_residents_falls_through(self):
+        from jane_conversation.brain import speaker, speaker_helpers
+
+        device = _make_device(area_id="salon")
+        dr_mock = MagicMock()
+        dr_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=device))
+        ar_mock = MagicMock()
+        ar_mock.async_get.return_value = MagicMock(async_get_area=MagicMock(return_value=MagicMock()))
+        ent_entry = _make_entity_entry(area_id="salon")
+        er_mock = MagicMock()
+        er_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=ent_entry))
+
+        alice = _make_person_state("person.alice", "home", "Alice")
+        bob = _make_person_state("person.bob", "home", "Bob")
+        hass = _make_hass(jane_data=_make_jane_data(redis=None), person_states=[alice, bob])
+        with (
+            patch.object(speaker, "dr", dr_mock),
+            patch.object(speaker_helpers, "dr", dr_mock),
+            patch.object(speaker_helpers, "ar", ar_mock),
+            patch.object(speaker_helpers, "er", er_mock),
+        ):
+            name, conf, layer = await speaker.resolve_speaker(hass, "device-X", "conv-1", None)
+        assert layer != "step_1"
+
+    @pytest.mark.asyncio
+    async def test_area_with_zero_residents_falls_through(self):
+        from jane_conversation.brain import speaker, speaker_helpers
+
+        device = _make_device(area_id="salon")
+        dr_mock = MagicMock()
+        dr_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=device))
+        ar_mock = MagicMock()
+        ar_mock.async_get.return_value = MagicMock(async_get_area=MagicMock(return_value=MagicMock()))
+        # Entity registry returns a different area for every person — no one in salon.
+        ent_entry = _make_entity_entry(area_id="kitchen")
+        er_mock = MagicMock()
+        er_mock.async_get.return_value = MagicMock(async_get=MagicMock(return_value=ent_entry))
+
+        alice = _make_person_state("person.alice", "home", "Alice")
+        hass = _make_hass(jane_data=_make_jane_data(redis=None), person_states=[alice])
+        with (
+            patch.object(speaker, "dr", dr_mock),
+            patch.object(speaker_helpers, "dr", dr_mock),
+            patch.object(speaker_helpers, "ar", ar_mock),
+            patch.object(speaker_helpers, "er", er_mock),
+        ):
+            name, conf, layer = await speaker.resolve_speaker(hass, "device-X", "conv-1", None)
+        assert layer != "step_1"
+
+
+# ---------------------------------------------------------------------------
 # Step 2 — Presence
 # ---------------------------------------------------------------------------
 
@@ -114,7 +229,7 @@ class TestStep2Presence:
         hass = _make_hass(jane_data=_make_jane_data(redis=None), person_states=[alice, bob])
         name, conf, layer = await resolve_speaker(hass, None, "conv-1", None)
         assert layer in ("step_5",)
-        assert conf <= 0.3
+        assert conf == 0.5
 
     @pytest.mark.asyncio
     async def test_redis_down_falls_back_to_hass_states(self):
@@ -136,17 +251,19 @@ class TestStep2Presence:
 
 
 class TestStep3SpeakerSession:
+    """Notion S3.0: room session in Redis (<TTL 15m) → 0.8 fixed. No decay."""
+
     @pytest.mark.asyncio
-    async def test_recent_session_resolves_at_inherited_confidence(self):
+    async def test_session_within_ttl_returns_0_8(self):
         from jane_conversation.brain.speaker import resolve_speaker
 
-        # Session written 30 seconds ago at confidence 0.95.
-        session_ts = time.time() - 30
+        # Session written 30s ago. Persisted confidence is irrelevant — any
+        # active session yields 0.8 fixed (TTL is the cliff).
         session_blob = json.dumps(
             {
                 "user_name": "Alice",
                 "conversation_id": "old-conv",
-                "ts": session_ts,
+                "ts": time.time() - 30,
                 "confidence": 0.95,
             }
         )
@@ -155,22 +272,19 @@ class TestStep3SpeakerSession:
         redis.get.return_value = session_blob
         hass = _make_hass(jane_data=_make_jane_data(redis=redis), person_states=[])
         name, conf, layer = await resolve_speaker(hass, "device-X", "new-conv", None)
-        assert layer == "step_3"
-        assert name == "Alice"
-        # 30 seconds ≈ 0.5 min → 0.95 ** 0.5 ≈ 0.975 → conf ≈ 0.95 * 0.975 ≈ 0.93
-        assert 0.9 < conf <= 0.95
+        assert (name, conf, layer) == ("Alice", 0.8, "step_3")
 
     @pytest.mark.asyncio
-    async def test_old_session_clamped_to_floor(self):
+    async def test_session_persisted_low_confidence_still_returns_0_8(self):
+        """Even if a low confidence was somehow persisted, read returns 0.8."""
         from jane_conversation.brain.speaker import resolve_speaker
 
-        # Session 1 hour old.
         session_blob = json.dumps(
             {
                 "user_name": "Alice",
                 "conversation_id": "old-conv",
-                "ts": time.time() - 3600,
-                "confidence": 0.95,
+                "ts": time.time() - 30,
+                "confidence": 0.55,
             }
         )
         redis = AsyncMock()
@@ -179,7 +293,7 @@ class TestStep3SpeakerSession:
         hass = _make_hass(jane_data=_make_jane_data(redis=redis), person_states=[])
         name, conf, layer = await resolve_speaker(hass, "device-X", "new-conv", None)
         assert layer == "step_3"
-        assert conf == 0.5  # floor
+        assert conf == 0.8
 
     @pytest.mark.asyncio
     async def test_no_session_falls_through(self):
@@ -199,8 +313,10 @@ class TestStep3SpeakerSession:
 
 
 class TestStep5Fallback:
+    """Notion S3.0: Step 5 fallback to primary_user → 0.5."""
+
     @pytest.mark.asyncio
-    async def test_returns_primary_user_at_0_3(self):
+    async def test_returns_primary_user_at_0_5(self):
         from jane_conversation.brain.speaker import resolve_speaker
 
         structured = AsyncMock()
@@ -210,7 +326,7 @@ class TestStep5Fallback:
         ]
         hass = _make_hass(jane_data=_make_jane_data(structured=structured), person_states=[])
         name, conf, layer = await resolve_speaker(hass, None, "conv-1", None)
-        assert (name, conf, layer) == ("Charlie", 0.3, "step_5")
+        assert (name, conf, layer) == ("Charlie", 0.5, "step_5")
 
     @pytest.mark.asyncio
     async def test_returns_default_name_when_no_primary_user(self):
@@ -220,7 +336,7 @@ class TestStep5Fallback:
         structured.load_persons.return_value = [{"name": "Alice", "metadata": {}}]
         hass = _make_hass(jane_data=_make_jane_data(structured=structured), person_states=[])
         name, conf, layer = await resolve_speaker(hass, None, "conv-1", None)
-        assert (name, conf, layer) == ("default", 0.3, "step_5")
+        assert (name, conf, layer) == ("default", 0.5, "step_5")
 
 
 # ---------------------------------------------------------------------------
@@ -264,11 +380,13 @@ class TestWriteSpeakerSession:
 
 
 # ---------------------------------------------------------------------------
-# Pending-ask state machine
+# Step 4 — Pending-ask state machine
 # ---------------------------------------------------------------------------
 
 
 class TestPendingAsk:
+    """Round-trip + match_known_person semantics."""
+
     @pytest.mark.asyncio
     async def test_set_check_clear_round_trip(self):
         from jane_conversation.brain.speaker_pending_ask import (
@@ -298,23 +416,245 @@ class TestPendingAsk:
         pending = await check_pending_ask(hass, "device-X")
         assert pending is not None
         assert pending["original_request"] == "what time is it?"
+        assert pending["conversation_id"] == "conv-1"
         await clear_pending_ask(hass, "device-X")
         assert await check_pending_ask(hass, "device-X") is None
 
     @pytest.mark.asyncio
-    async def test_match_known_person_finds_substring(self):
+    async def test_match_known_person_exact_match(self):
         from jane_conversation.brain.speaker_pending_ask import match_known_person
 
         structured = AsyncMock()
-        structured.load_persons.return_value = [
-            {"name": "Alice"},
-            {"name": "Bob"},
-        ]
+        structured.load_persons.return_value = [{"name": "Alice"}, {"name": "Bob"}]
         hass = _make_hass(jane_data=_make_jane_data(structured=structured))
+        assert await match_known_person(hass, "Alice") == "Alice"
         assert await match_known_person(hass, "this is alice speaking") == "Alice"
         assert await match_known_person(hass, "Bob") == "Bob"
+
+    @pytest.mark.asyncio
+    async def test_match_known_person_word_boundary(self):
+        """Reviewer fix: no false-positive on substrings like 'al' inside 'alice'."""
+        from jane_conversation.brain.speaker_pending_ask import match_known_person
+
+        structured = AsyncMock()
+        # Short nickname 'Al' must not match a reply containing 'alice'.
+        structured.load_persons.return_value = [{"name": "Al"}, {"name": "Bob"}]
+        hass = _make_hass(jane_data=_make_jane_data(structured=structured))
+        assert await match_known_person(hass, "alice was here") is None
+        assert await match_known_person(hass, "Al") == "Al"
+        assert await match_known_person(hass, "I'm Al actually") == "Al"
+
+    @pytest.mark.asyncio
+    async def test_match_known_person_ambiguous_returns_none(self):
+        """Reviewer fix: multiple matches → ambiguous → None (caller re-asks)."""
+        from jane_conversation.brain.speaker_pending_ask import match_known_person
+
+        structured = AsyncMock()
+        structured.load_persons.return_value = [{"name": "Alice"}, {"name": "Bob"}]
+        hass = _make_hass(jane_data=_make_jane_data(structured=structured))
+        # Both names appear → fail closed rather than guess first-in-iteration.
+        assert await match_known_person(hass, "I'm not Bob, I'm Alice") is None
+
+    @pytest.mark.asyncio
+    async def test_match_known_person_no_match_returns_none(self):
+        from jane_conversation.brain.speaker_pending_ask import match_known_person
+
+        structured = AsyncMock()
+        structured.load_persons.return_value = [{"name": "Alice"}]
+        hass = _make_hass(jane_data=_make_jane_data(structured=structured))
         assert await match_known_person(hass, "nobody") is None
         assert await match_known_person(hass, "") is None
+
+    @pytest.mark.asyncio
+    async def test_match_known_person_hebrew_word_boundary(self):
+        """Hebrew names: 'אבי' must not match inside 'אביב' (substring inside word)."""
+        from jane_conversation.brain.speaker_pending_ask import match_known_person
+
+        structured = AsyncMock()
+        structured.load_persons.return_value = [{"name": "אבי"}, {"name": "דנה"}]
+        hass = _make_hass(jane_data=_make_jane_data(structured=structured))
+        # No match — 'אבי' is a strict prefix of 'אביב' (no \W between).
+        assert await match_known_person(hass, "אביב היה כאן") is None
+        # Match — name is its own word.
+        assert await match_known_person(hass, "אני אבי") == "אבי"
+        assert await match_known_person(hass, "מדברת דנה") == "דנה"
+
+    @pytest.mark.asyncio
+    async def test_match_known_person_redis_down_returns_none(self):
+        """Edge case: structured store unavailable → fail closed (no guess)."""
+        from jane_conversation.brain.speaker_pending_ask import match_known_person
+
+        hass = _make_hass(jane_data=_make_jane_data(structured=None))
+        assert await match_known_person(hass, "Alice") is None
+
+    @pytest.mark.asyncio
+    async def test_check_pending_ask_returns_none_when_no_device_id(self):
+        from jane_conversation.brain.speaker_pending_ask import check_pending_ask
+
+        redis = AsyncMock()
+        hass = _make_hass(jane_data=_make_jane_data(redis=redis))
+        assert await check_pending_ask(hass, None) is None
+        redis.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_check_pending_ask_returns_none_when_redis_down(self):
+        from jane_conversation.brain.speaker_pending_ask import check_pending_ask
+
+        redis = AsyncMock()
+        redis.get.side_effect = ConnectionError("redis down")
+        hass = _make_hass(jane_data=_make_jane_data(redis=redis))
+        assert await check_pending_ask(hass, "device-X") is None
+
+    @pytest.mark.asyncio
+    async def test_set_pending_ask_silent_on_redis_failure(self):
+        """Redis failure must not propagate — write is best-effort."""
+        from jane_conversation.brain.speaker_pending_ask import set_pending_ask
+
+        redis = AsyncMock()
+        redis.set.side_effect = ConnectionError("redis down")
+        hass = _make_hass(jane_data=_make_jane_data(redis=redis))
+        # Must not raise.
+        await set_pending_ask(hass, "device-X", "conv-1", "x")
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — End-to-end trigger through execute_tool + engine
+# ---------------------------------------------------------------------------
+
+
+class TestStep4Trigger:
+    """When the gate denies a sensitive call at low confidence + device_id is
+    known, `execute_tool` writes a pending-ask payload to Redis and raises
+    `SpeakerAskRequired`. The engine catches and emits "מי מדבר?".
+    """
+
+    @pytest.mark.asyncio
+    async def test_low_conf_sensitive_call_with_device_id_raises(self):
+        from jane_conversation.brain.speaker_pending_ask import SpeakerAskRequired
+        from jane_conversation.tools import execute_tool
+
+        store: dict[str, str] = {}
+
+        async def fake_set(key, value, ex=None):
+            store[key] = value
+
+        redis = AsyncMock()
+        redis.set.side_effect = fake_set
+
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value="זיהוי לא בטוח — אנא אשר את הפעולה")
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        jane_data.redis = redis
+
+        hass = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        with pytest.raises(SpeakerAskRequired):
+            await execute_tool(
+                hass,
+                "set_automation",
+                {},
+                user_name="default",
+                confidence=0.5,
+                device_id="device-X",
+                conversation_id="conv-1",
+                original_request="הדלק את האזעקה",
+            )
+        # Pending-ask payload was written before raising.
+        assert "jane:pending_speaker_ask:device-X" in store
+        payload = json.loads(store["jane:pending_speaker_ask:device-X"])
+        assert payload["original_request"] == "הדלק את האזעקה"
+        assert payload["conversation_id"] == "conv-1"
+
+    @pytest.mark.asyncio
+    async def test_low_conf_sensitive_call_without_device_id_returns_deny(self):
+        """No device_id → no Redis key for replay → fall back to deny string."""
+        from jane_conversation.tools import execute_tool
+
+        deny_msg = "זיהוי לא בטוח — אנא אשר את הפעולה"
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=deny_msg)
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        hass = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        result = await execute_tool(
+            hass,
+            "set_automation",
+            {},
+            user_name="default",
+            confidence=0.5,
+            device_id=None,
+            original_request="x",
+        )
+        assert result == deny_msg
+
+    @pytest.mark.asyncio
+    async def test_high_conf_sensitive_call_passes_no_ask(self):
+        """At conf ≥ 0.7 the gate doesn't deny → no SpeakerAskRequired raised."""
+        from jane_conversation.tools import execute_tool
+
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=None)  # allowed
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        jane_data.redis = AsyncMock()
+        hass = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        # Won't raise — handler runs (set_automation handler returns some string).
+        result = await execute_tool(
+            hass,
+            "set_automation",
+            {"object_id": "x", "config": {}},
+            user_name="Alice",
+            confidence=0.95,
+            device_id="device-X",
+            original_request="x",
+        )
+        # Whatever set_automation returned — it's not the ask prompt.
+        assert result != "מי מדבר?"
+
+    @pytest.mark.asyncio
+    async def test_step_4_replay_at_0_85_passes_gate_for_sensitive(self):
+        """After ask→replay at conf 0.85, the same sensitive call must pass the gate.
+
+        (Step 4 brings us to 0.85, which is ≥ 0.7 SENSITIVE threshold and ≥ 0.5
+        PERSONAL_DATA threshold — the recovered turn should not re-trigger an ask.)
+        """
+        from jane_conversation.brain.speaker_pending_ask import SpeakerAskRequired
+        from jane_conversation.memory.policy import PolicyStore
+        from jane_conversation.tools import execute_tool
+
+        # Use the real PolicyStore so we exercise the same threshold logic
+        # the prod path runs.
+        pool = MagicMock()
+        conn = AsyncMock()
+        conn.fetch.return_value = [{"key": "role", "value": "admin"}]
+        pool.acquire.return_value.__aenter__.return_value = conn
+        store = PolicyStore(pool)
+
+        jane_data = MagicMock()
+        jane_data.policies = store
+        jane_data.redis = AsyncMock()
+        hass = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        # confidence=0.85 (post-recovery). Must NOT raise.
+        try:
+            await execute_tool(
+                hass,
+                "forget_memory",
+                {"target": "preferences", "key": {"person": "Alice", "key": "x"}},
+                user_name="Alice",
+                confidence=0.85,
+                device_id="device-X",
+                original_request="תשכחי ש...",
+            )
+        except SpeakerAskRequired:
+            pytest.fail("Step 4 replay at 0.85 should pass the gate, not re-trigger ask")
 
 
 # ---------------------------------------------------------------------------

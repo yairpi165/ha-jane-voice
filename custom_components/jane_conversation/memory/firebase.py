@@ -28,9 +28,7 @@ def init_firebase(key_path: str) -> bool:
         return False
 
     try:
-        creds = service_account.Credentials.from_service_account_file(
-            str(path), scopes=SCOPES
-        )
+        creds = service_account.Credentials.from_service_account_file(str(path), scopes=SCOPES)
         with open(path) as f:
             data = json.load(f)
 
@@ -45,10 +43,7 @@ def init_firebase(key_path: str) -> bool:
 
 def _get_base_url() -> str:
     """Get Firestore REST API base URL."""
-    return (
-        f"https://firestore.googleapis.com/v1/"
-        f"projects/{_project_id}/databases/(default)/documents"
-    )
+    return f"https://firestore.googleapis.com/v1/projects/{_project_id}/databases/(default)/documents"
 
 
 def _refresh_token() -> str | None:
@@ -56,6 +51,7 @@ def _refresh_token() -> str | None:
     try:
         if not _credentials.valid:
             import google.auth.transport.requests
+
             request = google.auth.transport.requests.Request()
             _credentials.refresh(request)
         return _credentials.token
@@ -89,11 +85,14 @@ async def backup_memory(doc_name: str, content: str) -> bool:
     }
 
     try:
-        async with aiohttp.ClientSession() as session, session.patch(
-            url,
-            json=body,
-            headers={"Authorization": f"Bearer {token}"},
-        ) as resp:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.patch(
+                url,
+                json=body,
+                headers={"Authorization": f"Bearer {token}"},
+            ) as resp,
+        ):
             if resp.status in (200, 201):
                 _LOGGER.debug("Backed up %s to Firestore", doc_name)
                 return True
@@ -101,7 +100,9 @@ async def backup_memory(doc_name: str, content: str) -> bool:
                 text = await resp.text()
                 _LOGGER.warning(
                     "Firestore backup failed for %s: %s %s",
-                    doc_name, resp.status, text,
+                    doc_name,
+                    resp.status,
+                    text,
                 )
                 return False
     except Exception as e:
@@ -121,26 +122,23 @@ async def restore_memory(doc_name: str) -> str | None:
     url = f"{_get_base_url()}/{COLLECTION}/{doc_name}"
 
     try:
-        async with aiohttp.ClientSession() as session, session.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-        ) as resp:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+            ) as resp,
+        ):
             if resp.status == 200:
                 data = await resp.json()
-                content = (
-                    data.get("fields", {})
-                    .get("content", {})
-                    .get("stringValue")
-                )
+                content = data.get("fields", {}).get("content", {}).get("stringValue")
                 if content:
                     _LOGGER.info("Restored %s from Firestore", doc_name)
                     return content
             elif resp.status == 404:
                 return None
             else:
-                _LOGGER.warning(
-                    "Firestore restore failed for %s: %s", doc_name, resp.status
-                )
+                _LOGGER.warning("Firestore restore failed for %s: %s", doc_name, resp.status)
     except Exception as e:
         _LOGGER.warning("Firestore restore error for %s: %s", doc_name, e)
 
