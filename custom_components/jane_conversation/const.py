@@ -108,16 +108,19 @@ SENSITIVE_ACTIONS = {
 }
 
 # S3.0 (JANE-71) — denied when confidence < 0.5 (per D11).
-# Reads of personally-keyed data. Overlap with SENSITIVE_ACTIONS is intentional;
-# the policy applies the stricter (lower-threshold) gate first.
+# Real tool names that touch personally-keyed data. The gate runs in
+# `tools.execute_tool`, which only sees tool names from `_HANDLER_MAP` —
+# internal-function names (e.g. `build_memory_context`) wouldn't enforce
+# anything here. Engine-internal context builders (`build_memory_context`,
+# `build_episodic_context`) carry their own per-field tier logic; they
+# don't appear in this set.
 PERSONAL_DATA_ACTIONS = {
-    "load_preferences",
-    "load_memory_entries",
     "get_calendar_events",
-    "get_episodic_context",
-    "build_memory_context",
     "tts_announce",
     "check_people",
+    "read_memory",  # reads preferences + memory_entries by category
+    "query_history",  # reads recent conversation events
+    "save_memory",  # writes memory under user_name — wrong-attribution risk at low conf
 }
 
 # S3.0 (JANE-71) — Redis key shape per D5.

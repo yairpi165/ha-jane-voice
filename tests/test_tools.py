@@ -237,6 +237,71 @@ class TestConfidenceGate:
         policies.check_permission.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_low_conf_blocks_read_memory(self, hass_mock):
+        """Lock the gate on `read_memory` — it reads preferences/memory_entries
+        keyed by user_name; at low confidence we must not leak personal data.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        deny_msg = "זיהוי לא בטוח — אני לא משתפת מידע אישי כרגע"
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=deny_msg)
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        hass_mock.data = {"jane_conversation": jane_data}
+
+        result = await execute_tool(
+            hass_mock,
+            "read_memory",
+            {"category": "preferences", "user_name": "Alice"},
+            user_name="Alice",
+            confidence=0.4,
+        )
+        assert result == deny_msg
+
+    @pytest.mark.asyncio
+    async def test_low_conf_blocks_query_history(self, hass_mock):
+        """`query_history` reads recent conversation events — same gate."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        deny_msg = "זיהוי לא בטוח — אני לא משתפת מידע אישי כרגע"
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=deny_msg)
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        hass_mock.data = {"jane_conversation": jane_data}
+
+        result = await execute_tool(
+            hass_mock,
+            "query_history",
+            {"q": "what did Alice say"},
+            user_name="Alice",
+            confidence=0.4,
+        )
+        assert result == deny_msg
+
+    @pytest.mark.asyncio
+    async def test_low_conf_blocks_save_memory(self, hass_mock):
+        """`save_memory` writes memory under user_name — wrong-attribution risk at low conf."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        deny_msg = "זיהוי לא בטוח — אני לא משתפת מידע אישי כרגע"
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=deny_msg)
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        hass_mock.data = {"jane_conversation": jane_data}
+
+        result = await execute_tool(
+            hass_mock,
+            "save_memory",
+            {"category": "preferences", "content": "loves jazz"},
+            user_name="default",
+            confidence=0.3,
+        )
+        assert result == deny_msg
+
+    @pytest.mark.asyncio
     async def test_gate_failure_closed_to_allow(self, hass_mock):
         """If the gate raises, dispatch must allow (we don't brick all tools on a buggy gate)."""
         from unittest.mock import AsyncMock, MagicMock

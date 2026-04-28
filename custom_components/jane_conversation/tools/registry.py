@@ -181,19 +181,48 @@ async def execute_tool(
     """Execute a tool and return the result as a string for GPT.
 
     `user_name` + `confidence` are the resolved-speaker context (S3.0).
-    Tools in SENSITIVE_ACTIONS / PERSONAL_DATA_ACTIONS pass through
-    `policies.check_permission` first; a deny string is returned as the tool
-    result so the LLM can phrase a Hebrew response.
 
-    Step 4 trigger: when the gate would deny + `device_id` is known, we set a
-    pending-ask payload in Redis (with `original_request` for replay) and
-    raise `SpeakerAskRequired` instead of returning the deny string. The
-    engine catches it and the user hears "מי מדבר?".
+    For tools in SENSITIVE_ACTIONS / PERSONAL_DATA_ACTIONS:
+
+    1. **Step 4 trigger** fires iff the deny would be *recoverable by knowing
+       who is speaking* — i.e., confidence < the per-set threshold AND
+       `device_id` is known. In that case we persist a pending-ask payload
+       and raise `SpeakerAskRequired`; the engine catches and emits "מי מדבר?".
+
+    2. The full `check_permission` runs after the trigger check. Anything it
+       denies for non-confidence reasons (role, quiet-hours, or confidence
+       without a device_id we can replay through) returns the deny string
+       to the LLM so it can phrase a Hebrew response. Asking "מי מדבר?"
+       wouldn't unlock those — distinguishing them is essential to avoid
+       deny-loops on child users or quiet-hours bypasses.
     """
-    # S3.0 — confidence-aware policy gate. Runs before dispatch so blocked
-    # tools never execute. Failure-closed: any error in the gate path is
-    # treated as "allow" (we don't want a buggy gate to brick all tools).
     if tool_name in SENSITIVE_ACTIONS or tool_name in PERSONAL_DATA_ACTIONS:
+        # Step 4 trigger — recoverable denies only. Threshold logic mirrors
+        # `policy.check_permission`; we duplicate it here because the trigger
+        # decision is structurally different from the deny decision: only
+        # confidence-based denies become asks.
+        needs_ask = (confidence < 0.5 and tool_name in PERSONAL_DATA_ACTIONS) or (
+            confidence < 0.7 and tool_name in SENSITIVE_ACTIONS
+        )
+        if needs_ask and device_id:
+            from ..brain.speaker_pending_ask import (
+                SpeakerAskRequired,
+                set_pending_ask,
+            )
+
+            await set_pending_ask(hass, device_id, conversation_id, original_request)
+            _LOGGER.info(
+                "Step 4 ask triggered for %s (conf=%.2f, device=%s)",
+                tool_name,
+                confidence,
+                device_id,
+            )
+            raise SpeakerAskRequired()
+
+        # Full policy check — handles role, quiet-hours, and the
+        # confidence-low-without-device_id case (no replay path possible).
+        # Failure-closed: any exception in the gate path is treated as
+        # "allow" so a buggy policy store can't brick every tool call.
         policy_store = getattr(hass.data.get(DOMAIN), "policies", None)
         if policy_store is not None:
             try:
@@ -209,17 +238,6 @@ async def execute_tool(
                     confidence,
                     deny,
                 )
-                # Step 4 trigger: low confidence + device_id known → ask flow.
-                # Without device_id we have no Redis key for the next-turn
-                # replay, so fall back to the deny string.
-                if device_id:
-                    from ..brain.speaker_pending_ask import (
-                        SpeakerAskRequired,
-                        set_pending_ask,
-                    )
-
-                    await set_pending_ask(hass, device_id, conversation_id, original_request)
-                    raise SpeakerAskRequired()
                 return deny
 
     try:

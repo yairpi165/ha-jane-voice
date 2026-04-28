@@ -618,6 +618,79 @@ class TestStep4Trigger:
         assert result != "מי מדבר?"
 
     @pytest.mark.asyncio
+    async def test_role_deny_at_high_conf_returns_deny_no_ask(self):
+        """Role-based deny (child trying set_automation) at conf=1.0 must NOT
+        trigger Step 4. Asking 'מי מדבר?' wouldn't change a role gate.
+        """
+        from jane_conversation.tools import execute_tool
+
+        store: dict[str, str] = {}
+
+        async def fake_set(key, value, ex=None):
+            store[key] = value
+
+        role_deny_msg = "פעולה זו דורשת אישור מהורה"
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=role_deny_msg)
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        redis = AsyncMock()
+        redis.set.side_effect = fake_set
+        jane_data.redis = redis
+
+        hass = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        result = await execute_tool(
+            hass,
+            "set_automation",
+            {},
+            user_name="Bob",  # child
+            confidence=1.0,  # correctly identified
+            device_id="device-X",
+            conversation_id="conv-1",
+            original_request="x",
+        )
+        # Role deny string returned; ASK was NOT triggered.
+        assert result == role_deny_msg
+        assert "jane:pending_speaker_ask:device-X" not in store
+
+    @pytest.mark.asyncio
+    async def test_quiet_hours_deny_at_high_conf_returns_deny_no_ask(self):
+        """Same shape for quiet-hours: high conf + non-confidence deny → return string, no ask."""
+        from jane_conversation.tools import execute_tool
+
+        store: dict[str, str] = {}
+
+        async def fake_set(key, value, ex=None):
+            store[key] = value
+
+        quiet_deny_msg = "שעות שקט: 23:00–07:00"
+        policies = MagicMock()
+        policies.check_permission = AsyncMock(return_value=quiet_deny_msg)
+        jane_data = MagicMock()
+        jane_data.policies = policies
+        redis = AsyncMock()
+        redis.set.side_effect = fake_set
+        jane_data.redis = redis
+
+        hass = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        result = await execute_tool(
+            hass,
+            "tts_announce",
+            {"message": "hi"},
+            user_name="Alice",
+            confidence=1.0,  # correctly identified, but quiet hours
+            device_id="device-X",
+            conversation_id="conv-1",
+            original_request="x",
+        )
+        assert result == quiet_deny_msg
+        assert "jane:pending_speaker_ask:device-X" not in store
+
+    @pytest.mark.asyncio
     async def test_step_4_replay_at_0_85_passes_gate_for_sensitive(self):
         """After ask→replay at conf 0.85, the same sensitive call must pass the gate.
 
@@ -670,7 +743,8 @@ class TestPolicyConfidenceGates:
         pool = MagicMock()
         store = PolicyStore(pool)
         # Don't need DB calls — gate triggers before load_policies.
-        result = await store.check_permission("Alice", "load_preferences", confidence=0.3)
+        # `read_memory` is a real tool in PERSONAL_DATA_ACTIONS (post-review fix).
+        result = await store.check_permission("Alice", "read_memory", confidence=0.3)
         assert result is not None
         assert "מידע אישי" in result
 
