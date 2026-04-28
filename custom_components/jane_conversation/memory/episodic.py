@@ -73,7 +73,10 @@ class EpisodicStore:
                          AND ($3::text IS NULL OR e.event_type = $3)
                          AND ee.entity_id = $4
                        ORDER BY e.timestamp""",
-                    start, end, event_type, entity_id,
+                    start,
+                    end,
+                    event_type,
+                    entity_id,
                 )
             else:
                 rows = await conn.fetch(
@@ -83,7 +86,9 @@ class EpisodicStore:
                        WHERE timestamp >= $1 AND timestamp < $2
                          AND ($3::text IS NULL OR event_type = $3)
                        ORDER BY timestamp""",
-                    start, end, event_type,
+                    start,
+                    end,
+                    event_type,
                 )
             return [dict(r) for r in rows]
 
@@ -130,7 +135,10 @@ class EpisodicStore:
                      AND ($3::text IS NULL OR episode_type = $3)
                    ORDER BY start_ts DESC
                    LIMIT $4""",
-                start, end, episode_type, limit,
+                start,
+                end,
+                episode_type,
+                limit,
             )
             return [dict(r) for r in rows]
 
@@ -152,7 +160,8 @@ class EpisodicStore:
                    WHERE embedding IS NOT NULL
                    ORDER BY embedding <=> $1::vector
                    LIMIT $2""",
-                vec_str, limit,
+                vec_str,
+                limit,
             )
             return [dict(r) for r in rows]
 
@@ -170,7 +179,8 @@ class EpisodicStore:
                    WHERE embedding IS NOT NULL
                    ORDER BY embedding <=> $1::vector
                    LIMIT $2""",
-                vec_str, limit,
+                vec_str,
+                limit,
             )
             return [dict(r) for r in rows]
 

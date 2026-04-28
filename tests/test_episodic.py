@@ -79,8 +79,14 @@ class TestQueryEvents:
     async def test_query_by_time_range(self, store, mock_pool):
         _, conn = mock_pool
         conn.fetch.return_value = [
-            {"id": 1, "timestamp": datetime.now(), "event_type": "state_change",
-             "user_name": None, "description": "Light on", "metadata": {}},
+            {
+                "id": 1,
+                "timestamp": datetime.now(),
+                "event_type": "state_change",
+                "user_name": None,
+                "description": "Light on",
+                "metadata": {},
+            },
         ]
 
         now = datetime.now()
@@ -97,9 +103,7 @@ class TestQueryEvents:
         conn.fetch.return_value = []
 
         now = datetime.now()
-        await store.query_events(
-            now - timedelta(hours=1), now, entity_id="light.living_room"
-        )
+        await store.query_events(now - timedelta(hours=1), now, entity_id="light.living_room")
 
         sql = conn.fetch.call_args[0][0]
         assert "event_entities" in sql
@@ -132,8 +136,14 @@ class TestQueryEpisodes:
     async def test_query_by_time_range(self, store, mock_pool):
         _, conn = mock_pool
         conn.fetch.return_value = [
-            {"id": 1, "title": "Test", "summary": "Test", "start_ts": datetime.now(),
-             "end_ts": datetime.now(), "episode_type": "activity"},
+            {
+                "id": 1,
+                "title": "Test",
+                "summary": "Test",
+                "start_ts": datetime.now(),
+                "end_ts": datetime.now(),
+                "episode_type": "activity",
+            },
         ]
 
         now = datetime.now()

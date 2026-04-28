@@ -22,12 +22,14 @@ async def handle_search_entities(hass: HomeAssistant, args: dict) -> str:
         name = (state.attributes.get("friendly_name") or "").lower()
         eid = state.entity_id.lower()
         if query in name or query in eid:
-            results.append({
-                "entity_id": state.entity_id,
-                "name": state.attributes.get("friendly_name", state.entity_id),
-                "state": state.state,
-                "domain": state.domain,
-            })
+            results.append(
+                {
+                    "entity_id": state.entity_id,
+                    "name": state.attributes.get("friendly_name", state.entity_id),
+                    "state": state.state,
+                    "domain": state.domain,
+                }
+            )
 
     if not results:
         return f"No entities found matching '{query}'."
@@ -51,7 +53,11 @@ async def handle_get_history(hass: HomeAssistant, args: dict) -> str:
 
     try:
         states = await get_instance(hass).async_add_executor_job(
-            get_significant_states, hass, start, None, [entity_id],
+            get_significant_states,
+            hass,
+            start,
+            None,
+            [entity_id],
         )
     except Exception as e:
         return f"Could not retrieve history: {e}"
@@ -93,6 +99,7 @@ async def handle_list_areas(hass: HomeAssistant, args: dict) -> str:
             # Check device area
             if entity.device_id:
                 from homeassistant.helpers import device_registry as dr
+
                 dev_reg = dr.async_get(hass)
                 device = dev_reg.async_get(entity.device_id)
                 if device:
@@ -101,12 +108,14 @@ async def handle_list_areas(hass: HomeAssistant, args: dict) -> str:
         if area_id and area_id in areas:
             state = hass.states.get(entity.entity_id)
             if state and not entity.disabled:
-                areas[area_id]["entities"].append({
-                    "entity_id": entity.entity_id,
-                    "name": state.attributes.get("friendly_name", entity.entity_id),
-                    "domain": entity.domain,
-                    "state": state.state,
-                })
+                areas[area_id]["entities"].append(
+                    {
+                        "entity_id": entity.entity_id,
+                        "name": state.attributes.get("friendly_name", entity.entity_id),
+                        "domain": entity.domain,
+                        "state": state.state,
+                    }
+                )
 
     # Format output
     lines = []
@@ -125,13 +134,21 @@ async def handle_list_areas(hass: HomeAssistant, args: dict) -> str:
                 has_area = True
             elif entity_entry.device_id:
                 from homeassistant.helpers import device_registry as dr
+
                 dev_reg = dr.async_get(hass)
                 device = dev_reg.async_get(entity_entry.device_id)
                 if device and device.area_id:
                     has_area = True
         if not has_area and state.domain in (
-            "light", "climate", "cover", "media_player", "fan", "vacuum",
-            "switch", "water_heater", "button",
+            "light",
+            "climate",
+            "cover",
+            "media_player",
+            "fan",
+            "vacuum",
+            "switch",
+            "water_heater",
+            "button",
         ):
             unassigned.append(f"- {state.attributes.get('friendly_name', state.entity_id)} ({state.entity_id})")
 
@@ -159,7 +176,11 @@ async def handle_get_statistics(hass: HomeAssistant, args: dict) -> str:
 
     try:
         states = await get_instance(hass).async_add_executor_job(
-            get_significant_states, hass, start, None, [entity_id],
+            get_significant_states,
+            hass,
+            start,
+            None,
+            [entity_id],
         )
     except Exception as e:
         return f"Could not get statistics: {e}"
@@ -205,22 +226,31 @@ async def handle_get_logbook(hass: HomeAssistant, args: dict) -> str:
 
     start = dt_util.utcnow() - timedelta(hours=hours)
     interesting_domains = {
-        "light", "climate", "cover", "media_player", "switch",
-        "vacuum", "lock", "person", "fan", "water_heater",
+        "light",
+        "climate",
+        "cover",
+        "media_player",
+        "switch",
+        "vacuum",
+        "lock",
+        "person",
+        "fan",
+        "water_heater",
     }
 
     # Get entity IDs to query
     if entity_id:
         entity_ids = [entity_id]
     else:
-        entity_ids = [
-            s.entity_id for s in hass.states.async_all()
-            if s.domain in interesting_domains
-        ]
+        entity_ids = [s.entity_id for s in hass.states.async_all() if s.domain in interesting_domains]
 
     try:
         states = await get_instance(hass).async_add_executor_job(
-            get_significant_states, hass, start, None, entity_ids,
+            get_significant_states,
+            hass,
+            start,
+            None,
+            entity_ids,
         )
     except Exception as e:
         return f"Could not get logbook: {e}"

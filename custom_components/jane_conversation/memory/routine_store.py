@@ -103,5 +103,5 @@ class RoutineStore:
             return ""
         lines = []
         for r in routines:
-            lines.append(f"- {r['name']} (trigger: \"{r['trigger_phrase']}\", used {r['occurrence_count']}x)")
+            lines.append(f'- {r["name"]} (trigger: "{r["trigger_phrase"]}", used {r["occurrence_count"]}x)')
         return "\n".join(lines)

@@ -143,8 +143,15 @@ class TestLoadRoutines:
     async def test_returns_all(self, store, mock_pool):
         _, conn = mock_pool
         conn.fetch.return_value = [
-            {"name": "a", "trigger_phrase": "x", "steps": [], "script_id": None,
-             "confidence": 1.0, "occurrence_count": 1, "last_used": None},
+            {
+                "name": "a",
+                "trigger_phrase": "x",
+                "steps": [],
+                "script_id": None,
+                "confidence": 1.0,
+                "occurrence_count": 1,
+                "last_used": None,
+            },
         ]
 
         result = await store.load_routines()

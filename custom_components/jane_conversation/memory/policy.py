@@ -7,7 +7,7 @@ S1.5 scope: store + inject into Gemini context. Hard enforcement deferred to Pha
 import logging
 from datetime import datetime
 
-from ..const import SENSITIVE_ACTIONS
+from ..const import PERSONAL_DATA_ACTIONS, SENSITIVE_ACTIONS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,11 +41,23 @@ class PolicyStore:
             )
             return {r["key"]: r["value"] for r in rows}
 
-    async def check_permission(self, person_name: str, action: str) -> str | None:
+    async def check_permission(self, person_name: str, action: str, confidence: float = 1.0) -> str | None:
         """Check if person is allowed to perform action.
+
+        `confidence` is the speaker-resolution confidence in [0.0, 1.0]; defaults
+        to 1.0 for callers that haven't been threaded through `resolve_speaker`
+        yet. Per S3.0 (JANE-71): confidence < 0.5 + PERSONAL_DATA_ACTIONS denies
+        first; confidence < 0.7 + SENSITIVE_ACTIONS denies second; existing
+        quiet-hours and role checks run last.
 
         Returns None if allowed, reason string if denied.
         """
+        # S3.0 confidence gates — strictest threshold first.
+        if confidence < 0.5 and action in PERSONAL_DATA_ACTIONS:
+            return "זיהוי לא בטוח — אני לא משתפת מידע אישי כרגע"
+        if confidence < 0.7 and action in SENSITIVE_ACTIONS:
+            return "זיהוי לא בטוח — אנא אשר את הפעולה"
+
         policies = await self.load_policies(person_name)
         role = policies.get("role", "admin")
 

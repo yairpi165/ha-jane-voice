@@ -54,6 +54,7 @@ async def handle_rename_entity(hass: HomeAssistant, args: dict) -> str:
         return "Error: entity_id and new_name are required."
 
     from homeassistant.helpers import entity_registry as er
+
     ent_reg = er.async_get(hass)
 
     entry = ent_reg.async_get(entity_id)
@@ -124,7 +125,15 @@ async def handle_update_device(hass: HomeAssistant, args: dict) -> str:
 
 async def handle_list_helpers(hass: HomeAssistant, args: dict) -> str:
     """List all helper entities."""
-    helper_domains = {"input_boolean", "input_number", "input_text", "timer", "counter", "input_datetime", "input_select"}
+    helper_domains = {
+        "input_boolean",
+        "input_number",
+        "input_text",
+        "timer",
+        "counter",
+        "input_datetime",
+        "input_select",
+    }
     helpers = []
 
     for state in hass.states.async_all():

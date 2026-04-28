@@ -85,7 +85,49 @@ EPISODE_MAX_DURATION_MINUTES = 90
 
 # S1.5: Policy Memory
 POLICY_KEYS = {"role", "confirmation_threshold", "quiet_hours_start", "quiet_hours_end", "tts_enabled"}
-SENSITIVE_ACTIONS = {"set_automation", "remove_automation", "set_script", "remove_script", "bulk_control"}
+
+# S3.0 (JANE-71) — confidence-aware policy gates.
+# SENSITIVE_ACTIONS denied when confidence < 0.7 (per D10).
+# Scene-name pattern matching ('private*') deferred — scenes inherit sensitivity
+# from their underlying calls (composite-action argument). Bedroom/bathroom
+# domain-level enforcement is a separate concern that needs domain+area check
+# at the tool level, not the action-name level — future ticket if needed.
+SENSITIVE_ACTIONS = {
+    # Automation/script control (also gated for child role per existing logic)
+    "set_automation",
+    "remove_automation",
+    "set_script",
+    "remove_script",
+    "bulk_control",
+    # Calendar writes (D10 v1)
+    "set_calendar_event",
+    "remove_calendar_event",
+    # Memory mutation (D10 v1) — forgetting another's memory at low confidence
+    # is a trust violation regardless of role.
+    "forget_memory",
+}
+
+# S3.0 (JANE-71) — denied when confidence < 0.5 (per D11).
+# Real tool names that touch personally-keyed data. The gate runs in
+# `tools.execute_tool`, which only sees tool names from `_HANDLER_MAP` —
+# internal-function names (e.g. `build_memory_context`) wouldn't enforce
+# anything here. Engine-internal context builders (`build_memory_context`,
+# `build_episodic_context`) carry their own per-field tier logic; they
+# don't appear in this set.
+PERSONAL_DATA_ACTIONS = {
+    "get_calendar_events",
+    "tts_announce",
+    "check_people",
+    "read_memory",  # reads preferences + memory_entries by category
+    "query_history",  # reads recent conversation events
+    "save_memory",  # writes memory under user_name — wrong-attribution risk at low conf
+}
+
+# S3.0 (JANE-71) — Redis key shape per D5.
+REDIS_KEY_SPEAKER_SESSION_PREFIX = "jane:session"  # jane:session:{device_id}
+REDIS_KEY_PENDING_ASK_PREFIX = "jane:pending_speaker_ask"  # jane:pending_speaker_ask:{device_id}
+SPEAKER_SESSION_TTL_SECONDS = 900  # 15 minutes per D4 (per-household configurable later via policies)
+PENDING_ASK_TTL_SECONDS = 60  # one-turn window for the "מי מדבר?" reply
 
 # Memory Optimization A1 — Extraction Debouncing
 EXTRACTION_BURST_CAP_SECONDS = 90

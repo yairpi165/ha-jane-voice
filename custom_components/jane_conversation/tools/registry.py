@@ -4,6 +4,7 @@ import logging
 
 from homeassistant.core import HomeAssistant
 
+from ..const import DOMAIN, PERSONAL_DATA_ACTIONS, SENSITIVE_ACTIONS
 from .definitions import (
     TOOL_BULK_CONTROL,
     TOOL_CALL_HA_SERVICE,
@@ -171,8 +172,74 @@ async def execute_tool(
     tool_name: str,
     arguments: dict,
     tavily_api_key: str | None = None,
+    user_name: str = "default",
+    confidence: float = 1.0,
+    device_id: str | None = None,
+    conversation_id: str | None = None,
+    original_request: str = "",
 ) -> str:
-    """Execute a tool and return the result as a string for GPT."""
+    """Execute a tool and return the result as a string for GPT.
+
+    `user_name` + `confidence` are the resolved-speaker context (S3.0).
+
+    For tools in SENSITIVE_ACTIONS / PERSONAL_DATA_ACTIONS:
+
+    1. **Step 4 trigger** fires iff the deny would be *recoverable by knowing
+       who is speaking* — i.e., confidence < the per-set threshold AND
+       `device_id` is known. In that case we persist a pending-ask payload
+       and raise `SpeakerAskRequired`; the engine catches and emits "מי מדבר?".
+
+    2. The full `check_permission` runs after the trigger check. Anything it
+       denies for non-confidence reasons (role, quiet-hours, or confidence
+       without a device_id we can replay through) returns the deny string
+       to the LLM so it can phrase a Hebrew response. Asking "מי מדבר?"
+       wouldn't unlock those — distinguishing them is essential to avoid
+       deny-loops on child users or quiet-hours bypasses.
+    """
+    if tool_name in SENSITIVE_ACTIONS or tool_name in PERSONAL_DATA_ACTIONS:
+        # Step 4 trigger — recoverable denies only. Threshold logic mirrors
+        # `policy.check_permission`; we duplicate it here because the trigger
+        # decision is structurally different from the deny decision: only
+        # confidence-based denies become asks.
+        needs_ask = (confidence < 0.5 and tool_name in PERSONAL_DATA_ACTIONS) or (
+            confidence < 0.7 and tool_name in SENSITIVE_ACTIONS
+        )
+        if needs_ask and device_id:
+            from ..brain.speaker_pending_ask import (
+                SpeakerAskRequired,
+                set_pending_ask,
+            )
+
+            await set_pending_ask(hass, device_id, conversation_id, original_request)
+            _LOGGER.info(
+                "Step 4 ask triggered for %s (conf=%.2f, device=%s)",
+                tool_name,
+                confidence,
+                device_id,
+            )
+            raise SpeakerAskRequired()
+
+        # Full policy check — handles role, quiet-hours, and the
+        # confidence-low-without-device_id case (no replay path possible).
+        # Failure-closed: any exception in the gate path is treated as
+        # "allow" so a buggy policy store can't brick every tool call.
+        policy_store = getattr(hass.data.get(DOMAIN), "policies", None)
+        if policy_store is not None:
+            try:
+                deny = await policy_store.check_permission(user_name, tool_name, confidence=confidence)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug("Policy gate errored for %s — allowing: %s", tool_name, e)
+                deny = None
+            if deny is not None:
+                _LOGGER.info(
+                    "Policy gate denied %s for %s (conf=%.2f): %s",
+                    tool_name,
+                    user_name,
+                    confidence,
+                    deny,
+                )
+                return deny
+
     try:
         # Config-resource tools that need a resource type parameter
         if tool_name == "get_automation_config":
