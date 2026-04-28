@@ -27,8 +27,14 @@ async def think(
     history: list | None = None,
     tavily_api_key: str | None = None,
     working_memory=None,
+    confidence: float = 1.0,
 ) -> str:
-    """Send text to Gemini with tools. Gemini decides what to call. Returns final response."""
+    """Send text to Gemini with tools. Gemini decides what to call. Returns final response.
+
+    `confidence` is the speaker-resolution confidence (S3.0). It's threaded into
+    `build_memory_context` and `build_episodic_context` to apply per-field tier
+    gating (Half B of JANE-62 absorption).
+    """
 
     request_type = classify_request(user_text)
 
@@ -63,13 +69,13 @@ async def think(
     if routines_context:
         system_parts.append(f"\nKnown routines:\n{routines_context}")
 
-    # Inject user memory (preferences, family) from structured store
-    memory_context = await build_memory_context(hass, user_name)
+    # Inject user memory (preferences, family) — confidence-aware tiers (S3.0).
+    memory_context = await build_memory_context(hass, user_name, confidence=confidence)
     if memory_context:
         system_parts.append(f"\nMemory:\n{memory_context}")
 
-    # Inject episodic context (recent episodes + yesterday's summary)
-    episodic_context = await build_episodic_context(hass)
+    # Inject episodic context — only at confidence ≥ 0.7 (D11).
+    episodic_context = await build_episodic_context(hass, confidence=confidence)
     if episodic_context:
         system_parts.append(f"\nRecent Activity:\n{episodic_context}")
 

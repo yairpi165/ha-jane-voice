@@ -13,6 +13,12 @@ from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .brain import think
+from .brain.speaker import resolve_speaker, write_speaker_session
+from .brain.speaker_pending_ask import (
+    check_pending_ask,
+    clear_pending_ask,
+    match_known_person,
+)
 from .const import (
     CONF_GEMINI_API_KEY,
     CONF_TAVILY_API_KEY,
@@ -77,18 +83,55 @@ class JaneConversationEntity(ConversationEntity):
     async def async_process(self, user_input: conversation.ConversationInput) -> ConversationResult:
         """Process a voice/text command through Jane's brain."""
         user_text = user_input.text
-        user_name = user_input.context.user_id or "default"
-
-        # Resolve HA user name from user_id
-        if user_input.context.user_id:
-            user = await self.hass.auth.async_get_user(user_input.context.user_id)
-            if user:
-                user_name = user.name or user_name
+        device_id = getattr(user_input, "device_id", None)
 
         # Get conversation history
         conversation_id, history = self._get_history(user_input.conversation_id)
 
-        _LOGGER.info("Jane received: %s (user: %s)", user_text, user_name)
+        # S3.0 Step 4 — pending-ask read side. If a previous turn asked
+        # "מי מדבר?" and this turn's reply matches a known person, recover
+        # speaker identity at confidence 0.85 and replay the original request.
+        pending = await check_pending_ask(self.hass, device_id)
+        if pending is not None:
+            recovered = await match_known_person(self.hass, user_text)
+            if recovered:
+                user_name = recovered
+                confidence = 0.85
+                layer = "step_4"
+                # Replay the original request (the one that triggered the ask).
+                user_text = pending.get("original_request") or user_text
+                await clear_pending_ask(self.hass, device_id)
+                _LOGGER.info(
+                    "Jane received (pending-ask recovered): %s (user: %s, conf=%.2f)",
+                    user_text,
+                    user_name,
+                    confidence,
+                )
+            else:
+                # Unknown reply — drop the pending key, treat as fresh turn.
+                await clear_pending_ask(self.hass, device_id)
+                user_name, confidence, layer = await resolve_speaker(
+                    self.hass, device_id, conversation_id, user_input.context.user_id
+                )
+                _LOGGER.info(
+                    "Jane received: %s (user: %s, conf=%.2f, layer=%s)",
+                    user_text,
+                    user_name,
+                    confidence,
+                    layer,
+                )
+        else:
+            # Normal path — walk the speaker resolution ladder.
+            user_name, confidence, layer = await resolve_speaker(
+                self.hass, device_id, conversation_id, user_input.context.user_id
+            )
+            _LOGGER.info(
+                "Jane received: %s (user: %s, conf=%.2f, layer=%s)",
+                user_text,
+                user_name,
+                confidence,
+                layer,
+            )
 
         # Filter Whisper hallucinations (phantom phrases from silence/noise)
         if user_text.strip().lower() in WHISPER_HALLUCINATIONS:
@@ -114,7 +157,13 @@ class JaneConversationEntity(ConversationEntity):
             history,
             self.tavily_api_key,
             working_memory,
+            confidence=confidence,
         )
+
+        # S3.0 — refresh the speaker session for the next turn from this device.
+        # Only fires when confidence ≥ 0.7 (so low-confidence guesses don't
+        # poison the next turn's resolution).
+        await write_speaker_session(self.hass, device_id, user_name, conversation_id, confidence)
 
         # Update conversation history (only user text + final response, not tool calls)
         history.append({"role": "user", "content": user_text})
@@ -163,9 +212,7 @@ class JaneConversationEntity(ConversationEntity):
                     "conv_id": conversation_id,
                 }
             ]
-            self.hass.async_create_task(
-                process_memory(client, user_name, single_exchange, "tool", self.hass)
-            )
+            self.hass.async_create_task(process_memory(client, user_name, single_exchange, "tool", self.hass))
 
         # Return response for TTS
         response = intent.IntentResponse(language=user_input.language or "he")
