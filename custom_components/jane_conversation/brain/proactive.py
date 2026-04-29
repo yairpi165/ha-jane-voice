@@ -27,6 +27,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import time as time_t
+from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -257,14 +258,19 @@ async def check_dismissal_streak(pg_pool, action_type: str, *, days: int = _DISM
         return True
     try:
         async with pg_pool.acquire() as conn:
+            # asyncpg binds Python `timedelta` to PG `interval` natively. The
+            # earlier ($2 || ' days')::interval / '7 days'::interval forms
+            # both tripped asyncpg's type validation and silently fell into
+            # the failure-soft branch — caught only via DEBUG logs on the
+            # dev VM. Use timedelta to keep the bind type-safe.
             rows = await conn.fetch(
                 """SELECT override_type FROM user_overrides
                    WHERE action_type = $1
-                     AND ts > NOW() - ($2 || ' days')::interval
+                     AND ts > NOW() - $2::interval
                    ORDER BY ts DESC
                    LIMIT $3""",
                 action_type,
-                days,
+                timedelta(days=days),
                 _DISMISSAL_STREAK_LEN,
             )
     except Exception as e:  # noqa: BLE001

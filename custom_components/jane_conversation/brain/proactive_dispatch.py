@@ -2,15 +2,20 @@
 
 Extracted from `conversation.py` to keep that file under the 300-line cap.
 
-Three branches, all returning an empty TTS response — the routing decision
-(voice / notification / silent) is controlled by the LLM through its choice
-of tools, not by this helper returning speech:
+Five branches, all but the last returning an empty TTS response — the
+routing decision (voice / notification / silent) is controlled by the
+LLM through its choice of tools, not by this helper returning speech:
 
-1. Drop — payload too malformed to act on (no description AND no Time).
-   Audit row with action_taken='dropped_malformed_payload'.
-2. Mode-gate suppress — MODE_RULES[mode]['proactive'] is False.
-   Audit row with action_taken='suppressed_by_mode'. No LLM call.
-3. Dispatch — invoke think() with is_proactive=True. The LLM is expected
+1. Drop — payload too malformed to act on. Audit `dropped_malformed_payload`.
+2. Mode-gate (D9) — `MODE_RULES[mode]['proactive']` is False. Audit
+   `suppressed_by_mode`. No LLM call.
+3. Dismissal streak (D4) — 3 dismissals of this trigger type in 7 days.
+   Audit `suppressed_by_streak`. No LLM call.
+4. Budget exhausted (D4 + D13) — daily 2-per-day speech cap reached.
+   Pass-through with a system-prompt override note so the LLM downgrades
+   voice→notification for non-critical events. Critical urgency may still
+   speak (D8 safety bypass).
+5. Dispatch — invoke think() with is_proactive=True. The LLM is expected
    to call log_proactive_decision exactly once via tool.
 
 History and working_memory are NOT updated for proactive turns —
@@ -33,7 +38,11 @@ from ..memory.household_mode import get_active_mode
 from ..memory.proactive_decisions import record_proactive_decision
 from ..modes import MODE_RULES
 from . import think
-from .proactive import _parse_proactive_payload
+from .proactive import (
+    _parse_proactive_payload,
+    check_dismissal_streak,
+    check_speech_budget,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +82,7 @@ async def handle_proactive_dispatch(
 
     # 2. Mode gate (D9) — short-circuit BEFORE think().
     active_mode = payload.mode
+    trigger_type = payload.description.split()[0] if payload.description else "unknown"
     if not MODE_RULES.get(active_mode, {}).get("proactive", True):
         _LOGGER.info(
             "Suppressing [PROACTIVE] in mode=%s (proactive=False): %s",
@@ -81,7 +91,7 @@ async def handle_proactive_dispatch(
         )
         await record_proactive_decision(
             pg_pool,
-            trigger=payload.description.split()[0] if payload.description else "unknown",
+            trigger=trigger_type,
             mode=active_mode,
             action_taken="suppressed_by_mode",
             reasoning=f"mode={active_mode} has proactive=False",
@@ -90,7 +100,33 @@ async def handle_proactive_dispatch(
         )
         return ConversationResult(conversation_id=conversation_id, response=empty)
 
-    # 3. Dispatch to think() with is_proactive=True so the SYSTEM_PROMPT
+    # 3. Dismissal streak (D4) — short-circuit per-trigger-type when the
+    # household has dismissed this same trigger 3+ times in 7 days. Mirrors
+    # the mode-gate shape: audit row, no LLM call, return empty.
+    if not await check_dismissal_streak(pg_pool, trigger_type):
+        _LOGGER.info(
+            "Suppressing [PROACTIVE] for trigger=%s (3-strike dismissal streak)",
+            trigger_type,
+        )
+        await record_proactive_decision(
+            pg_pool,
+            trigger=trigger_type,
+            mode=active_mode,
+            action_taken="suppressed_by_streak",
+            reasoning="3-strike dismissal within 7 days",
+            person=payload.person,
+            routed_via=None,
+        )
+        return ConversationResult(conversation_id=conversation_id, response=empty)
+
+    # 4. Speech-budget context (D4 + D13) — pre-compute and pass to think()
+    # so the LLM can downgrade voice→notification when the daily cap is hit.
+    # The increment side is owned by handle_log_proactive_decision (D4: only
+    # voice non-critical consumes a token); this is the read-side wiring.
+    redis = getattr(jane, "redis", None)
+    budget_available = await check_speech_budget(hass, redis)
+
+    # 5. Dispatch to think() with is_proactive=True so the SYSTEM_PROMPT
     # gets the proactive instructions appended.
     client = await get_client()
     if jane:
@@ -109,6 +145,7 @@ async def handle_proactive_dispatch(
             device_id=None,
             conversation_id=conversation_id,
             is_proactive=True,
+            proactive_budget_exhausted=not budget_available,
         )
     except Exception as e:  # noqa: BLE001
         _LOGGER.warning("[PROACTIVE] think() failed: %s", e)

@@ -563,5 +563,131 @@ def test_payload_is_frozen():
         payload.description = "y"  # type: ignore[misc]
 
 
+# ---------------------------------------------------------------------------
+# 10. Dispatch enforcement: streak short-circuit + budget context
+# ---------------------------------------------------------------------------
+
+
+class TestProactiveDispatchEnforcement:
+    """Wires `check_dismissal_streak` and `check_speech_budget` into the
+    dispatch flow per D4. Streak is a hard short-circuit (mirrors mode-gate);
+    budget is a soft context flag passed to think() so the LLM downgrades
+    voice→notification when the daily cap is hit. Critical urgency may still
+    speak per the rule inside `PROACTIVE_BUDGET_EXHAUSTED_NOTE` (D8).
+    """
+
+    def _hass_with_jane(self, mode: str = MODE_NORMAL):
+        """hass mock with a JaneData-like jane_conversation entry."""
+        hass = _hass_with_mode(mode)
+        jane = MagicMock()
+        jane.pg_pool = MagicMock()
+        jane.redis = AsyncMock()
+        jane.working_memory = None
+        hass.data = {"jane_conversation": jane}
+        return hass, jane
+
+    @pytest.mark.asyncio
+    async def test_streak_short_circuits_before_think(self):
+        from jane_conversation.brain import proactive_dispatch
+
+        hass, _ = self._hass_with_jane()
+        user_input = MagicMock(language="he")
+        get_client = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch.object(proactive_dispatch, "check_dismissal_streak", AsyncMock(return_value=False)),
+            patch.object(proactive_dispatch, "check_speech_budget", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "record_proactive_decision", AsyncMock(return_value=99)) as rec,
+            patch.object(proactive_dispatch, "think", AsyncMock(return_value="should not be called")) as think_mock,
+        ):
+            await proactive_dispatch.handle_proactive_dispatch(
+                hass,
+                user_input,
+                "[PROACTIVE] arrival Alice arrived. Time: 14:30. Mode: רגיל.",
+                "conv-1",
+                get_client,
+                None,
+            )
+        # The streak short-circuit must write a suppressed_by_streak audit
+        # row and skip the LLM entirely — same shape as the mode gate.
+        rec.assert_awaited_once()
+        kwargs = rec.await_args.kwargs
+        assert kwargs["action_taken"] == "suppressed_by_streak"
+        assert "3-strike" in kwargs["reasoning"]
+        think_mock.assert_not_awaited()
+        get_client.assert_not_awaited()  # never built a client either
+
+    @pytest.mark.asyncio
+    async def test_budget_exhausted_passes_flag_to_think(self):
+        from jane_conversation.brain import proactive_dispatch
+
+        hass, _ = self._hass_with_jane()
+        user_input = MagicMock(language="he")
+        get_client = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch.object(proactive_dispatch, "check_dismissal_streak", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "check_speech_budget", AsyncMock(return_value=False)),
+            patch.object(proactive_dispatch, "record_proactive_decision", AsyncMock(return_value=99)),
+            patch.object(proactive_dispatch, "think", AsyncMock(return_value="ok")) as think_mock,
+        ):
+            await proactive_dispatch.handle_proactive_dispatch(
+                hass,
+                user_input,
+                "[PROACTIVE] arrival Alice arrived. Time: 14:30. Mode: רגיל.",
+                "conv-2",
+                get_client,
+                None,
+            )
+        # Budget exhausted is not a hard suppress — think() still runs, with
+        # the override flag set so engine.py appends the budget-exhausted
+        # note to the system instruction.
+        think_mock.assert_awaited_once()
+        assert think_mock.await_args.kwargs.get("proactive_budget_exhausted") is True
+        assert think_mock.await_args.kwargs.get("is_proactive") is True
+
+    @pytest.mark.asyncio
+    async def test_budget_available_passes_flag_false(self):
+        from jane_conversation.brain import proactive_dispatch
+
+        hass, _ = self._hass_with_jane()
+        user_input = MagicMock(language="he")
+        get_client = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch.object(proactive_dispatch, "check_dismissal_streak", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "check_speech_budget", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "record_proactive_decision", AsyncMock(return_value=99)),
+            patch.object(proactive_dispatch, "think", AsyncMock(return_value="ok")) as think_mock,
+        ):
+            await proactive_dispatch.handle_proactive_dispatch(
+                hass,
+                user_input,
+                "[PROACTIVE] arrival Alice arrived. Time: 14:30. Mode: רגיל.",
+                "conv-3",
+                get_client,
+                None,
+            )
+        think_mock.assert_awaited_once()
+        assert think_mock.await_args.kwargs.get("proactive_budget_exhausted") is False
+
+
+# ---------------------------------------------------------------------------
+# 11. Budget-exhausted prompt fragment
+# ---------------------------------------------------------------------------
+
+
+def test_budget_exhausted_note_exists_and_names_the_right_tools():
+    # Sanity: the prompt fragment must actually mention which tool to use
+    # vs avoid, otherwise the LLM has no actionable signal when the cap
+    # is hit. Catches a future contributor refactoring the constant away.
+    from jane_conversation.brain.proactive_prompts import PROACTIVE_BUDGET_EXHAUSTED_NOTE
+
+    assert "DAILY SPEECH CAP REACHED" in PROACTIVE_BUDGET_EXHAUSTED_NOTE
+    assert "send_notification" in PROACTIVE_BUDGET_EXHAUSTED_NOTE  # use this
+    assert "tts_announce" in PROACTIVE_BUDGET_EXHAUSTED_NOTE  # not this
+    assert "Critical urgency" in PROACTIVE_BUDGET_EXHAUSTED_NOTE  # safety bypass
+
+
 # Reference unused mode constants so the import isn't trimmed by ruff.
 _REFERENCED_MODES = (MODE_GUESTS, MODE_KIDS_SLEEPING, MODE_TRAVEL, MODE_WORK)
