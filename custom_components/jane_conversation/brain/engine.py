@@ -32,6 +32,7 @@ async def think(
     confidence: float = 1.0,
     device_id: str | None = None,
     conversation_id: str | None = None,
+    is_proactive: bool = False,
 ) -> str:
     """Send text to Gemini with tools. Gemini decides what to call. Returns final response.
 
@@ -105,6 +106,15 @@ async def think(
     # the prompt layer of the hybrid (D4).
     mode_context = build_mode_context(get_active_mode(hass))
     system_parts.append(f"\nHousehold mode:\n{mode_context}")
+
+    # S3.2 (JANE-45): the [PROACTIVE] handling section is appended ONLY when
+    # this turn is a proactive event — keeps the per-turn token cost off
+    # normal user turns. The is_proactive flag is set by conversation.py
+    # immediately after [PROACTIVE] detection.
+    if is_proactive:
+        from .proactive_prompts import PROACTIVE_SYSTEM_INSTRUCTIONS
+
+        system_parts.append(PROACTIVE_SYSTEM_INSTRUCTIONS)
 
     recent = get_recent_responses()
     if recent:
