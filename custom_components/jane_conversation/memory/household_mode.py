@@ -112,6 +112,17 @@ async def set_active_mode(
         )
         return None
 
+    # Set the ownership flag so the entity's ``async_select_option`` knows
+    # this flip is already going to be audited by us — without it, the
+    # entity would also write a row, producing duplicate audits on every
+    # voice/automation/time/presence flip. UI-direct flips (no caller
+    # owns them) leave the flag unset, and the entity logs them itself.
+    # See ``select.JaneHouseholdModeSelect.async_select_option``.
+    from ..const import DOMAIN
+
+    jane = hass.data.get(DOMAIN)
+    if jane is not None:
+        jane._mode_flip_owned_by_caller = True
     try:
         # The household-mode entity is a `select` platform entity owned by
         # this integration (see select.py). ``select.select_option`` is the
@@ -123,8 +134,13 @@ async def set_active_mode(
             blocking=True,
         )
     except Exception as e:  # noqa: BLE001
-        _LOGGER.error("input_select.select_option failed for mode=%s: %s", new_mode, e)
+        _LOGGER.error("select.select_option failed for mode=%s: %s", new_mode, e)
         return f"לא הצלחתי לעבור למצב {new_mode}"
+    finally:
+        # Always clear the flag — even on exception — so a failed flip
+        # doesn't leave UI-direct flips silently un-audited.
+        if jane is not None:
+            jane._mode_flip_owned_by_caller = False
 
     await log_transition(
         pg_pool,

@@ -86,9 +86,43 @@ class JaneHouseholdModeSelect(SelectEntity, RestoreEntity):
             self._attr_current_option = MODE_NORMAL
 
     async def async_select_option(self, option: str) -> None:
-        """Handle a flip request from any source (UI, service, automation)."""
+        """Handle a flip request from any source (UI, service, automation).
+
+        Audit-row policy (closes the gap called out in PR #56 review):
+
+        - If ``set_active_mode`` (voice / automation / time / presence path)
+          initiated this flip, it owns the ``household_mode_transitions``
+          row — only the caller knows ``trigger`` / ``triggered_by`` /
+          ``reason``. We detect this via the ownership flag stashed on
+          ``hass.data[DOMAIN]`` and skip logging here to avoid duplicates.
+        - Otherwise this is a UI-direct flip (HA Settings → Entities → the
+          dropdown) or an external automation calling ``select.select_option``
+          without going through ``set_active_mode``. We log it ourselves
+          with ``trigger='ui'`` so the table stays an honest source of
+          truth instead of silently partial.
+        """
         if option not in HOUSEHOLD_MODES:
             _LOGGER.warning("Refusing to set unknown mode: %r", option)
             return
+        from_mode = self._attr_current_option
         self._attr_current_option = option
         self.async_write_ha_state()
+
+        from .const import DOMAIN
+        from .memory.household_mode import log_transition
+
+        jane = self.hass.data.get(DOMAIN)
+        if jane is None or getattr(jane, "_mode_flip_owned_by_caller", False):
+            # Voice / automation / time / presence path — set_active_mode
+            # is the audit-row owner, leave it alone.
+            return
+        # UI-direct flip — log it ourselves. log_transition is failure-soft
+        # (swallows PG errors), so this can never crash the entity write.
+        await log_transition(
+            getattr(jane, "pg_pool", None),
+            from_mode=from_mode,
+            to_mode=option,
+            trigger="ui",
+            triggered_by=None,
+            reason=None,
+        )

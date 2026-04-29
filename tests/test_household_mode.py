@@ -348,7 +348,11 @@ class TestTransitionLogging:
     async def test_service_call_failure_returns_deny(self):
         pool, _ = _mock_pool()
         hass = _hass_with_mode(MODE_NORMAL)
-        hass.services.async_call.side_effect = Exception("input_select unavailable")
+        hass.services.async_call.side_effect = Exception("select unavailable")
+
+        # Stub jane data so we can assert the flag is cleared even on failure.
+        jane_data = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
 
         result = await set_active_mode(
             hass,
@@ -360,6 +364,136 @@ class TestTransitionLogging:
         )
         assert result is not None
         assert MODE_NIGHT in result
+        # Flag must be cleared even on exception (try/finally) — otherwise
+        # subsequent UI-direct flips would silently bypass audit logging.
+        assert jane_data._mode_flip_owned_by_caller is False
+
+    @pytest.mark.asyncio
+    async def test_voice_flip_clears_ownership_flag_on_success(self):
+        """After a successful voice flip, the ownership flag must be False
+        so the next UI-direct flip is correctly audited by the entity.
+        """
+        pool, _ = _mock_pool()
+        hass = _hass_with_mode(MODE_NORMAL)
+        jane_data = MagicMock()
+        hass.data = {"jane_conversation": jane_data}
+
+        await set_active_mode(
+            hass,
+            pool,
+            new_mode=MODE_NIGHT,
+            trigger="voice",
+            triggered_by=None,
+            reason="x",
+        )
+        assert jane_data._mode_flip_owned_by_caller is False
+
+
+# ---------------------------------------------------------------------------
+# 4b. Select-entity audit-row policy (PR #56 review C2)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectEntityAuditRow:
+    """``JaneHouseholdModeSelect.async_select_option`` is called from THREE
+    paths: (a) ``set_active_mode`` via the ``select.select_option`` service,
+    (b) HA UI flip, (c) external automation. Only (b) and (c) should write
+    an audit row from the entity itself — (a) is owned by ``set_active_mode``
+    and double-logging would corrupt the table.
+
+    The differentiator is the ``_mode_flip_owned_by_caller`` flag on
+    ``hass.data[DOMAIN]``: True iff (a) is in progress.
+    """
+
+    def _make_entity(self, hass):
+        # JaneHouseholdModeSelect inherits SelectEntity + RestoreEntity which
+        # conftest provides as plain-class stubs. We bind the ``hass``
+        # attribute the way HA would after entity registration.
+        from jane_conversation.select import JaneHouseholdModeSelect
+
+        entity = JaneHouseholdModeSelect("config-entry-id-X")
+        entity.hass = hass
+        entity.async_write_ha_state = MagicMock()
+        return entity
+
+    @pytest.mark.asyncio
+    async def test_ui_direct_flip_logs_with_trigger_ui(self):
+        """No flag set → entity treats the call as UI-direct and logs."""
+        from types import SimpleNamespace
+
+        pool, conn = _mock_pool()
+        hass = MagicMock()
+        # SimpleNamespace (not MagicMock) so missing attributes really are
+        # missing — ``getattr(..., False)`` then returns the real default.
+        jane_data = SimpleNamespace(pg_pool=pool)
+        hass.data = {"jane_conversation": jane_data}
+
+        entity = self._make_entity(hass)
+        entity._attr_current_option = MODE_NORMAL  # known starting state
+
+        await entity.async_select_option(MODE_NIGHT)
+
+        # State updated.
+        assert entity._attr_current_option == MODE_NIGHT
+        # Audit row written with trigger='ui', no triggered_by, no reason.
+        sql = conn.execute.call_args[0][0]
+        assert "INSERT INTO household_mode_transitions" in sql
+        params = conn.execute.call_args[0][1:]
+        assert params == (MODE_NORMAL, MODE_NIGHT, "ui", None, None)
+
+    @pytest.mark.asyncio
+    async def test_voice_path_does_not_double_log(self):
+        """Flag=True → entity skips logging; set_active_mode owns the row."""
+        from types import SimpleNamespace
+
+        pool, conn = _mock_pool()
+        hass = MagicMock()
+        jane_data = SimpleNamespace(pg_pool=pool, _mode_flip_owned_by_caller=True)
+        hass.data = {"jane_conversation": jane_data}
+
+        entity = self._make_entity(hass)
+        entity._attr_current_option = MODE_NORMAL
+
+        await entity.async_select_option(MODE_NIGHT)
+
+        # State still updated — only the audit-row write is skipped.
+        assert entity._attr_current_option == MODE_NIGHT
+        # Crucially: no INSERT happened from the entity.
+        conn.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_unknown_mode_no_state_change_no_log(self):
+        from types import SimpleNamespace
+
+        pool, conn = _mock_pool()
+        hass = MagicMock()
+        jane_data = SimpleNamespace(pg_pool=pool)
+        hass.data = {"jane_conversation": jane_data}
+
+        entity = self._make_entity(hass)
+        entity._attr_current_option = MODE_NORMAL
+
+        await entity.async_select_option("ערפילי")
+
+        # No state change.
+        assert entity._attr_current_option == MODE_NORMAL
+        # No audit row.
+        conn.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_jane_data_does_not_crash(self):
+        """Pre-config-entry state shouldn't crash the entity write."""
+        pool, conn = _mock_pool()
+        hass = MagicMock()
+        hass.data = {}  # no jane_conversation entry yet
+
+        entity = self._make_entity(hass)
+        entity._attr_current_option = MODE_NORMAL
+
+        await entity.async_select_option(MODE_NIGHT)
+        assert entity._attr_current_option == MODE_NIGHT
+        # No log attempted (no pool reachable).
+        conn.execute.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

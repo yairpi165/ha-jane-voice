@@ -34,7 +34,17 @@ async def handle_set_household_mode(hass: HomeAssistant, args: dict) -> str:
 
     jane = hass.data.get(DOMAIN)
     pg_pool = getattr(jane, "pg_pool", None)
-    triggered_by = args.get("triggered_by")
+    # `triggered_by` is intentionally None here. The earlier draft used
+    # ``args.get("triggered_by")``, but ``triggered_by`` is NOT in the
+    # ``TOOL_SET_HOUSEHOLD_MODE`` schema — Gemini can't pass it, and we
+    # explicitly don't want the LLM to hallucinate a speaker name.
+    # The resolved speaker (JANE-71's ``user_name``) lives one layer up
+    # in ``execute_tool`` but doesn't currently thread through the
+    # ``_HANDLER_MAP`` dispatch boundary. S3.2 owns that wiring (it has
+    # to do it anyway for the false_positive_alert_rate KPI baseline);
+    # until then, voice-initiated rows carry ``triggered_by=NULL`` and
+    # the trigger phrase in ``reason`` is the per-flip audit signal.
+    triggered_by = None
 
     deny = await set_active_mode(
         hass,

@@ -34,8 +34,32 @@ sys.modules["homeassistant.util.dt"] = ha_mock
 sys.modules["homeassistant.util.yaml"] = ha_mock
 sys.modules["homeassistant.components.recorder"] = ha_mock
 sys.modules["homeassistant.components.recorder.history"] = ha_mock
-sys.modules["homeassistant.components.select"] = ha_mock
-sys.modules["homeassistant.helpers.restore_state"] = ha_mock
+
+
+# `select` + `restore_state` need real class stubs (not MagicMock attrs) so
+# JaneHouseholdModeSelect can multi-inherit from them without a metaclass
+# conflict. MagicMock-proxied bases trip
+# `the metaclass of a derived class must be a (non-strict) subclass of the
+# metaclasses of all its bases`.
+class _FakeSelectEntity:  # noqa: D401 — test stub
+    pass
+
+
+class _FakeRestoreEntity:  # noqa: D401 — test stub
+    async def async_added_to_hass(self):
+        pass
+
+    async def async_get_last_state(self):
+        return None
+
+
+_select_mod = MagicMock()
+_select_mod.SelectEntity = _FakeSelectEntity
+sys.modules["homeassistant.components.select"] = _select_mod
+
+_restore_mod = MagicMock()
+_restore_mod.RestoreEntity = _FakeRestoreEntity
+sys.modules["homeassistant.helpers.restore_state"] = _restore_mod
 
 
 def make_state(entity_id, state, attributes=None):
