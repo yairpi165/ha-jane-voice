@@ -99,5 +99,7 @@ MODE_RULES: dict[str, dict] = {
 }
 
 # The single source of truth for the helper entity_id — used by
-# brain.engine, tools.registry, and memory.household_mode.
-HELPER_ENTITY_ID = "input_select.jane_household_mode"
+# brain.engine, tools.registry, and memory.household_mode. The integration
+# owns the entity (see select.py); ``input_select`` is intentionally NOT
+# used because ``input_select.create`` is not a real service in HA.
+HELPER_ENTITY_ID = "select.jane_household_mode"

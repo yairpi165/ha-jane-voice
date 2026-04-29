@@ -34,6 +34,8 @@ sys.modules["homeassistant.util.dt"] = ha_mock
 sys.modules["homeassistant.util.yaml"] = ha_mock
 sys.modules["homeassistant.components.recorder"] = ha_mock
 sys.modules["homeassistant.components.recorder.history"] = ha_mock
+sys.modules["homeassistant.components.select"] = ha_mock
+sys.modules["homeassistant.helpers.restore_state"] = ha_mock
 
 
 def make_state(entity_id, state, attributes=None):

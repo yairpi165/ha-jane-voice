@@ -1,7 +1,7 @@
 # Operator Playbook — Household Modes
 
 S3.1 (JANE-42). Reference for operators wiring HA automations to flip
-`input_select.jane_household_mode`. Each entry is a self-contained YAML
+`select.jane_household_mode`. Each entry is a self-contained YAML
 snippet you can paste into HA → Settings → Automations & Scenes → YAML.
 
 This file is intentionally extensible — append new entries as new triggers
@@ -12,7 +12,7 @@ PR descriptions; PR descriptions get lost, docs files are searchable.
 
 ## How modes work (one-screen summary)
 
-- The active mode lives in `input_select.jane_household_mode` (auto-created
+- The active mode lives in `select.jane_household_mode` (auto-created
   by the integration on first setup).
 - The 7 modes: `רגיל` / `עבודה` / `לילה` / `אורחים` / `לא בבית` /
   `ילדים ישנים` / `נסיעה`.
@@ -30,14 +30,14 @@ PR descriptions; PR descriptions get lost, docs files are searchable.
 You can flip the mode three ways:
 
 1. The user says it (`עברי למצב לילה` → `set_household_mode` tool).
-2. An HA automation calls `input_select.select_option` directly (this file).
+2. An HA automation calls `select.select_option` directly (this file).
 3. An HA automation calls the `jane_conversation.set_household_mode` service
    (S3.2 — not in this PR).
 
 Path 2 is the recommended way for time-/presence-/sensor-driven flips —
-HA-native, no LLM round-trip, fastest. The audit row is written by Jane
-the next time she observes the change in `state_changed`. (S3.2 will close
-this gap by listening for `input_select` state changes directly.)
+HA-native, no LLM round-trip, fastest. UI-direct flips currently produce
+no audit row in `household_mode_transitions`; S3.2 will close that gap with
+a `state_changed` listener on `select.jane_household_mode`.
 
 ---
 
@@ -57,9 +57,9 @@ trigger:
   - platform: time
     at: "23:00:00"
 action:
-  - service: input_select.select_option
+  - service: select.select_option
     target:
-      entity_id: input_select.jane_household_mode
+      entity_id: select.jane_household_mode
     data:
       option: "לילה"
 mode: single
@@ -76,8 +76,8 @@ SELECT * FROM household_mode_transitions
 
 You should see at least one row from the most recent 23:00. If you see
 zero, the automation didn't fire — check Jane's `_LOGGER` for warnings
-about `input_select.select_option` or `household_mode_transitions` and
-make sure the helper exists (`hass.states.get('input_select.jane_household_mode')`).
+about `select.select_option` or `household_mode_transitions` and
+make sure the helper exists (`hass.states.get('select.jane_household_mode')`).
 
 ---
 
@@ -96,9 +96,9 @@ trigger:
   - platform: time
     at: "08:00:00"
 action:
-  - service: input_select.select_option
+  - service: select.select_option
     target:
-      entity_id: input_select.jane_household_mode
+      entity_id: select.jane_household_mode
     data:
       option: "רגיל"
 mode: single
@@ -131,9 +131,9 @@ trigger:
     to: "not_home"
     for: "00:05:00"   # 5 min debounce avoids rapid in/out flicker
 action:
-  - service: input_select.select_option
+  - service: select.select_option
     target:
-      entity_id: input_select.jane_household_mode
+      entity_id: select.jane_household_mode
     data:
       option: "לא בבית"
 mode: single
@@ -149,9 +149,9 @@ trigger:
     entity_id: group.family
     to: "home"
 action:
-  - service: input_select.select_option
+  - service: select.select_option
     target:
-      entity_id: input_select.jane_household_mode
+      entity_id: select.jane_household_mode
     data:
       option: "רגיל"
 mode: single
@@ -160,7 +160,7 @@ mode: single
 > Note: this companion will also fire at 08:00 if someone wakes up at home,
 > overriding Entry 2 redundantly — that's fine, the audit row records both
 > requests. If you want to avoid the double-write, add a condition
-> `state(input_select.jane_household_mode) != 'רגיל'` to either automation.
+> `state(select.jane_household_mode) != 'רגיל'` to either automation.
 
 **Verify:**
 
@@ -180,9 +180,9 @@ trigger:
   - platform: <state | time | numeric_state | sun | …>
     # …trigger config…
 action:
-  - service: input_select.select_option
+  - service: select.select_option
     target:
-      entity_id: input_select.jane_household_mode
+      entity_id: select.jane_household_mode
     data:
       option: "<one of: רגיל / עבודה / לילה / אורחים / לא בבית / ילדים ישנים / נסיעה>"
 ```

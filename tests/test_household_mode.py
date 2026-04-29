@@ -256,10 +256,12 @@ class TestTransitionLogging:
         )
         assert result is None  # success
 
-        # Service call to flip the helper.
+        # Service call to flip the entity. The household-mode entity is
+        # owned by this integration as a `select` platform entity, so the
+        # canonical flip service is `select.select_option`.
         hass.services.async_call.assert_awaited_once()
         args = hass.services.async_call.await_args
-        assert args[0][0] == "input_select"
+        assert args[0][0] == "select"
         assert args[0][1] == "select_option"
         assert args[0][2]["entity_id"] == HELPER_ENTITY_ID
         assert args[0][2]["option"] == MODE_NIGHT

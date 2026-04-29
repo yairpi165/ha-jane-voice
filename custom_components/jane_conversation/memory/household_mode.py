@@ -113,8 +113,11 @@ async def set_active_mode(
         return None
 
     try:
+        # The household-mode entity is a `select` platform entity owned by
+        # this integration (see select.py). ``select.select_option`` is the
+        # canonical service for flipping any select entity in HA.
         await hass.services.async_call(
-            "input_select",
+            "select",
             "select_option",
             {"entity_id": HELPER_ENTITY_ID, "option": new_mode},
             blocking=True,

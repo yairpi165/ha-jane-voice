@@ -21,7 +21,7 @@ from .memory import init_memory, rebuild_home_map
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CONVERSATION]
+PLATFORMS = [Platform.CONVERSATION, Platform.SELECT]
 
 
 def _get_jane(hass: HomeAssistant) -> JaneData:
@@ -68,10 +68,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = await hass.async_add_executor_job(lambda: genai.Client(api_key=entry.data[CONF_GEMINI_API_KEY]))
     _get_jane(hass).gemini_client = client  # Store for backfill + consolidation
     await rebuild_home_map(client, hass)
-
-    # S3.1 (JANE-42) — auto-create the input_select.jane_household_mode helper
-    # on first setup so the mode gate has a state to read. Idempotent.
-    await _ensure_household_mode_helper(hass)
 
     # Extraction debouncer (A1) — coalesce per-turn memory extractions into bursts.
     from .memory.debouncer import ExtractionDebouncer
@@ -646,40 +642,6 @@ def _read_migration_files(memory_dir) -> dict | None:
     if users.exists():
         result["users"] = {f.stem: f.read_text(encoding="utf-8") for f in users.glob("*.md")}
     return result or None
-
-
-async def _ensure_household_mode_helper(hass: HomeAssistant) -> None:
-    """Auto-create the input_select.jane_household_mode helper if missing.
-
-    The helper is the user-visible source of truth for the active household
-    mode (S3.1 / JANE-42). Idempotent — if the entity already exists we
-    no-op so a fresh HA restart doesn't duplicate or override a user-edited
-    options list. Failures are swallowed: a missing helper degrades to
-    MODE_NORMAL via `get_active_mode`'s fallback path, never crashes.
-    """
-    from .modes import HELPER_ENTITY_ID, HOUSEHOLD_MODES, MODE_NORMAL
-
-    if hass.states.get(HELPER_ENTITY_ID) is not None:
-        return
-    try:
-        await hass.services.async_call(
-            "input_select",
-            "create",
-            {
-                "name": "Jane Household Mode",
-                "options": list(HOUSEHOLD_MODES),
-                "initial": MODE_NORMAL,
-                "icon": "mdi:home-account",
-            },
-            blocking=True,
-        )
-        _LOGGER.info("Created household mode helper: %s", HELPER_ENTITY_ID)
-    except Exception as e:  # noqa: BLE001
-        _LOGGER.warning(
-            "Could not auto-create %s (%s) — create it manually in Settings → Helpers",
-            HELPER_ENTITY_ID,
-            e,
-        )
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
