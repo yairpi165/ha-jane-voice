@@ -15,6 +15,34 @@ _LOGGER = logging.getLogger(__name__)
 _ACTIVE_TIMERS: dict[str, asyncio.Task] = {}
 
 
+# JANE-45 (S3.2, D14): defense-in-depth strip of the [PROACTIVE] tag from
+# any message Jane is about to speak / send. The SYSTEM_PROMPT teaches her
+# never to echo the tag back to a user, but trust assumptions are how
+# subtle bugs ship — this is the belt-and-braces filter (same precedent as
+# JANE-71's `default` user_id filter, which exists "to prevent a refactor-
+# stripped check from re-introducing the bug"). Logs a warning when fired
+# so prompt drift is visible in dev VM logs.
+_PROACTIVE_PREFIX = "[PROACTIVE]"
+
+
+def _strip_proactive_prefix(message: str) -> str:
+    """Remove a leading [PROACTIVE] token from a TTS / notify message.
+
+    Returns the cleaned message. Logs a warning if a strip actually fires —
+    that's a signal the LLM tried to echo internals.
+    """
+    if not message:
+        return message
+    text = message.lstrip()
+    if text.startswith(_PROACTIVE_PREFIX):
+        _LOGGER.warning(
+            "Stripped [PROACTIVE] prefix from outbound message — Jane attempted "
+            "to echo an internal tag. Check SYSTEM_PROMPT drift."
+        )
+        return text.removeprefix(_PROACTIVE_PREFIX).lstrip()
+    return message
+
+
 async def handle_check_people(hass: HomeAssistant, args: dict) -> str:
     """Check who is home."""
     people = []
@@ -40,7 +68,7 @@ async def handle_check_people(hass: HomeAssistant, args: dict) -> str:
 async def handle_send_notification(hass: HomeAssistant, args: dict) -> str:
     """Send push notification to a family member."""
     target = args.get("target", "all").lower().strip()
-    message = args.get("message", "")
+    message = _strip_proactive_prefix(args.get("message", ""))
     title = args.get("title")
 
     # Find matching notify service dynamically
@@ -189,7 +217,7 @@ async def handle_manage_list(hass: HomeAssistant, args: dict) -> str:
 
 async def handle_tts_announce(hass: HomeAssistant, args: dict) -> str:
     """Announce a message through a speaker."""
-    message = args.get("message", "")
+    message = _strip_proactive_prefix(args.get("message", ""))
     if not message:
         return "Error: message is required."
 
