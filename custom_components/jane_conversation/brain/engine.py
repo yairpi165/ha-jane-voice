@@ -32,6 +32,9 @@ async def think(
     confidence: float = 1.0,
     device_id: str | None = None,
     conversation_id: str | None = None,
+    is_proactive: bool = False,
+    proactive_budget_exhausted: bool = False,
+    proactive_canonical_trigger: str | None = None,
 ) -> str:
     """Send text to Gemini with tools. Gemini decides what to call. Returns final response.
 
@@ -105,6 +108,18 @@ async def think(
     # the prompt layer of the hybrid (D4).
     mode_context = build_mode_context(get_active_mode(hass))
     system_parts.append(f"\nHousehold mode:\n{mode_context}")
+
+    # S3.2 (JANE-45): proactive system-prompt overlays — fragments selected
+    # by proactive_dispatch (canonical trigger key, daily-cap override).
+    if is_proactive:
+        from .proactive_prompts import proactive_system_parts
+
+        system_parts.extend(
+            proactive_system_parts(
+                canonical_trigger=proactive_canonical_trigger,
+                budget_exhausted=proactive_budget_exhausted,
+            )
+        )
 
     recent = get_recent_responses()
     if recent:

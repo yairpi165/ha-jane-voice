@@ -13,6 +13,8 @@ from homeassistant.helpers import intent
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .brain import think
+from .brain.proactive import is_proactive_message
+from .brain.proactive_dispatch import handle_proactive_dispatch
 from .brain.speaker import resolve_speaker, write_speaker_session
 from .brain.speaker_pending_ask import (
     check_pending_ask,
@@ -87,6 +89,23 @@ class JaneConversationEntity(ConversationEntity):
 
         # Get conversation history
         conversation_id, history = self._get_history(user_input.conversation_id)
+
+        # S3.2 (JANE-45) — [PROACTIVE] branch. HA-fired context events take a
+        # different path: bypass speaker resolution (no person to resolve),
+        # bypass the Whisper filter (the prefix is machine-generated), bypass
+        # pending-ask handling, and skip history append (these aren't
+        # conversation turns — appending them would pollute the LLM's view of
+        # what the user has said). The mode-gate (D9) short-circuits BEFORE
+        # `think()` if MODE_RULES[mode]["proactive"] is False.
+        if is_proactive_message(user_text):
+            return await handle_proactive_dispatch(
+                self.hass,
+                user_input,
+                user_text,
+                conversation_id,
+                self._get_client,
+                self.tavily_api_key,
+            )
 
         # S3.0 Step 4 — pending-ask read side. If a previous turn answered
         # "מי מדבר?" and this turn's reply matches a known person, recover

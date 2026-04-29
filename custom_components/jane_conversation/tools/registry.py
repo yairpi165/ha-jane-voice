@@ -31,6 +31,7 @@ from .definitions import (
     TOOL_LIST_FLOORS,
     TOOL_LIST_HELPERS,
     TOOL_LIST_SERVICES,
+    TOOL_LOG_PROACTIVE_DECISION,
     TOOL_MANAGE_LIST,
     TOOL_QUERY_HISTORY,
     TOOL_READ_MEMORY,
@@ -52,6 +53,7 @@ from .definitions import (
 )
 from .handlers import (
     calendar,
+    config,
     core,
     device,
     discovery,
@@ -59,9 +61,7 @@ from .handlers import (
     memory_tools,
     mode_tools,
     power,
-)
-from .handlers import (
-    config as config_handlers,
+    proactive,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ _ALL_FUNCTION_DECLARATIONS = [
     TOOL_LIST_CONFIG,
     TOOL_QUERY_HISTORY,
     TOOL_SET_HOUSEHOLD_MODE,
+    TOOL_LOG_PROACTIVE_DECISION,
 ]
 
 
@@ -147,8 +148,8 @@ _HANDLER_MAP = {
     "set_timer": family.handle_set_timer,
     "manage_list": family.handle_manage_list,
     "tts_announce": family.handle_tts_announce,
-    "get_automation_traces": config_handlers.handle_get_automation_traces,
-    "deep_search": config_handlers.handle_deep_search,
+    "get_automation_traces": config.handle_get_automation_traces,
+    "deep_search": config.handle_deep_search,
     "get_calendar_events": calendar.handle_get_calendar_events,
     "create_calendar_event": calendar.handle_create_calendar_event,
     "get_device": device.handle_get_device,
@@ -258,25 +259,33 @@ async def execute_tool(
     try:
         # Config-resource tools that need a resource type parameter
         if tool_name == "get_automation_config":
-            return await config_handlers.handle_get_config(hass, arguments, "automation")
+            return await config.handle_get_config(hass, arguments, "automation")
         elif tool_name == "get_script_config":
-            return await config_handlers.handle_get_config(hass, arguments, "script")
+            return await config.handle_get_config(hass, arguments, "script")
         elif tool_name == "set_automation":
-            return await config_handlers.handle_set_config(hass, arguments, "automation")
+            return await config.handle_set_config(hass, arguments, "automation")
         elif tool_name == "remove_automation":
-            return await config_handlers.handle_remove_config(hass, arguments, "automation")
+            return await config.handle_remove_config(hass, arguments, "automation")
         elif tool_name == "set_script":
-            return await config_handlers.handle_set_config(hass, arguments, "script")
+            return await config.handle_set_config(hass, arguments, "script")
         elif tool_name == "remove_script":
-            return await config_handlers.handle_remove_config(hass, arguments, "script")
+            return await config.handle_remove_config(hass, arguments, "script")
         elif tool_name == "set_scene":
-            return await config_handlers.handle_set_config(hass, arguments, "scene")
+            return await config.handle_set_config(hass, arguments, "scene")
         elif tool_name == "remove_scene":
-            return await config_handlers.handle_remove_config(hass, arguments, "scene")
+            return await config.handle_remove_config(hass, arguments, "scene")
         elif tool_name == "list_config":
-            return await config_handlers.handle_list_config(hass, arguments)
+            return await config.handle_list_config(hass, arguments)
         elif tool_name == "search_web":
             return await power.handle_search_web(hass, arguments, tavily_api_key)
+        elif tool_name == "log_proactive_decision":
+            # JANE-45 (S3.2): special-case dispatch threading the resolved
+            # `user_name` into this single handler. Per the v2-revised plan
+            # we deliberately did NOT do a global **kwargs refactor across
+            # _HANDLER_MAP — single-handler need is not yet "a pattern".
+            # When the second handler needs user_name, do the refactor then
+            # with two consumers as evidence (matches JANE-42 PR #56 reply).
+            return await proactive.handle_log_proactive_decision(hass, arguments, user_name=user_name)
 
         # Dict-based dispatch for simple handlers
         handler = _HANDLER_MAP.get(tool_name)

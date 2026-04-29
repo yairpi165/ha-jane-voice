@@ -512,6 +512,20 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
                 )
             """)
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_overrides_ts ON user_overrides(ts DESC)")
+            # JANE-45 (S3.2, D5): correlate dismissals with the proactive decision
+            # row they overrode, replacing the v1 plan's 5-minute time-window
+            # heuristic with a real FK. ON DELETE SET NULL because rows in
+            # `events` may be archived later — the override row should survive
+            # decision archival without a cascade. IF NOT EXISTS for idempotent
+            # migration on installs that already have JANE-42's user_overrides.
+            await conn.execute(
+                "ALTER TABLE user_overrides ADD COLUMN IF NOT EXISTS "
+                "proactive_decision_id INT REFERENCES events(id) ON DELETE SET NULL"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_overrides_proactive_decision "
+                "ON user_overrides(proactive_decision_id) WHERE proactive_decision_id IS NOT NULL"
+            )
             # routines.scope — D12. Existing rows backfill to 'shared' (Phase 1
             # default). VARCHAR + CHECK rather than a true ENUM type for
             # evolvability, mirroring the policies.key pattern.
