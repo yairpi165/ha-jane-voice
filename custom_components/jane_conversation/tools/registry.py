@@ -5,6 +5,7 @@ import logging
 from homeassistant.core import HomeAssistant
 
 from ..const import DOMAIN, PERSONAL_DATA_ACTIONS, SENSITIVE_ACTIONS
+from ..memory.household_mode import mode_gate_deny
 from .definitions import (
     TOOL_BULK_CONTROL,
     TOOL_CALL_HA_SERVICE,
@@ -42,6 +43,7 @@ from .definitions import (
     TOOL_SEARCH_WEB,
     TOOL_SEND_NOTIFICATION,
     TOOL_SET_AUTOMATION,
+    TOOL_SET_HOUSEHOLD_MODE,
     TOOL_SET_SCENE,
     TOOL_SET_SCRIPT,
     TOOL_SET_TIMER,
@@ -55,6 +57,7 @@ from .handlers import (
     discovery,
     family,
     memory_tools,
+    mode_tools,
     power,
 )
 from .handlers import (
@@ -104,6 +107,7 @@ _ALL_FUNCTION_DECLARATIONS = [
     TOOL_REMOVE_SCENE,
     TOOL_LIST_CONFIG,
     TOOL_QUERY_HISTORY,
+    TOOL_SET_HOUSEHOLD_MODE,
 ]
 
 
@@ -159,6 +163,7 @@ _HANDLER_MAP = {
     "query_history": memory_tools.handle_query_history,
     "eval_template": power.handle_eval_template,
     "bulk_control": power.handle_bulk_control,
+    "set_household_mode": mode_tools.handle_set_household_mode,
 }
 
 
@@ -196,6 +201,16 @@ async def execute_tool(
        wouldn't unlock those — distinguishing them is essential to avoid
        deny-loops on child users or quiet-hours bypasses.
     """
+    # S3.1 (JANE-42, D16) — gate-order step 1: mode (contextual; "no"
+    # regardless of identity). Runs BEFORE the identity-based gates so the
+    # user hears "מצב לילה: לא משדרת" rather than "זיהוי לא בטוח" — the
+    # latter would (incorrectly) imply the answer would change if they
+    # identified themselves. See `memory.household_mode.mode_gate_deny`
+    # for failure-closed semantics.
+    deny = mode_gate_deny(hass, tool_name)
+    if deny is not None:
+        return deny
+
     if tool_name in SENSITIVE_ACTIONS or tool_name in PERSONAL_DATA_ACTIONS:
         # Step 4 trigger — recoverable denies only. Threshold logic mirrors
         # `policy.check_permission`; we duplicate it here because the trigger

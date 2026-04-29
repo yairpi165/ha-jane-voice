@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from ..const import DOMAIN, GEMINI_MODEL_FAST, GEMINI_MODEL_SMART, SYSTEM_PROMPT
 from ..memory import get_backend, get_recent_responses
 from ..memory.context_builder import build_episodic_context, build_memory_context
+from ..memory.household_mode import build_mode_context, get_active_mode
 from ..tools import execute_tool, get_tools, get_tools_minimal
 from .classifier import classify_request
 from .context import build_context, load_routines_index
@@ -97,6 +98,13 @@ async def think(
                 system_parts.append(f"\nUser Policy:\n{policy_context}")
         except Exception as e:
             _LOGGER.debug("Policy context failed: %s", e)
+
+    # S3.1 (JANE-42): inject the active household mode + behaviour rules so
+    # Gemini prompts its phrasing accordingly. Hard enforcement of TTS/
+    # notifications still happens in tools/registry.execute_tool — this is
+    # the prompt layer of the hybrid (D4).
+    mode_context = build_mode_context(get_active_mode(hass))
+    system_parts.append(f"\nHousehold mode:\n{mode_context}")
 
     recent = get_recent_responses()
     if recent:

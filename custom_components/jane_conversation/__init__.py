@@ -21,7 +21,7 @@ from .memory import init_memory, rebuild_home_map
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CONVERSATION]
+PLATFORMS = [Platform.CONVERSATION, Platform.SELECT]
 
 
 def _get_jane(hass: HomeAssistant) -> JaneData:
@@ -479,6 +479,45 @@ async def _create_pg_backend(hass: HomeAssistant, entry: ConfigEntry):
                 "UPDATE events SET status = 'resolved', resolved_at = COALESCE(timestamp, NOW()) "
                 "WHERE event_type = 'correction' AND status = 'open' "
                 "AND timestamp < NOW() - INTERVAL '30 days'"
+            )
+
+            # S3.1 (JANE-42): Household Modes. Source-of-truth schema is in
+            # ha-jane-db's schema.sql, but mirroring the DDL inline here makes
+            # the integration self-sufficient — existing dev/prod installs
+            # that haven't upgraded the add-on yet still pick up the tables on
+            # the next HA restart. Same pattern as B1/B4/B5/A3/A4 above.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS household_mode_transitions (
+                    id SERIAL PRIMARY KEY,
+                    from_mode VARCHAR(50),
+                    to_mode VARCHAR(50) NOT NULL,
+                    trigger VARCHAR(50),
+                    triggered_by VARCHAR(100),
+                    reason TEXT,
+                    ts TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_household_mode_transitions_ts ON household_mode_transitions(ts DESC)"
+            )
+            # user_overrides — schema-only here per D11; S3.2 populates.
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_overrides (
+                    id SERIAL PRIMARY KEY,
+                    action_type VARCHAR(100) NOT NULL,
+                    user_name VARCHAR(100),
+                    override_type VARCHAR(50)
+                        CHECK (override_type IN ('dismissed', 'reversed', 'corrected')),
+                    ts TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_overrides_ts ON user_overrides(ts DESC)")
+            # routines.scope — D12. Existing rows backfill to 'shared' (Phase 1
+            # default). VARCHAR + CHECK rather than a true ENUM type for
+            # evolvability, mirroring the policies.key pattern.
+            await conn.execute(
+                "ALTER TABLE routines ADD COLUMN IF NOT EXISTS scope VARCHAR(20) "
+                "DEFAULT 'shared' CHECK (scope IN ('personal', 'shared'))"
             )
 
         # Auto-migrate MD files on first PG connect

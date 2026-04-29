@@ -105,6 +105,10 @@ SENSITIVE_ACTIONS = {
     # Memory mutation (D10 v1) — forgetting another's memory at low confidence
     # is a trust violation regardless of role.
     "forget_memory",
+    # S3.1 (JANE-42) — household-state mutation. Child role on its own should
+    # not be able to flip Jane to "אורחים" silently; child + low-confidence
+    # voice asking to set מצב נסיעה shouldn't be a one-shot.
+    "set_household_mode",
 }
 
 # S3.0 (JANE-71) — denied when confidence < 0.5 (per D11).
@@ -265,4 +269,20 @@ When the user explicitly says to forget or delete a specific memory ("תשכחי
 - "לא משנה" / "עזוב" → disappointed, offer to help differently.
 
 ## Night Mode (23:00–07:00)
-Keep it short and quiet. No follow-ups. Just do and confirm."""
+Keep it short and quiet. No follow-ups. Just do and confirm.
+
+## Household Mode (set_household_mode)
+The active mode is shown in the system context as "מצב נוכחי: …". It controls household-wide behavior (TTS / proactive / etc.). Mode is CONFIRMED, never inferred.
+
+CALL `set_household_mode` ONLY for direct, explicit requests:
+- "עברי למצב X", "הפעילי מצב X"
+- Goodnight routines: "ג'יין לילה טוב", "כולם הולכים לישון" → לילה
+- "אנחנו יוצאים מהבית" / "יוצאים לטיול" → לא בבית / נסיעה
+- "הילדים נרדמו" / "הילדים ישנים" → ילדים ישנים
+- "באו אורחים" → אורחים
+
+DO NOT call `set_household_mode` for inferred context:
+- "אני עייף" — one person being tired is not a household-wide signal.
+- A single "הולכת לישון" without a goodnight routine — one person sleeping ≠ household night mode.
+- Sensor/presence guesses without an explicit phrase.
+Why: a wrong mode silently flips behavior for everyone in the house — TTS, proactive alerts, child-room access. When in doubt, ask before switching."""

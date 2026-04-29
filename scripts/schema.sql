@@ -124,6 +124,14 @@ CREATE TABLE IF NOT EXISTS routines (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- S3.1 (JANE-42, D12): scope discriminator for personal vs shared routines.
+-- JANE-71 prepared the read-side tier classification; this column is the
+-- write-side anchor. Existing rows backfill to 'shared' (Phase 1 default
+-- behavior). VARCHAR + CHECK rather than a true ENUM type for evolvability,
+-- mirroring the policies.key pattern.
+ALTER TABLE routines ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'shared'
+    CHECK (scope IN ('personal', 'shared'));
+
 -- S1.5: Policy Memory
 CREATE TABLE IF NOT EXISTS policies (
     id SERIAL PRIMARY KEY,
@@ -243,3 +251,33 @@ UPDATE events
  WHERE event_type = 'correction'
    AND status = 'open'
    AND timestamp < NOW() - INTERVAL '30 days';
+
+-- S3.1 (JANE-42): Household Modes — transition audit log.
+-- Every mode change writes one row: voice / automation / time / presence.
+-- `from_mode` is nullable for the first row written after install.
+-- `reason` carries the trigger phrase (voice), automation name (automation),
+-- or time-rule string (time) — feeds Phase 4 Decision Log with rich context.
+CREATE TABLE IF NOT EXISTS household_mode_transitions (
+    id SERIAL PRIMARY KEY,
+    from_mode VARCHAR(50),
+    to_mode VARCHAR(50) NOT NULL,
+    trigger VARCHAR(50),
+    triggered_by VARCHAR(100),
+    reason TEXT,
+    ts TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_household_mode_transitions_ts
+    ON household_mode_transitions(ts DESC);
+
+-- S3.1 (JANE-42, D11): user_overrides — schema-only here, populated by S3.2.
+-- Defining the table now so KPI baselines (false_positive_alert_rate,
+-- manual_override_rate) start measuring from S3.1 deploy instead of losing
+-- weeks of override data between the S3.1 and S3.2 deployments.
+CREATE TABLE IF NOT EXISTS user_overrides (
+    id SERIAL PRIMARY KEY,
+    action_type VARCHAR(100) NOT NULL,
+    user_name VARCHAR(100),
+    override_type VARCHAR(50) CHECK (override_type IN ('dismissed', 'reversed', 'corrected')),
+    ts TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_overrides_ts ON user_overrides(ts DESC);

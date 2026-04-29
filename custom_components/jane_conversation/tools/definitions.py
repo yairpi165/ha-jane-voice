@@ -887,6 +887,41 @@ TOOL_GET_ZONE = {
     },
 }
 
+TOOL_SET_HOUSEHOLD_MODE = {
+    "name": "set_household_mode",
+    "description": (
+        "Switch Jane's active household mode. Mode is CONFIRMED, never inferred — "
+        "only call this for direct commands ('עברי למצב X', 'ג'יין לילה טוב' as part of a "
+        "goodnight routine, 'אנחנו יוצאים מהבית', 'הילדים נרדמו'). "
+        "DO NOT call for context-only signals like 'אני עייף', a single-person 'הולכת לישון' "
+        "without a goodnight routine, or any inferred state. When in doubt, ask before "
+        "switching — a wrong mode silently changes household-wide behaviour for everyone."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": "string",
+                "enum": ["רגיל", "עבודה", "לילה", "אורחים", "לא בבית", "ילדים ישנים", "נסיעה"],
+                "description": "The mode to switch to. One of the 7 named household modes.",
+            },
+            "trigger": {
+                "type": "string",
+                "enum": ["voice", "automation", "time", "presence"],
+                "description": "What initiated the switch. Default 'voice' for direct user commands.",
+            },
+            "reason": {
+                "type": "string",
+                "description": (
+                    "Short context for the audit log: the trigger phrase for voice, "
+                    "automation name for automation, time-rule string for time."
+                ),
+            },
+        },
+        "required": ["mode"],
+    },
+}
+
 TOOL_UPDATE_DEVICE = {
     "name": "update_device",
     "description": (
