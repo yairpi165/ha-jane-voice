@@ -5,6 +5,8 @@ import logging
 from homeassistant.core import HomeAssistant
 
 from ..const import DOMAIN, PERSONAL_DATA_ACTIONS, SENSITIVE_ACTIONS
+from ..memory.household_mode import get_active_mode
+from ..modes import MODE_RULES
 from .definitions import (
     TOOL_BULK_CONTROL,
     TOOL_CALL_HA_SERVICE,
@@ -196,6 +198,28 @@ async def execute_tool(
        wouldn't unlock those — distinguishing them is essential to avoid
        deny-loops on child users or quiet-hours bypasses.
     """
+    # S3.1 (JANE-42, D16) — gate-order step 1: mode (contextual; "no" regardless
+    # of identity). TTS in night mode is silent for everyone, so this gate
+    # runs BEFORE the identity-based confidence/policy gates. The user gets
+    # the most useful Hebrew message: "מצב לילה: לא משדרת" tells them why
+    # the request was refused; "זיהוי לא בטוח" would (incorrectly) imply the
+    # answer would change if they identified themselves. Failure-closed: any
+    # exception in the mode read defaults to allow so a buggy state read
+    # can't brick every TTS call.
+    if tool_name in {"tts_announce", "send_notification"}:
+        try:
+            active_mode = get_active_mode(hass)
+            mode_rules = MODE_RULES.get(active_mode, {})
+            if not mode_rules.get("tts", True):
+                _LOGGER.info(
+                    "Mode-gate denied %s in mode=%s",
+                    tool_name,
+                    active_mode,
+                )
+                return f"מצב {active_mode}: לא משדרת בקול / לא שולחת התראות"
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("Mode gate errored for %s — allowing: %s", tool_name, e)
+
     if tool_name in SENSITIVE_ACTIONS or tool_name in PERSONAL_DATA_ACTIONS:
         # Step 4 trigger — recoverable denies only. Threshold logic mirrors
         # `policy.check_permission`; we duplicate it here because the trigger

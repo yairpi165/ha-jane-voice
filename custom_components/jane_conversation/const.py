@@ -105,6 +105,10 @@ SENSITIVE_ACTIONS = {
     # Memory mutation (D10 v1) — forgetting another's memory at low confidence
     # is a trust violation regardless of role.
     "forget_memory",
+    # S3.1 (JANE-42) — household-state mutation. Child role on its own should
+    # not be able to flip Jane to "אורחים" silently; child + low-confidence
+    # voice asking to set מצב נסיעה shouldn't be a one-shot.
+    "set_household_mode",
 }
 
 # S3.0 (JANE-71) — denied when confidence < 0.5 (per D11).
