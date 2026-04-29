@@ -157,6 +157,35 @@ class TestProactivePayloadParser:
         assert _parse_proactive_payload("Hello", hass) is None
         assert _parse_proactive_payload("", hass) is None
 
+    def test_canonical_trigger_extracted(self):
+        # The Trigger: field is the canonical key tying dispatch streak gate
+        # to user_overrides.action_type. It must be parsed cleanly so the
+        # contract holds across the full chain.
+        hass = _hass_with_mode(MODE_NORMAL)
+        text = "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל. Trigger: arrival."
+        payload = _parse_proactive_payload(text, hass)
+        assert payload is not None
+        assert payload.trigger == "arrival"
+
+    def test_canonical_trigger_lowercased(self):
+        # Operators may type Trigger: ARRIVAL or Trigger: All_Away — the parser
+        # normalises so the streak query (case-sensitive PG comparison) matches.
+        hass = _hass_with_mode(MODE_NORMAL)
+        text = "[PROACTIVE] All away. Time: 14:30. Mode: רגיל. Trigger: All_Away."
+        payload = _parse_proactive_payload(text, hass)
+        assert payload is not None
+        assert payload.trigger == "all_away"
+
+    def test_missing_trigger_falls_back_to_unknown(self):
+        # Missing `Trigger:` shouldn't drop the turn (operator may have an
+        # older YAML); fall back to 'unknown' and log debug. The streak gate
+        # then no-ops for this trigger, but the rest of the flow proceeds.
+        hass = _hass_with_mode(MODE_NORMAL)
+        text = "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל."
+        payload = _parse_proactive_payload(text, hass)
+        assert payload is not None
+        assert payload.trigger == "unknown"
+
 
 # ---------------------------------------------------------------------------
 # 2. is_proactive_message — gate predicate
@@ -558,7 +587,7 @@ class TestDefensiveStrip:
 
 def test_payload_is_frozen():
     # Frozen so a dispatch helper can't mutate the parsed payload mid-flow.
-    payload = ProactivePayload(description="x", time_str="10:00", mode=MODE_NORMAL, person=None)
+    payload = ProactivePayload(description="x", time_str="10:00", mode=MODE_NORMAL, trigger="arrival", person=None)
     with pytest.raises(AttributeError):
         payload.description = "y"  # type: ignore[misc]
 
@@ -603,7 +632,7 @@ class TestProactiveDispatchEnforcement:
             await proactive_dispatch.handle_proactive_dispatch(
                 hass,
                 user_input,
-                "[PROACTIVE] arrival Alice arrived. Time: 14:30. Mode: רגיל.",
+                "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל. Trigger: arrival.",
                 "conv-1",
                 get_client,
                 None,
@@ -634,7 +663,7 @@ class TestProactiveDispatchEnforcement:
             await proactive_dispatch.handle_proactive_dispatch(
                 hass,
                 user_input,
-                "[PROACTIVE] arrival Alice arrived. Time: 14:30. Mode: רגיל.",
+                "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל. Trigger: arrival.",
                 "conv-2",
                 get_client,
                 None,
@@ -663,13 +692,78 @@ class TestProactiveDispatchEnforcement:
             await proactive_dispatch.handle_proactive_dispatch(
                 hass,
                 user_input,
-                "[PROACTIVE] arrival Alice arrived. Time: 14:30. Mode: רגיל.",
+                "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל. Trigger: arrival.",
                 "conv-3",
                 get_client,
                 None,
             )
         think_mock.assert_awaited_once()
         assert think_mock.await_args.kwargs.get("proactive_budget_exhausted") is False
+
+    @pytest.mark.asyncio
+    async def test_canonical_trigger_is_passed_to_think(self):
+        # Per the tool-definition contract: the trigger key the LLM writes
+        # into log_proactive_decision MUST equal the user_overrides.action_type
+        # the dispatch streak gate queries against. Pre-filling the canonical
+        # value via think() removes the LLM's degree of freedom on this field
+        # and keeps the streak contract intact.
+        from jane_conversation.brain import proactive_dispatch
+
+        hass, _ = self._hass_with_jane()
+        user_input = MagicMock(language="he")
+        get_client = AsyncMock(return_value=MagicMock())
+
+        with (
+            patch.object(proactive_dispatch, "check_dismissal_streak", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "check_speech_budget", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "record_proactive_decision", AsyncMock(return_value=99)),
+            patch.object(proactive_dispatch, "think", AsyncMock(return_value="ok")) as think_mock,
+        ):
+            await proactive_dispatch.handle_proactive_dispatch(
+                hass,
+                user_input,
+                "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל. Trigger: arrival.",
+                "conv-trigger",
+                get_client,
+                None,
+            )
+        think_mock.assert_awaited_once()
+        # Critical: 'arrival' (canonical), not 'Alice' (description.split()[0]).
+        # If this assertion ever flips back to 'Alice' the streak contract
+        # silently breaks — see PR #57 review by yairpihH.
+        assert think_mock.await_args.kwargs.get("proactive_canonical_trigger") == "arrival"
+
+    @pytest.mark.asyncio
+    async def test_streak_query_uses_canonical_trigger_not_first_word(self):
+        # Verify the streak gate keys on payload.trigger ('arrival') and not
+        # on description.split()[0] ('Alice'). check_dismissal_streak is the
+        # observation point — its first arg must be the canonical key.
+        from jane_conversation.brain import proactive_dispatch
+
+        hass, _ = self._hass_with_jane()
+        user_input = MagicMock(language="he")
+        get_client = AsyncMock(return_value=MagicMock())
+        streak_check = AsyncMock(return_value=True)
+
+        with (
+            patch.object(proactive_dispatch, "check_dismissal_streak", streak_check),
+            patch.object(proactive_dispatch, "check_speech_budget", AsyncMock(return_value=True)),
+            patch.object(proactive_dispatch, "record_proactive_decision", AsyncMock(return_value=99)),
+            patch.object(proactive_dispatch, "think", AsyncMock(return_value="ok")),
+        ):
+            await proactive_dispatch.handle_proactive_dispatch(
+                hass,
+                user_input,
+                "[PROACTIVE] Alice arrived. Time: 14:30. Mode: רגיל. Trigger: arrival.",
+                "conv-streak-key",
+                get_client,
+                None,
+            )
+        streak_check.assert_awaited_once()
+        # check_dismissal_streak(pg_pool, action_type=...). action_type is the
+        # second positional arg.
+        action_type = streak_check.await_args.args[1]
+        assert action_type == "arrival", f"streak gate keyed on {action_type!r}, not 'arrival'"
 
 
 # ---------------------------------------------------------------------------
@@ -687,6 +781,40 @@ def test_budget_exhausted_note_exists_and_names_the_right_tools():
     assert "send_notification" in PROACTIVE_BUDGET_EXHAUSTED_NOTE  # use this
     assert "tts_announce" in PROACTIVE_BUDGET_EXHAUSTED_NOTE  # not this
     assert "Critical urgency" in PROACTIVE_BUDGET_EXHAUSTED_NOTE  # safety bypass
+
+
+def test_canonical_trigger_note_pre_fills_exact_key():
+    # The pre-fill is the LLM's only signal that 'arrival' (not 'Alice')
+    # is the right trigger key. Must literally include the canonical value
+    # and the tool name so the LLM can't drift on which arg to set.
+    from jane_conversation.brain.proactive_prompts import canonical_trigger_note
+
+    note = canonical_trigger_note("arrival")
+    assert "trigger='arrival'" in note
+    assert "log_proactive_decision" in note
+    assert "user_overrides" in note  # explains why the contract matters
+
+
+def test_proactive_system_parts_includes_fragments_conditionally():
+    # The composer always emits the base instructions; trigger and budget
+    # fragments are conditional. Lets engine.py stay agnostic of how many
+    # fragments exist or in what order they layer.
+    from jane_conversation.brain.proactive_prompts import (
+        PROACTIVE_BUDGET_EXHAUSTED_NOTE,
+        PROACTIVE_SYSTEM_INSTRUCTIONS,
+        proactive_system_parts,
+    )
+
+    base = proactive_system_parts(canonical_trigger=None, budget_exhausted=False)
+    assert base == [PROACTIVE_SYSTEM_INSTRUCTIONS]
+
+    with_trigger = proactive_system_parts(canonical_trigger="arrival", budget_exhausted=False)
+    assert len(with_trigger) == 2
+    assert "trigger='arrival'" in with_trigger[1]
+
+    with_both = proactive_system_parts(canonical_trigger="arrival", budget_exhausted=True)
+    assert len(with_both) == 3
+    assert with_both[2] == PROACTIVE_BUDGET_EXHAUSTED_NOTE
 
 
 # Reference unused mode constants so the import isn't trimmed by ruff.

@@ -50,12 +50,19 @@ class ProactivePayload:
     description: str
     time_str: str  # "HH:MM" — always populated
     mode: str  # always populated; from message OR get_active_mode
+    trigger: str  # canonical key — 'arrival' / 'all_away' / 'goodnight' / 'unknown'
     person: str | None  # heuristic extraction from description
 
 
 _PROACTIVE_PREFIX = "[PROACTIVE]"
 _TIME_RE = re.compile(r"Time:\s*(\d{1,2}:\d{2})", re.IGNORECASE)
 _MODE_RE = re.compile(r"Mode:\s*([^.\n]+?)(?:[.\n]|$)", re.IGNORECASE)
+# Canonical trigger key — operator playbook YAML emits `Trigger: arrival.` etc.
+# Used as the single source of truth that ties the dispatch streak gate, the
+# audit row's `metadata->>'trigger'`, and `user_overrides.action_type`. The
+# tool description for `log_proactive_decision` explicitly names this contract.
+# Allowed shape: snake_case ASCII identifier.
+_TRIGGER_RE = re.compile(r"Trigger:\s*([a-z][a-z0-9_]*)", re.IGNORECASE)
 # Heuristic person extraction: "{Name} arrived" or "{Name} left" — the HA
 # automation owns the person attribution; we just lift it from the text so
 # downstream callers (KPI queries, dismissal correlation) can group by it.
@@ -132,10 +139,20 @@ def _parse_proactive_payload(text: str, hass: HomeAssistant) -> ProactivePayload
     person_m = _PERSON_RE.search(description) if description else None
     person = person_m.group(1) if person_m else None
 
+    # Canonical trigger key (operator-playbook contract). Falls back to
+    # 'unknown' with a debug log so a missing Trigger: doesn't drop the
+    # whole turn — but the streak gate + KPI grouping become a no-op
+    # for that audit row. Same failure-soft shape as Time / Mode fallbacks.
+    trigger_m = _TRIGGER_RE.search(body)
+    trigger = trigger_m.group(1).lower() if trigger_m else "unknown"
+    if trigger == "unknown":
+        _LOGGER.debug("[PROACTIVE] missing canonical Trigger: field — falling back to 'unknown'")
+
     return ProactivePayload(
         description=description,
         time_str=time_str,
         mode=mode,
+        trigger=trigger,
         person=person,
     )
 

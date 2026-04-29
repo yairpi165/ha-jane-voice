@@ -45,3 +45,30 @@ won't talk over them more than twice daily — breaking it silently
 breaks trust. Critical urgency (smoke detected, water leak, unknown
 person at door) may still speak — those bypass the cap by design (D8).
 """
+
+
+def canonical_trigger_note(trigger: str) -> str:
+    """Pre-fill the canonical trigger key so the LLM doesn't hallucinate a
+    different value when calling `log_proactive_decision`. Without this the
+    dispatch streak gate keys on one tag and user_overrides keys on another,
+    silently no-op'ing the 3-strike contract.
+    """
+    return (
+        f"\n## This [PROACTIVE]'s canonical trigger\n"
+        f"Pass EXACTLY `trigger='{trigger}'` when calling `log_proactive_decision`. "
+        f"This is the canonical key tying the audit row to dismissals in user_overrides."
+    )
+
+
+def proactive_system_parts(*, canonical_trigger: str | None, budget_exhausted: bool) -> list[str]:
+    """Compose the proactive-only system-prompt fragments. Always includes
+    the base instructions; conditionally appends the canonical-trigger
+    pre-fill and the budget-exhausted override note. Centralised so engine.py
+    doesn't need to know about the individual fragments.
+    """
+    parts = [PROACTIVE_SYSTEM_INSTRUCTIONS]
+    if canonical_trigger:
+        parts.append(canonical_trigger_note(canonical_trigger))
+    if budget_exhausted:
+        parts.append(PROACTIVE_BUDGET_EXHAUSTED_NOTE)
+    return parts

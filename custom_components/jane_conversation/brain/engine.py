@@ -34,6 +34,7 @@ async def think(
     conversation_id: str | None = None,
     is_proactive: bool = False,
     proactive_budget_exhausted: bool = False,
+    proactive_canonical_trigger: str | None = None,
 ) -> str:
     """Send text to Gemini with tools. Gemini decides what to call. Returns final response.
 
@@ -108,17 +109,17 @@ async def think(
     mode_context = build_mode_context(get_active_mode(hass))
     system_parts.append(f"\nHousehold mode:\n{mode_context}")
 
-    # S3.2 (JANE-45): the [PROACTIVE] section is appended ONLY when this
-    # turn is a proactive event — keeps the per-turn token cost off normal
-    # turns. proactive_budget_exhausted toggles the daily-cap override note
-    # so the LLM downgrades voice→notification for non-critical events
-    # (critical bypasses the cap, D8). Both flags set by proactive_dispatch.
+    # S3.2 (JANE-45): proactive system-prompt overlays — fragments selected
+    # by proactive_dispatch (canonical trigger key, daily-cap override).
     if is_proactive:
-        from .proactive_prompts import PROACTIVE_BUDGET_EXHAUSTED_NOTE, PROACTIVE_SYSTEM_INSTRUCTIONS
+        from .proactive_prompts import proactive_system_parts
 
-        system_parts.append(PROACTIVE_SYSTEM_INSTRUCTIONS)
-        if proactive_budget_exhausted:
-            system_parts.append(PROACTIVE_BUDGET_EXHAUSTED_NOTE)
+        system_parts.extend(
+            proactive_system_parts(
+                canonical_trigger=proactive_canonical_trigger,
+                budget_exhausted=proactive_budget_exhausted,
+            )
+        )
 
     recent = get_recent_responses()
     if recent:

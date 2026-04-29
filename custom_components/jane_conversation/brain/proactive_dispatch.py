@@ -82,7 +82,14 @@ async def handle_proactive_dispatch(
 
     # 2. Mode gate (D9) — short-circuit BEFORE think().
     active_mode = payload.mode
-    trigger_type = payload.description.split()[0] if payload.description else "unknown"
+    # Canonical trigger key (parsed from `Trigger:` per operator playbook).
+    # This is the single source of truth that the dispatch streak gate, the
+    # audit row's metadata->>'trigger', and user_overrides.action_type all
+    # share. NEVER derive this from description.split() — the LLM emits the
+    # canonical tag, the operator emits the canonical tag, and the override
+    # writer (S3.3+) will write the same canonical tag. Heuristic extraction
+    # would key on a person name and the streak gate would silently no-op.
+    trigger_type = payload.trigger
     if not MODE_RULES.get(active_mode, {}).get("proactive", True):
         _LOGGER.info(
             "Suppressing [PROACTIVE] in mode=%s (proactive=False): %s",
@@ -146,6 +153,7 @@ async def handle_proactive_dispatch(
             conversation_id=conversation_id,
             is_proactive=True,
             proactive_budget_exhausted=not budget_available,
+            proactive_canonical_trigger=trigger_type,
         )
     except Exception as e:  # noqa: BLE001
         _LOGGER.warning("[PROACTIVE] think() failed: %s", e)

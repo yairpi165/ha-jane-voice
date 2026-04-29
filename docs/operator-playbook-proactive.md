@@ -31,12 +31,24 @@ suggestions) ship in S3.3 (JANE-43 / JANE-44).
 The string format is:
 
 ```
-[PROACTIVE] {description}. Time: HH:MM. Mode: {mode}.
+[PROACTIVE] {description}. Time: HH:MM. Mode: {mode}. Trigger: {canonical_key}.
 ```
 
-Required: `description`, `Time`. Optional: `Mode` (Jane reads from HA
-if missing or invalid). Bare `[PROACTIVE]` with no description AND no
-Time → dropped + `dropped_malformed_payload` audit row.
+Required: `description`, `Time`, `Trigger:`. Optional: `Mode` (Jane reads
+from HA if missing or invalid). Bare `[PROACTIVE]` with no description
+AND no Time → dropped + `dropped_malformed_payload` audit row. Missing
+`Trigger:` → falls back to `unknown` and the streak gate becomes a
+no-op for that row — fix the YAML, don't rely on the fallback.
+
+`Trigger:` is the canonical key tying together three places:
+
+1. The dispatch streak gate's lookup against `user_overrides.action_type`.
+2. The audit row written to `events.metadata->>'trigger'`.
+3. The LLM's `log_proactive_decision(trigger=...)` argument (pre-filled
+   via the system prompt — Jane is told to pass it verbatim).
+
+If these three diverge the 3-strike dismissal contract silently no-ops.
+Use snake_case ASCII keys: `arrival` / `all_away` / `goodnight` / etc.
 
 ---
 
@@ -64,6 +76,7 @@ action:
         [PROACTIVE] {{ trigger.to_state.attributes.friendly_name }} arrived.
         Time: {{ now().strftime('%H:%M') }}.
         Mode: {{ states('select.jane_household_mode') }}.
+        Trigger: arrival.
 mode: single
 ```
 
@@ -73,7 +86,7 @@ mode: single
 SELECT id, timestamp, description, metadata
   FROM events
  WHERE event_type = 'proactive_decision'
-   AND metadata->>'trigger' ILIKE '%arrived%'
+   AND metadata->>'trigger' = 'arrival'
    AND timestamp > NOW() - INTERVAL '1 hour'
  ORDER BY timestamp DESC
  LIMIT 5;
@@ -111,6 +124,7 @@ action:
         [PROACTIVE] House empty for 30 minutes — review running devices.
         Time: {{ now().strftime('%H:%M') }}.
         Mode: {{ states('select.jane_household_mode') }}.
+        Trigger: all_away.
 mode: single
 ```
 
@@ -120,7 +134,7 @@ mode: single
 SELECT id, timestamp, description, metadata
   FROM events
  WHERE event_type = 'proactive_decision'
-   AND metadata->>'trigger' ILIKE '%empty%'
+   AND metadata->>'trigger' = 'all_away'
    AND timestamp > NOW() - INTERVAL '24 hours'
  ORDER BY timestamp DESC;
 ```
@@ -144,13 +158,17 @@ the audit trail consistent across all three Tier-1 surfaces.
 There is no YAML here — this path is internal to Jane. Documented for
 completeness so the audit query below is interpretable.
 
+The goodnight path also writes `metadata->>'trigger' = 'goodnight'`
+(canonical key) so the streak gate and KPI grouping see the same key
+across all three Tier-1 surfaces.
+
 **Verify the goodnight flow audited correctly:**
 
 ```sql
 SELECT id, timestamp, user_name, description, metadata
   FROM events
  WHERE event_type = 'proactive_decision'
-   AND metadata->>'trigger' ILIKE '%goodnight%'
+   AND metadata->>'trigger' = 'goodnight'
    AND timestamp > NOW() - INTERVAL '7 days'
  ORDER BY timestamp DESC;
 ```
