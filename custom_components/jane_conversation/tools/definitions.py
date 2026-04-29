@@ -887,6 +887,73 @@ TOOL_GET_ZONE = {
     },
 }
 
+TOOL_LOG_PROACTIVE_DECISION = {
+    "name": "log_proactive_decision",
+    "description": (
+        "Record a proactive-decision row in the events table. Call this "
+        "EXACTLY ONCE per [PROACTIVE] message — at the end, after you've "
+        "decided what to do (including 'do nothing'). The trust budget "
+        "counter only advances when this is called; without it the audit "
+        "trail is incomplete and Jane could speak more than the 2-per-day "
+        "cap silently. NEVER call for normal user turns. "
+        "urgency='critical' is for SAFETY ONLY (smoke detected, water leak, "
+        "unknown person at door) — it bypasses mode TTS gating + trust "
+        "budget. Marking a non-safety event critical is a trust break that "
+        "operators forensically audit."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "trigger": {
+                "type": "string",
+                "description": (
+                    "What fired the [PROACTIVE]: 'arrival' / 'all_away' / "
+                    "'goodnight' / etc. Used as the action_type key for "
+                    "dismissal correlation in user_overrides."
+                ),
+            },
+            "action_taken": {
+                "type": "string",
+                "description": (
+                    "Plain Hebrew description of what Jane actually did: "
+                    "'הנמכתי את אור המסדרון' / 'אין פעולה — זמן שקט' / 'שלחתי "
+                    "הודעה לטלפון'. For suppressions, use the standard "
+                    "tokens from the SYSTEM_PROMPT."
+                ),
+            },
+            "reasoning": {
+                "type": "string",
+                "description": ("Short Hebrew: why this action fits the mode + trigger."),
+            },
+            "urgency": {
+                "type": "string",
+                "enum": ["normal", "elevated", "critical"],
+                "description": (
+                    "normal=default. elevated=worth noting. critical=SAFETY "
+                    "ONLY — bypasses mode + budget. Read the description "
+                    "rule carefully before using critical."
+                ),
+            },
+            "routed_via": {
+                "type": "string",
+                "enum": ["voice", "notification", "silent", "none"],
+                "description": (
+                    "How the action surfaced. Use 'none' if Jane decided to do nothing (suppression, irrelevant, etc)."
+                ),
+            },
+            "person": {
+                "type": "string",
+                "description": (
+                    "Optional: the person the trigger relates to (e.g. who "
+                    "arrived). The HA automation owns canonical person "
+                    "attribution; this is a hint for KPI grouping."
+                ),
+            },
+        },
+        "required": ["trigger", "action_taken", "reasoning", "urgency", "routed_via"],
+    },
+}
+
 TOOL_SET_HOUSEHOLD_MODE = {
     "name": "set_household_mode",
     "description": (
