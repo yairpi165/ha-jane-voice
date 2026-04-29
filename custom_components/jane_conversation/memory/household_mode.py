@@ -134,6 +134,27 @@ async def set_active_mode(
     return None
 
 
+_TTS_GATED_TOOLS = frozenset({"tts_announce", "send_notification"})
+
+
+def mode_gate_deny(hass: HomeAssistant, tool_name: str) -> str | None:
+    """D16 gate-order step 1 — return a Hebrew deny string if the active
+    mode forbids ``tool_name``, else None. Failure-closed: any exception
+    in the state read returns None (allow) so a buggy mode read can't
+    brick every TTS call.
+    """
+    if tool_name not in _TTS_GATED_TOOLS:
+        return None
+    try:
+        active_mode = get_active_mode(hass)
+        if not MODE_RULES.get(active_mode, {}).get("tts", True):
+            _LOGGER.info("Mode-gate denied %s in mode=%s", tool_name, active_mode)
+            return f"מצב {active_mode}: לא משדרת בקול / לא שולחת התראות"
+    except Exception as e:  # noqa: BLE001
+        _LOGGER.debug("Mode gate errored for %s — allowing: %s", tool_name, e)
+    return None
+
+
 def build_mode_context(active_mode: str) -> str:
     """Hebrew block describing the current mode + behaviour rules.
 
